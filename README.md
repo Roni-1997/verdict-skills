@@ -101,13 +101,13 @@ claude mcp add verdict -s user \
   -- node <repo>/packages/mcp/dist/bin.js
 ```
 
-Skill, one line (builds the CLI, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict`, and appends a `## Verdict` routing block to `~/.claude/CLAUDE.md` after printing it, only if absent):
+Skill, one line (builds the CLI, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict`, and with `--claude-md` appends a `## Verdict` routing block to `~/.claude/CLAUDE.md` after printing it, only if no `## Verdict` heading exists; without the flag `CLAUDE.md` is not touched):
 
 ```bash
-bash <repo>/skills/verdict/scripts/install.sh
+bash <repo>/skills/verdict/scripts/install.sh --claude-md
 ```
 
-`bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it. Both are idempotent and download nothing.
+`bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it and removes from `CLAUDE.md` only a verbatim copy of that block. Both are idempotent, never prompt and download nothing. An agent runs either only after the user has said yes ([setup.md](skills/verdict/references/setup.md)).
 
 ### Hosted, streamable HTTP
 

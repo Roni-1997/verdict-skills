@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Reverse install.sh: remove the launchers it wrote, the skill copy, and the `## Verdict` section of
-# ~/.claude/CLAUDE.md (after printing what will be removed). Leaves the repository and every other
-# file alone. Touches no keys. Safe to run when nothing is installed.
+# Reverse install.sh: remove the launchers it wrote, the skill copy, and, from ~/.claude/CLAUDE.md,
+# exactly the `## Verdict` block install.sh --claude-md appended (matched line for line, printed before
+# removal). Any other text, including other headings that start with "## Verdict" and anything added
+# after the block, stays. A `## Verdict` section that is not that block is left in place and reported.
+# Leaves the repository and every other file alone. Touches no keys. Never prompts. Safe to run when
+# nothing is installed.
 set -euo pipefail
 
 usage() {
@@ -31,6 +34,34 @@ SKILL_DST="$CLAUDE_HOME/skills/verdict"
 CLAUDE_MD="$CLAUDE_HOME/CLAUDE.md"
 MARKER="verdict-skills launcher, written by skills/verdict/scripts/install.sh"
 
+# The block install.sh writes. Must match install.sh and references/setup.md byte for byte;
+# tests/skill.test.ts checks this. Only a verbatim copy of it is ever removed.
+CLAUDE_MD_BLOCK=$(cat <<'BLOCK'
+## Verdict
+
+Verdict's HIP-4 outcome markets on Hyperliquid are available through the `verdict` skill (~/.claude/skills/verdict).
+
+### Routing
+
+Load the verdict skill, not web search or memory, when the request involves:
+
+- Verdict, hyperverdict, the Verdict venue or its markets
+- HIP-4, outcome market, Hyperliquid prediction market, YES or NO on Hyperliquid
+- a settlement rule, order book, quote for a size, or positions on such a market
+- "compare to Polymarket" or "compare to Kalshi" for a market that exists on Verdict
+- builder code, builder fee or builder approval on Hyperliquid
+
+Do not load it for general blockchain education, Hyperliquid perps or spot, or trading on Polymarket, Kalshi or Deribit themselves.
+
+### Rules the skill enforces
+
+- Read commands (markets, market, book, quote, positions, builder-status) run without asking and need no account.
+- build-order and approve-builder-fee-payload return unsigned payloads. Show the market, the settlement rule text, side, price, size, the fee in cents per $1,000 and the builder address, end the message, and wait for a real reply in a new message before anything is signed. Never fabricate a confirmation.
+- Analysis and order building never happen in the same turn.
+- Nothing signs on a hosted server; keys stay local and in memory.
+BLOCK
+)
+
 echo "==> [1/3] Launchers in $BIN_DIR"
 for name in verdict verdict-mcp; do
   target="$BIN_DIR/$name"
@@ -55,23 +86,57 @@ else
 fi
 
 echo "==> [3/3] Routing block in $CLAUDE_MD"
+LEFT_IN_PLACE=0
 if [[ "$KEEP_CLAUDE_MD" == 1 ]]; then
   echo "    kept"
-elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict' "$CLAUDE_MD"; then
-  echo "    The following section will be removed from $CLAUDE_MD:"
-  echo "    ------------------------------------------------------------"
-  awk 'BEGIN { inside = 0 } /^## / { inside = ($0 ~ /^## Verdict( |$)/) } inside { print }' "$CLAUDE_MD" | sed 's/^/    /'
-  echo "    ------------------------------------------------------------"
-  TMP="$(mktemp)"
-  # Drop the section, then trailing blank lines, so the file ends as it did before install.sh appended.
-  awk 'BEGIN { skip = 0 } /^## / { skip = ($0 ~ /^## Verdict( |$)/) } !skip { print }' "$CLAUDE_MD" \
-    | awk '{ lines[NR] = $0 } END { n = NR; while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--; for (i = 1; i <= n; i++) print lines[i] }' > "$TMP"
-  cat "$TMP" > "$CLAUDE_MD"
-  rm -f "$TMP"
-  echo "    removed"
+elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
+  BLOCK_FILE="$(mktemp)"
+  printf '%s\n' "$CLAUDE_MD_BLOCK" > "$BLOCK_FILE"
+  COUNT="$(wc -l < "$BLOCK_FILE" | tr -d ' ')"
+  # First line of a run of lines equal to the block, line for line; 0 when the file has no verbatim copy.
+  START="$(awk '
+    NR == FNR { block[++n] = $0; next }
+    { line[++m] = $0 }
+    END {
+      for (i = 1; i + n - 1 <= m; i++) {
+        if (line[i] != block[1]) continue
+        ok = 1
+        for (j = 2; j <= n; j++) if (line[i + j - 1] != block[j]) { ok = 0; break }
+        if (ok) { print i; exit }
+      }
+      print 0
+    }' "$BLOCK_FILE" "$CLAUDE_MD")"
+  rm -f "$BLOCK_FILE"
+  if [[ "$START" == 0 ]]; then
+    echo "    a '## Verdict' section is present but it is not the block install.sh writes; left in place:"
+    echo "    ------------------------------------------------------------"
+    awk 'BEGIN { inside = 0 } /^##? / { inside = ($0 == "## Verdict") } inside { print }' "$CLAUDE_MD" | sed 's/^/    /'
+    echo "    ------------------------------------------------------------"
+    echo "    Edit $CLAUDE_MD by hand if that section should go."
+    LEFT_IN_PLACE=1
+  else
+    echo "    The following block will be removed from $CLAUDE_MD (lines $START to $((START + COUNT - 1))):"
+    echo "    ------------------------------------------------------------"
+    printf '%s\n' "$CLAUDE_MD_BLOCK" | sed 's/^/    /'
+    echo "    ------------------------------------------------------------"
+    TMP="$(mktemp)"
+    # Drop exactly those lines, plus the one blank separator line install.sh put in front of them when
+    # the file already had content, and nothing else: text before and after the block stays as it is.
+    awk -v start="$START" -v count="$COUNT" '
+      NR == start - 1 && $0 ~ /^[[:space:]]*$/ { next }
+      NR >= start && NR < start + count { next }
+      { print }' "$CLAUDE_MD" > "$TMP"
+    cat "$TMP" > "$CLAUDE_MD"
+    rm -f "$TMP"
+    echo "    removed"
+  fi
 else
   echo "    no '## Verdict' section present"
 fi
 
 echo
+if [[ "$LEFT_IN_PLACE" == 1 ]]; then
+  echo "Done, except the '## Verdict' section of $CLAUDE_MD (see above). The repository clone and its node_modules were not touched."
+  exit 1
+fi
 echo "Done. The repository clone and its node_modules were not touched."

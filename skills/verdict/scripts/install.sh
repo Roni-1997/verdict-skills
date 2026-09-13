@@ -4,27 +4,35 @@
 #   2. launchers `verdict` and `verdict-mcp` on PATH (nothing is published to npm yet, and pnpm 10
 #      has no global link from a package directory, so each launcher is a two-line script that runs
 #      node on the built bin of packages/cli and packages/mcp)
-#   3. copy skills/verdict to ~/.claude/skills/verdict
-#   4. append a `## Verdict` routing block to ~/.claude/CLAUDE.md, after printing it, only if absent
-# Downloads nothing from third parties. Touches no keys. Safe to run again.
+#   3. copy skills/verdict to ~/.claude/skills/verdict, and save the clone path in that copy as
+#      .repo-dir so the copied script can find the repository when it is run again
+#   4. only with --claude-md: append the `## Verdict` routing block to ~/.claude/CLAUDE.md, after
+#      printing it, and only if no line is exactly `## Verdict`
+# Downloads nothing from third parties. Touches no keys. Never prompts. Safe to run again.
+# An agent must ask the user and wait for a yes before running this script (skills/verdict/SKILL.md).
 set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: install.sh [--skip-claude-md] [--skip-skill] [--help]
+Usage: install.sh [--claude-md] [--skip-skill] [--help]
+
+  --claude-md    also append the `## Verdict` routing block to ~/.claude/CLAUDE.md (printed first,
+                 skipped when a `## Verdict` heading already exists). Off by default.
+  --skip-skill   do not copy skills/verdict to ~/.claude/skills/verdict
 
 Environment overrides:
-  VERDICT_REPO_DIR   repository root (default: three directories above this script)
+  VERDICT_REPO_DIR   repository root (default: the path saved in .repo-dir next to this script's
+                     directory by an earlier run, else three directories above this script)
   VERDICT_BIN_DIR    where the launchers go (default: ~/.local/bin)
   CLAUDE_HOME        Claude Code home (default: ~/.claude)
 USAGE
 }
 
-SKIP_CLAUDE_MD=0
+WRITE_CLAUDE_MD=0
 SKIP_SKILL=0
 for arg in "$@"; do
   case "$arg" in
-    --skip-claude-md) SKIP_CLAUDE_MD=1 ;;
+    --claude-md) WRITE_CLAUDE_MD=1 ;;
     --skip-skill) SKIP_SKILL=1 ;;
     --help) usage; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; usage >&2; exit 1 ;;
@@ -32,7 +40,20 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${VERDICT_REPO_DIR:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
+# Repository root, in order: VERDICT_REPO_DIR; the path this script saved next to the skill copy when
+# it copied it (so ~/.claude/skills/verdict/scripts/install.sh can run again); the script's own clone.
+REPO_DIR_FILE="$SCRIPT_DIR/../.repo-dir"
+if [[ -n "${VERDICT_REPO_DIR:-}" ]]; then
+  REPO_DIR="$VERDICT_REPO_DIR"
+  REPO_DIR_FROM="VERDICT_REPO_DIR"
+elif [[ -f "$REPO_DIR_FILE" ]]; then
+  REPO_DIR="$(head -n 1 "$REPO_DIR_FILE")"
+  REPO_DIR_FROM="$REPO_DIR_FILE"
+else
+  REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+  REPO_DIR_FROM="the location of this script"
+fi
+if [[ -d "$REPO_DIR" ]]; then REPO_DIR="$(cd "$REPO_DIR" && pwd)"; fi
 BIN_DIR="${VERDICT_BIN_DIR:-$HOME/.local/bin}"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 SKILL_SRC="$REPO_DIR/skills/verdict"
@@ -40,7 +61,7 @@ SKILL_DST="$CLAUDE_HOME/skills/verdict"
 CLAUDE_MD="$CLAUDE_HOME/CLAUDE.md"
 
 if [[ ! -f "$REPO_DIR/pnpm-workspace.yaml" || ! -f "$REPO_DIR/packages/cli/package.json" || ! -f "$SKILL_SRC/SKILL.md" ]]; then
-  echo "error: $REPO_DIR is not the verdict-skills repository. Run this script from a clone, or set VERDICT_REPO_DIR." >&2
+  echo "error: $REPO_DIR (from $REPO_DIR_FROM) is not the verdict-skills repository. Run this script from a clone, or set VERDICT_REPO_DIR=<clone>." >&2
   exit 1
 fi
 command -v node >/dev/null 2>&1 || { echo "error: node not found (Node 22 expected)" >&2; exit 1; }
@@ -87,13 +108,15 @@ else
   else
     rm -rf "$SKILL_DST.tmp"
     cp -R "$SKILL_SRC" "$SKILL_DST.tmp"
+    printf '%s\n' "$REPO_DIR" > "$SKILL_DST.tmp/.repo-dir"
     rm -rf "$SKILL_DST"
     mv "$SKILL_DST.tmp" "$SKILL_DST"
-    echo "    copied $(find "$SKILL_DST" -type f | wc -l | tr -d ' ') files"
+    echo "    copied $(find "$SKILL_DST" -type f | wc -l | tr -d ' ') files; the clone path is saved in $SKILL_DST/.repo-dir"
   fi
 fi
 
 echo "==> [4/4] Routing block in $CLAUDE_MD"
+# Must match the block in uninstall.sh and references/setup.md byte for byte; tests/skill.test.ts checks this.
 CLAUDE_MD_BLOCK=$(cat <<'BLOCK'
 ## Verdict
 
@@ -119,9 +142,9 @@ Do not load it for general blockchain education, Hyperliquid perps or spot, or t
 - Nothing signs on a hosted server; keys stay local and in memory.
 BLOCK
 )
-if [[ "$SKIP_CLAUDE_MD" == 1 ]]; then
-  echo "    skipped"
-elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict' "$CLAUDE_MD"; then
+if [[ "$WRITE_CLAUDE_MD" == 0 ]]; then
+  echo "    not requested; $CLAUDE_MD left unchanged. Re-run with --claude-md to append the routing block (the text is in references/setup.md)."
+elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
   echo "    a '## Verdict' section is already present; left unchanged"
 else
   echo "    The following block will be appended to $CLAUDE_MD:"

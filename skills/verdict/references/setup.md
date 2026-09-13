@@ -14,10 +14,16 @@ First activation. There is nothing to log into; read commands need no account an
 
 ```bash
 git clone git@github.com:Roni-1997/verdict-skills.git
-bash verdict-skills/skills/verdict/scripts/install.sh
+bash verdict-skills/skills/verdict/scripts/install.sh --claude-md
 ```
 
-What the script does, in order: `pnpm install`, `pnpm run build`, writes `verdict` and `verdict-mcp` launchers into `~/.local/bin` (override with `VERDICT_BIN_DIR`), copies `skills/verdict` to `~/.claude/skills/verdict`, and appends a `## Verdict` routing block to `~/.claude/CLAUDE.md` after printing it, only if no such section exists. Running it again is safe. `--skip-claude-md` leaves CLAUDE.md alone; `--skip-skill` skips the copy. `scripts/uninstall.sh` reverses all of it. The script downloads nothing from third parties and never touches keys.
+What the script does, in order: `pnpm install`, `pnpm run build`, writes `verdict` and `verdict-mcp` launchers into `~/.local/bin` (override with `VERDICT_BIN_DIR`), copies `skills/verdict` to `~/.claude/skills/verdict` and saves the clone path in that copy as `.repo-dir`, and, only with `--claude-md`, appends the `## Verdict` routing block below to `~/.claude/CLAUDE.md` after printing it, only if no line is exactly `## Verdict`. Without the flag it leaves `CLAUDE.md` alone. Running it again is safe; `--skip-skill` skips the copy. The script never prompts, downloads nothing from third parties and never touches keys.
+
+From the installed copy (`~/.claude/skills/verdict/scripts/install.sh`) the script finds the clone through `.repo-dir`; if the clone has moved, set `VERDICT_REPO_DIR=<clone>`. `scripts/uninstall.sh` reverses all of it: it removes the launchers it wrote, the skill copy, and from `CLAUDE.md` exactly the block below, line for line. Any other text stays, including other headings that start with `## Verdict` and anything added after the block; a `## Verdict` section that is not the block is left in place and reported with exit 1.
+
+### Ask before installing
+
+Both scripts write outside the repository. When you are an agent: before running `install.sh`, or editing `~/.claude/CLAUDE.md` by hand, show the user what will be written (the two launcher paths, the skill copy path, and the routing block below when `--claude-md` is in play) and ask. Wait for a yes in a new message. No reply, no, or anything unclear: run nothing. A yes for the CLI alone: run without `--claude-md`.
 
 ## Environment
 
@@ -44,7 +50,7 @@ Expect exit 0 and a JSON document with `"network": "testnet"`. Pick an `outcome`
 
 ## Claude Code routing block
 
-If the skill is active and `~/.claude/CLAUDE.md` has no `## Verdict` section, tell the user what you are about to add, then append the block below (this is the same text `install.sh` writes):
+If the skill is active and `~/.claude/CLAUDE.md` has no line that is exactly `## Verdict`, show the user the block below and ask whether to add it. Only after a yes in a new message: run `install.sh --claude-md`, or append the block by hand, unchanged (it is the same text `install.sh` writes, and `uninstall.sh` removes only a verbatim copy). Otherwise leave the file alone.
 
 ```markdown
 ## Verdict

@@ -7,3 +7,5 @@ dist/
 !.env.example
 coverage/
 .DS_Store
+# written by skills/verdict/scripts/install.sh into the installed copy only
+skills/verdict/.repo-dir

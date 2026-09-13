@@ -28,7 +28,7 @@ Do not activate for:
 - `--pretty` indents the JSON; omit it when you parse.
 - Testnet by default (`VERDICT_NETWORK` unset or `testnet`). Testnet and mainnet have different market indices; never mix them, and state the network when you show data.
 - Run the read commands yourself and show the user the data (market names, rules, prices, sizes). Do not paste commands for the user to run.
-- On first activation read `{baseDir}/references/setup.md`. Before changing `~/.claude/CLAUDE.md`, tell the user what will be added.
+- On first activation read `{baseDir}/references/setup.md`. `install.sh` builds the kit, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict` and, only with `--claude-md`, appends a routing block to `~/.claude/CLAUDE.md`. Do not run it, and do not edit `~/.claude/CLAUDE.md` yourself, until you have shown the user exactly that (the paths and the block text from setup.md), asked, and received a yes in a new message. No reply, no, or anything unclear: run nothing. A yes for the CLI alone: run it without `--claude-md`.
 - The kit has no LLM and holds no key. Any reasoning is yours; any signature is the user's.
 
 ## Commands
@@ -46,7 +46,7 @@ Match the intent, read the reference, run the command, show the result.
 | "set up trading", "approve the builder fee" (signable, two messages) | `verdict approve-builder-fee-payload` | `approve_builder_fee_payload` | `{baseDir}/references/approve-builder-fee-payload.md` |
 | "buy 250 YES on N at 0.018", "sell my NO at 0.97" (signable, two messages) | `verdict build-order <outcome> --side yes\|no --action buy\|sell --price <0..1> --size <tokens> [--tif Gtc\|Ioc\|Alo]` | `build_order` | `{baseDir}/references/build-order.md` |
 | "sign it", "submit the order" (the caller's own key; the kit never does this) | none | none | `{baseDir}/references/sign-and-submit.md` |
-| "install verdict", "set up the skill", first activation | `bash {baseDir}/scripts/install.sh` | none | `{baseDir}/references/setup.md` |
+| "install verdict", "set up the skill", first activation (writes to `~/.local/bin` and `~/.claude`; ask first and wait for a yes in a new message) | `VERDICT_REPO_DIR=<clone> bash {baseDir}/scripts/install.sh [--claude-md]` | none | `{baseDir}/references/setup.md` |
 
 Not in this CLI version: cross-venue comparison, option-implied fair value, hedges and opportunity scans (Polymarket, Kalshi, Deribit). When asked to compare, say the comparison command is not available yet and offer the Verdict-side facts: rule, book, quote. Do not produce a cross-venue price or gap from memory.
 
@@ -93,6 +93,7 @@ Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is
 - Never build or submit an order for Polymarket, Kalshi or Deribit. Orders route only to Verdict.
 - Never edit the `action` object from `build-order`: not the builder code, not the key order, not the price string.
 - Never switch `VERDICT_NETWORK` to mainnet on your own. The user sets the network.
+- Never run `install.sh`, edit `~/.claude/CLAUDE.md` or write to `~/.local/bin` or any other user configuration without a yes from the user in a new message. Announcing a change is not consent.
 - Never print, log, commit or write to a file `HL_AGENT_PRIVATE_KEY` or any signed payload.
 - Never estimate a price, a fair value or a settlement rule from memory when a command can read it.
 
@@ -132,4 +133,4 @@ No login, no API key, no account for the read commands. The hosted MCP server ho
 - `{baseDir}/references/approve-builder-fee-payload.md`, `build-order.md`: signable commands with the confirmation flow.
 - `{baseDir}/references/sign-and-submit.md`: how the caller signs and submits with its own key.
 - `{baseDir}/references/setup.md`: first activation, environment, routing block.
-- `{baseDir}/scripts/install.sh`, `{baseDir}/scripts/uninstall.sh`: build from the repository, launchers on PATH, skill copy, CLAUDE.md block.
+- `{baseDir}/scripts/install.sh`, `{baseDir}/scripts/uninstall.sh`: build from the repository, launchers on PATH, skill copy, CLAUDE.md block with `--claude-md`. Both run only after the user's yes.
