@@ -1,0 +1,28 @@
+{
+ "recorded_at": "2026-09-13T21:31:31Z",
+ "note": "Recorded with tests/fixtures/record_engine.py; do not edit by hand. Tests freeze Date to recorded_at.",
+ "hyperliquid": "https://api.hyperliquid.xyz/info",
+ "outcomes": [
+  1209,
+  1210,
+  1211,
+  1212,
+  1213,
+  1214,
+  1215,
+  1216,
+  1217,
+  1251,
+  2899,
+  1472,
+  1473
+ ],
+ "trimming": {
+  "hl_spotMetaAndAssetCtxs": "universe/tokens emptied; ctxs kept for outcome coins (#...) only",
+  "polymarket_events_crypto": "gamma /events?tag_id=21, events with bitcoin|btc in the title, first 6 markets each, image fields dropped",
+  "kalshi_events_KXBTCD": "/events?series_ticker=KXBTCD, event KXBTCD-26SEP1817, rungs within $5,000 of 77250",
+  "kalshi_events_KXBTC": "the matching price-range event, first 8 markets",
+  "deribit_btc_options": "get_book_summary_by_currency BTC options, calls only, expiries within 21 days"
+ },
+ "routing": "tests/helpers/fixture-fetch.ts maps every request the engine makes to one of these files or to an empty result (free-text search endpoints, whose live results were unrelated to the recorded markets)."
+}

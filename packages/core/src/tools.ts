@@ -3,10 +3,26 @@
 import { approveBuilderFeePayload, buildOrder, builderStatus, type BuiltOrder, type TimeInForce } from './builder.js';
 import { orderbook as readBook, quote as readQuote, type Orderbook, type Quote } from './book.js';
 import { BUILDER_UNSET_MESSAGE, type KitConfig } from './config.js';
+import {
+  compareMarket,
+  type CompareMarketResult,
+  type EngineOptions,
+  fairValue,
+  type FairValueResult,
+  findHedges,
+  type FindHedgesResult,
+  OPPORTUNITIES_ENGINE_MAX,
+  type OpportunitiesResult,
+  opportunities as scanOpportunities,
+} from './crossvenue.js';
 import { InfoClient } from './hl/client.js';
-import { getMarket, listMarkets, type Market } from './markets.js';
+import { type Catalog, getMarket, listMarkets, loadCatalog, type Market, marketFromCatalog } from './markets.js';
 import { networkConfig } from './network.js';
 import { positions as readPositions, type OutcomePosition } from './positions.js';
+import { type MarketSummary, summarize } from './summary.js';
+
+export { summarize };
+export type { MarketSummary };
 
 export class ToolError extends Error {
   constructor(
@@ -23,6 +39,10 @@ export interface Tools {
   get_market(input: { outcome: number }): Promise<Market>;
   orderbook(input: { outcome: number }): Promise<Orderbook & { sideNames: [string, string] }>;
   quote(input: { outcome: number; side: SideInput; action: 'buy' | 'sell'; size: number }): Promise<Quote & { market: MarketSummary }>;
+  compare_market(input: { outcome: number }): Promise<CompareMarketResult>;
+  fair_value(input: { outcome: number }): Promise<FairValueResult>;
+  find_hedges(input: { outcome: number }): Promise<FindHedgesResult>;
+  opportunities(input: { limit?: number | undefined }): Promise<OpportunitiesResult>;
   positions(input: { address: string }): Promise<{ address: string; positions: OutcomePosition[] }>;
   builder_status(input: { address: string }): Promise<{ address: string; builder: string; approvedMaxTenthsBp: number; requiredTenthsBp: number; approved: boolean; nextStep: string }>;
   approve_builder_fee_payload(input: Record<string, never>): Promise<ReturnType<typeof approveBuilderFeePayload> & { confirmation: string[] }>;
@@ -31,32 +51,9 @@ export interface Tools {
 
 export type SideInput = 0 | 1 | 'yes' | 'no' | string;
 
-export interface MarketSummary {
-  outcome: number;
-  venue: string;
-  displayName: string;
-  templateId: string | null;
-  underlying: string | null;
-  threshold: string | null;
-  expiresAt: string | null;
-  settlementRule: string | null;
-  sides: { index: 0 | 1; name: string; coin: string; assetId: number }[];
-  deployerFeeScale: string | null;
-}
-
-export function summarize(m: Market): MarketSummary {
-  return {
-    outcome: m.outcome,
-    venue: m.venue,
-    displayName: m.displayName,
-    templateId: m.templateId,
-    underlying: m.underlying,
-    threshold: m.threshold,
-    expiresAt: m.expiresAt,
-    settlementRule: m.settlementRule,
-    sides: m.sides.map((s) => ({ index: s.index, name: s.name, coin: s.coin, assetId: s.assetId })),
-    deployerFeeScale: m.deployerFeeScale,
-  };
+export interface ToolOptions {
+  /** Passed to the cross-venue engine tools: venue fetch budget and scan size. */
+  readonly engine?: EngineOptions;
 }
 
 export function resolveSide(market: Market, side: SideInput): 0 | 1 {
@@ -69,14 +66,28 @@ export function resolveSide(market: Market, side: SideInput): 0 | 1 {
   throw new ToolError(`unknown side ${JSON.stringify(side)}; use yes/no, 0/1, or one of ${market.sides.map((x) => x.name).join(', ')}`, 'bad_input');
 }
 
-export function createTools(config: KitConfig, client: InfoClient = new InfoClient({ network: config.network })): Tools {
+export function createTools(config: KitConfig, client: InfoClient = new InfoClient({ network: config.network }), options: ToolOptions = {}): Tools {
   const net = networkConfig(config.network);
+  const engineOpts = options.engine ?? {};
+
+  function checkOutcome(outcome: number): void {
+    if (!Number.isInteger(outcome) || outcome < 0) throw new ToolError(`outcome must be a nonnegative integer, got ${String(outcome)}`, 'bad_input');
+  }
 
   async function requireMarket(outcome: number): Promise<Market> {
-    if (!Number.isInteger(outcome) || outcome < 0) throw new ToolError(`outcome must be a nonnegative integer, got ${String(outcome)}`, 'bad_input');
+    checkOutcome(outcome);
     const m = await getMarket(client, outcome);
     if (!m) throw new ToolError(`no outcome market with index ${outcome} on ${config.network}`, 'not_found');
     return m;
+  }
+
+  /** The engine tools need the whole catalog (questions, templates) as well as the market, so fetch it once. */
+  async function requireCatalogMarket(outcome: number): Promise<{ catalog: Catalog; market: Market }> {
+    checkOutcome(outcome);
+    const catalog = await loadCatalog(client);
+    const market = marketFromCatalog(catalog, outcome);
+    if (!market) throw new ToolError(`no outcome market with index ${outcome} on ${config.network}`, 'not_found');
+    return { catalog, market };
   }
 
   function requireBuilder() {
@@ -110,6 +121,30 @@ export function createTools(config: KitConfig, client: InfoClient = new InfoClie
       if (!(input.size > 0)) throw new ToolError('size must be a positive number of tokens', 'bad_input');
       const q = await readQuote(client, m, { side: resolveSide(m, input.side), action: input.action, size: input.size });
       return { ...q, market: summarize(m) };
+    },
+
+    async compare_market(input) {
+      const { catalog, market } = await requireCatalogMarket(input.outcome);
+      return compareMarket(client, catalog, market, engineOpts);
+    },
+
+    async fair_value(input) {
+      const { catalog, market } = await requireCatalogMarket(input.outcome);
+      return fairValue(client, catalog, market, engineOpts);
+    },
+
+    async find_hedges(input) {
+      const { catalog, market } = await requireCatalogMarket(input.outcome);
+      return findHedges(client, catalog, market, engineOpts);
+    },
+
+    async opportunities(input) {
+      const limit = input.limit ?? OPPORTUNITIES_ENGINE_MAX;
+      if (!Number.isInteger(limit) || limit < 1 || limit > OPPORTUNITIES_ENGINE_MAX) {
+        throw new ToolError(`limit must be an integer between 1 and ${OPPORTUNITIES_ENGINE_MAX} (the engine ranks at most ${OPPORTUNITIES_ENGINE_MAX} markets per scan)`, 'bad_input');
+      }
+      const catalog = await loadCatalog(client);
+      return scanOpportunities(client, catalog, config.venue, limit, engineOpts);
     },
 
     async positions(input) {
@@ -188,6 +223,30 @@ export const TOOL_DOCS: Record<keyof Tools, { title: string; description: string
   quote: {
     title: 'Quote a size',
     description: 'Executable price for buying or selling a number of tokens on one side, walked from the live book: average price, worst price, slippage in cents, whether the size fills. Read only.',
+    readOnly: true,
+  },
+  compare_market: {
+    title: 'Compare with Polymarket and Kalshi',
+    description:
+      "The same market on Polymarket and Kalshi via the Verdict app's cross-venue engine: the best comparator per venue with its price, the gap to Verdict when the contracts match (exact twin, ladder interpolation, or repriced to Verdict's settlement time), and always the engine's resolution-equivalence confidence and reasons. A low-confidence match carries a caveat and no gap. Includes the Deribit options-implied probability for BTC/ETH/SOL price markets. Read only; the kit never builds orders for other venues.",
+    readOnly: true,
+  },
+  fair_value: {
+    title: 'Option-implied fair value',
+    description:
+      'The probability implied by the Deribit options chain (Black-Scholes digital, nearest expiry and strike) for a BTC, ETH or SOL price market, next to the Verdict price, or a typed not-available result with the reason. Reference only, not a tradable comparator. Read only.',
+    readOnly: true,
+  },
+  find_hedges: {
+    title: 'Find hedges',
+    description:
+      'Hyperliquid perp and spot hedge candidates for the market underlying, with reference mids and the hedge direction for holding YES (NO is the opposite). A hedge offsets price exposure only; the outcome still settles separately. Read only.',
+    readOnly: true,
+  },
+  opportunities: {
+    title: 'Scan opportunities',
+    description:
+      "Ranks the configured venue's live markets by tradeable quality (tight spread, real depth, live probability band, not raw volume), with the engine's trade call, hedge leg and any cross-venue gap against a Polymarket or Kalshi twin. At most 8 per scan; books are read for the 40 most-traded live markets and the rest price off Hyperliquid asset contexts. Read only.",
     readOnly: true,
   },
   positions: {

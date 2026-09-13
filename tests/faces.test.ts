@@ -91,11 +91,11 @@ describe('MCP face', () => {
     await Promise.all([server.connect(a), client.connect(b)]);
     return { server, client };
   }
-  it('exposes the eight tools with read-only annotations on the read tools', async () => {
+  it('exposes the twelve tools with read-only annotations on the read tools', async () => {
     const { client } = await connect();
     const { tools: listed } = await client.listTools();
     const names = listed.map((t) => t.name).sort();
-    expect(names).toEqual(['approve_builder_fee_payload', 'build_order', 'builder_status', 'get_market', 'list_markets', 'orderbook', 'positions', 'quote']);
+    expect(names).toEqual(['approve_builder_fee_payload', 'build_order', 'builder_status', 'compare_market', 'fair_value', 'find_hedges', 'get_market', 'list_markets', 'opportunities', 'orderbook', 'positions', 'quote']);
     const byName = new Map(listed.map((t) => [t.name, t]));
     expect(byName.get('quote')?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get('build_order')?.annotations?.readOnlyHint).toBe(false);

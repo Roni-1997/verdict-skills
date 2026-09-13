@@ -1,7 +1,7 @@
 // Read-only Hyperliquid info client. No signing lives here, on purpose (GOAL.md hard rules).
 import type { z } from 'zod';
 import { networkConfig, type Network, type NetworkConfig } from '../network.js';
-import { L2Book, MaxBuilderFee, OutcomeMeta, OutcomeTemplates, SpotClearinghouseState } from './schemas.js';
+import { AllMids, L2Book, MaxBuilderFee, OutcomeMeta, OutcomeTemplates, SpotClearinghouseState, SpotMetaAndAssetCtxs } from './schemas.js';
 
 export interface InfoClientOptions {
   readonly network?: Network;
@@ -75,5 +75,15 @@ export class InfoClient {
 
   spotClearinghouseState(user: string) {
     return this.post({ type: 'spotClearinghouseState', user }, SpotClearinghouseState);
+  }
+
+  /** Spot metadata plus per-coin contexts (mark, mid, 24h volume) for every spot and outcome coin. */
+  spotMetaAndAssetCtxs() {
+    return this.post({ type: 'spotMetaAndAssetCtxs' }, SpotMetaAndAssetCtxs);
+  }
+
+  /** Mid price of every coin, used for the underlying reference mids (BTC, ETH, SOL, HYPE) of hedges. */
+  allMids() {
+    return this.post({ type: 'allMids' }, AllMids);
   }
 }

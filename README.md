@@ -25,10 +25,10 @@ Read tools, no account needed:
 - `get_market`: one market in full: sides, coins, asset ids, settlement rule, expiry, fee scale.
 - `orderbook`: the YES and NO books for a market.
 - `quote`: the executable price for a side and a size, walked from the book, with slippage.
-- `compare_market`: the same market on Polymarket and Kalshi, the price gap, and the resolution-equivalence confidence and reasons.
-- `fair_value`: the option-implied probability from Deribit for price markets on BTC, ETH and SOL.
-- `find_hedges`: hedge legs for a market.
-- `opportunities`: ranked cross-venue gaps across the live board.
+- `compare_market`: the best Polymarket and Kalshi comparator for a market, with the price gap when the contracts match (exact twin, ladder interpolation to the Verdict strike, or a Black-Scholes reprice to the Verdict settlement time) and always the engine's resolution-equivalence confidence and reasons. A low-confidence match carries a caveat and no gap.
+- `fair_value`: the Deribit option-implied probability for BTC, ETH and SOL price markets, or a typed not-available result with the reason.
+- `find_hedges`: Hyperliquid perp and spot hedge candidates for the market underlying, with the hedge direction for YES.
+- `opportunities`: the configured venue's live markets ranked by tradeable quality (spread, depth, live odds), with trade call, hedge leg and any cross-venue gap. At most 8 per scan; books are read for the 40 most-traded live markets, the rest price off asset contexts.
 - `positions`: outcome-token balances for an address, read only.
 - `builder_status`: whether an address has approved Verdict's builder fee, and up to what rate.
 
@@ -40,16 +40,37 @@ Payload tools, signed by the caller, never by the kit:
 ## Layout
 
 ```
-packages/core   the tool module: Hyperliquid client, schemas, tools, engine adapter
+packages/engine the Verdict app's cross-venue engine, byte for byte at a pinned commit (UPSTREAM.json)
+packages/core   the tool module: Hyperliquid client, schemas, tools, engine snapshot adapter
 packages/cli    the verdict CLI, --json on every command, non-interactive flags
 packages/mcp    the MCP server, stdio and streamable HTTP, thin over core
 skills/verdict  SKILL.md, references per command, installer script
 docs            design notes and the builder program
-tests           fixtures recorded from testnet and mainnet, tool tests
+scripts         sync-engine, check-engine-drift, build-engine
+tests           fixtures recorded from testnet, mainnet and the venues, tool tests
 ```
+
+## The engine
+
+`packages/engine/src` holds `research-core.ts`, `playbooks.ts` and `hl-shape.ts` from `Roni-1997/verdict`
+exactly as they are at the commit recorded in `packages/engine/UPSTREAM.json`. Nothing in them is
+edited: `scripts/sync-engine.mjs` copies them from the GitHub contents API and records a sha256 per
+file, `scripts/check-engine-drift.mjs` (`pnpm run check:engine`, part of `pnpm run check`) recomputes
+the hashes and, when the network is available, compares them with GitHub at the pinned commit. The
+engine compiles under its own tsconfig (DOM lib and bundler resolution, as in the app); the build
+script rewrites its one extensionless relative import in the emitted JavaScript so Node can load it.
+To move the pin: `pnpm run sync:engine -- --commit <sha>`, then `pnpm run check`.
+
+`packages/core/src/snapshot.ts` builds the live-state snapshot the engine reads (outcomes, questions,
+books, asset contexts, reference mids) from Hyperliquid info calls, using the app's own shape helpers,
+so probabilities resolve the way they do on hyperverdict.xyz. The engine fetches Polymarket, Kalshi
+and Deribit itself with the global `fetch`; set `ODDPOOL_API_KEY` to route through OddPool instead.
+Tests replay recorded venue payloads from `tests/fixtures/engine` with the clock frozen at the
+recording time (`tests/fixtures/record_engine.py`).
 
 ## Toolchain
 
 Node 22, pnpm 10.34.5, strict TypeScript (same flags as the Verdict app), Zod on every input,
-output and upstream response, Vitest, Biome lint. `pnpm run check` must be green before any
-commit that changes code.
+output and upstream response, Vitest, Biome lint. `pnpm run check` (engine drift, types, lint,
+tests) must be green before any commit that changes code. Live checks against Hyperliquid, the
+venues and GitHub run with `VERDICT_LIVE=1 pnpm vitest run tests/live.test.ts`.

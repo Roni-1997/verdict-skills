@@ -17,6 +17,9 @@ importers:
       '@types/node':
         specifier: 22.15.3
         version: 22.15.3
+      '@verdict/engine':
+        specifier: workspace:*
+        version: link:packages/engine
       typescript:
         specifier: 5.9.2
         version: 5.9.2
@@ -35,9 +38,14 @@ importers:
 
   packages/core:
     dependencies:
+      '@verdict/engine':
+        specifier: workspace:*
+        version: link:../engine
       zod:
         specifier: 3.25.76
         version: 3.25.76
+
+  packages/engine: {}
 
   packages/mcp:
     dependencies:

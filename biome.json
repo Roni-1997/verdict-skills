@@ -1,7 +1,25 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
-  "formatter": { "enabled": false },
-  "assist": { "enabled": false },
-  "linter": { "enabled": true, "rules": { "recommended": true } },
-  "files": { "includes": ["packages/**/src/**", "tests/**", "scripts/**"] }
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "files": {
+    "includes": [
+      "packages/**/src/**",
+      "tests/**",
+      "scripts/**",
+      "!packages/engine/src/research-core.ts",
+      "!packages/engine/src/playbooks.ts",
+      "!packages/engine/src/hl-shape.ts"
+    ]
+  }
 }
