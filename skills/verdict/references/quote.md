@@ -60,4 +60,4 @@ Recorded from the mainnet fixtures (outcome 1210, buy 10 YES) on 2026-09-13. `ma
 
 - Report `complete: false` as it is. Never present `averagePrice` as if the whole size filled.
 - `--size` accepts decimals here for quoting, but `build-order` takes whole tokens only. Quote the size you would order.
-- Quoting is analysis. If the user then wants to trade, building the order happens in a later turn and follows the two-message rule in `build-order.md`.
+- Quoting is analysis when the user asked a question: if the user then wants to trade, building the order happens in a later turn and follows the two-message rule in `build-order.md`. In a trade turn, `quote` may run as a pre-trade check right before `build-order` (the boundary sentence in SKILL.md).

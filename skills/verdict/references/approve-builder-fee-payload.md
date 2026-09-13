@@ -75,13 +75,13 @@ Message 1, this turn:
 | Effect | one-time, revocable, moves no funds; counts toward the 10 builder approvals an account may hold |
 | Nonce | `action.nonce` |
 
-4. Ask: "Sign this approval with your main wallet? Confirm or abort." In Claude Code use AskUserQuestion with two options, Confirm and Abort. Elsewhere print the two options.
+4. Ask: "Sign this approval with your main wallet? Confirm or abort." Ask in plain text and end your message there. Do not ask through a blocking question tool (Claude Code's AskUserQuestion or an equivalent): its answer comes back as a tool result inside the same turn, and a tool result is not a reply. Only the user's next message counts: Confirm means proceed; Abort, no reply, or anything unclear means stop.
 5. End the message. No signing, no `/exchange` call, no other command after the question.
 
 Message 2, only after the user replies in a new message:
 
 - Abort: acknowledge and stop.
-- Confirm: the user's wallet signs `typedData` and the caller posts `{ "action": action, "nonce": action.nonce, "signature": { r, s, v } }` to `/exchange` as described in `sign-and-submit.md`. The kit does none of this. Then verify with `verdict builder-status <address>`.
+- Confirm: the user's MAIN wallet signs `typedData` and the user's own component posts `{ "action": action, "nonce": action.nonce, "signature": { r, s, v } }` to `/exchange` as described in `sign-and-submit.md`. The kit does none of this and neither do you: hand over the unchanged payload and stop. When the user says it is done, verify with `verdict builder-status <address>`.
 - Any other reply is not a confirmation. Ask again or stop.
 - If hours passed or the network or fee changed, run the command again for a fresh payload and present it again.
 

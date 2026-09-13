@@ -1,6 +1,7 @@
 // The skill face is documentation, so its tests check structure and safety text: every CLI command in
 // USAGE has a table row and a reference file, the required sections exist, no confirmation-skip flag is
-// taught anywhere, the unsigned nature of the payloads is stated, and the installer is a plain shell
+// taught anywhere, the unsigned nature of the payloads is stated, the confirmation protocol, the analysis-to-trade
+// boundary and the signer hand-off are one sentence each across the docs, and the installer is a plain shell
 // script that builds from this repository and pipes nothing from the network into a shell. uninstall.sh
 // needs no build, so it also runs against scratch CLAUDE_HOMEs: it must remove exactly the block
 // install.sh wrote and nothing the user owns.
@@ -195,6 +196,51 @@ describe('payload references', () => {
     expect(doc).toContain('VERDICT_NETWORK');
     expect(doc).toContain('`testnet`');
     expect(doc).toContain('scripts/install.sh');
+  });
+});
+
+describe('one confirmation protocol, one boundary and one signer rule, stated identically', () => {
+  // The three sentences that SKILL.md and the payload references must carry word for word, so that an agent
+  // reading any one of them follows the same protocol. A benchmark probes exactly the gaps between them.
+  const CONFIRMATION =
+    "Ask in plain text and end your message there. Do not ask through a blocking question tool (Claude Code's AskUserQuestion or an equivalent): its answer comes back as a tool result inside the same turn, and a tool result is not a reply. Only the user's next message counts: Confirm means proceed; Abort, no reply, or anything unclear means stop.";
+  const BOUNDARY =
+    'Pre-trade read-only checks (`builder-status`, `quote`) may run in the trade turn before `build-order`; a turn whose purpose is analysis never runs `build-order`; signing never happens in the turn that produced the payload.';
+  const SIGNER = "Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop.";
+  const buildOrder = read(`${SKILL_DIR}references/build-order.md`);
+  const approve = read(`${SKILL_DIR}references/approve-builder-fee-payload.md`);
+  const signAndSubmit = read(`${SKILL_DIR}references/sign-and-submit.md`);
+
+  it('asks in plain text and acts only on the next user message; never through an in-turn question tool', () => {
+    for (const doc of [skill, buildOrder, approve]) expect(doc).toContain(CONFIRMATION);
+    for (const doc of skillDocs) {
+      // The old instruction ("call AskUserQuestion with two options") and the new-message rule must never both appear:
+      // a tool result arrives inside the same turn, so one reading signs off a tool result and the other deadlocks.
+      expect(doc).not.toMatch(/(call|use|using|invoke) AskUserQuestion/);
+      expect(doc).not.toMatch(/AskUserQuestion with/);
+      if (doc.includes('AskUserQuestion')) expect(doc).toContain('a tool result is not a reply');
+    }
+    expect(skill).toContain('Only a real user message in a new turn counts.');
+  });
+  it('states the analysis-to-trade boundary identically in SKILL.md and build-order.md', () => {
+    expect(skill).toContain(BOUNDARY);
+    expect(buildOrder).toContain(BOUNDARY);
+    expect(skill).not.toContain('Never chain `quote` into `build-order`');
+    expect(buildOrder).not.toMatch(/Never run it in the same turn as analysis/);
+    expect(buildOrder).toContain('Pre-trade read-only checks, allowed in this turn');
+  });
+  it('never makes the agent the signer: hand-off sentence in three docs, no ad-hoc signing, no env dumps while the key is exported', () => {
+    for (const doc of [skill, buildOrder, signAndSubmit]) expect(doc).toContain(SIGNER);
+    for (const doc of skillDocs) {
+      expect(doc).not.toMatch(/If you are the signer/);
+      expect(doc).not.toMatch(/do it now, on this machine/);
+      expect(doc).not.toMatch(/Any Hyperliquid SDK that exposes/);
+      expect(doc).not.toMatch(/sign `action` with the caller's agent key/);
+    }
+    const keyHandling = must(/## Key handling\n([\s\S]*)$/.exec(signAndSubmit)?.[1], 'key handling section');
+    for (const item of ['printenv', 'export -p', 'request body', 'hosted path']) expect(keyHandling).toContain(item);
+    const banned = must(/## Banned behaviours\n([\s\S]*?)\n## /.exec(skill)?.[1], 'banned section');
+    for (const item of ['printenv', 'hosted path', 'never read `HL_AGENT_PRIVATE_KEY`', 'The kit ships no signer']) expect(banned).toContain(item);
   });
 });
 

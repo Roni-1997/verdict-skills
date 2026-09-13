@@ -2,7 +2,9 @@
 
 What `build-order` and `approve-builder-fee-payload` leave to you. No `verdict` command signs anything or talks to `/exchange`. The MCP server has no signing tool. The CLI and the MCP server never read `HL_AGENT_PRIVATE_KEY`; that variable is a convention for the caller's own local signing step.
 
-Where signing may happen: on the caller's machine, in memory, with the caller's own key, after a real confirmation in a new message. Never on a hosted MCP server, never in a shared process, never after a confirmation you wrote yourself.
+Where signing may happen: on the user's machine, in memory, with the user's own key, after a real confirmation in a new message. Never on a hosted MCP server, never in a shared process, never after a confirmation you wrote yourself.
+
+If you are an agent following SKILL.md, you are not the signer either. Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. This page describes what the user's signer (their own script, SDK or wallet) does with the payload, so that you can explain it and read its response.
 
 ## Endpoints
 
@@ -49,7 +51,7 @@ Prerequisites: an agent key approved for the user's account (the `approveAgent` 
 
 `statuses[i]` is one of `{ "resting": { "oid" } }`, `{ "filled": { "totalSz", "avgPx", "oid" } }` or `{ "error": "..." }`. An `ok` envelope can still carry an `error` status. Report it as JSON.
 
-Any Hyperliquid SDK that exposes L1 action signing takes the `action` object as is; the steps above are what such a helper does.
+Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. The steps above are what the user's existing signer or SDK does with `action`; they are not a recipe for you to implement at trade time.
 
 ## B. Builder fee approval: main wallet, user-signed action
 
@@ -79,3 +81,4 @@ Any Hyperliquid SDK that exposes L1 action signing takes the `action` object as 
 - Use an agent key for orders, not the main wallet's key. An agent can trade; it cannot withdraw or transfer funds.
 - Rotate by approving a new agent; the old one stops working.
 - Never log or store a signed payload. A signed order is a spendable instruction until its nonce expires.
+- Do not run `env`, `printenv` or `export -p`, and do not echo, log or print a request body, while the key is exported. An agent transcript is a hosted path: whatever a command prints leaves the machine.

@@ -45,7 +45,7 @@ Match the intent, read the reference, run the command, show the result.
 | "have I approved the builder fee", "can I trade through Verdict yet" | `verdict builder-status <address>` | `builder_status` | `{baseDir}/references/builder-status.md` |
 | "set up trading", "approve the builder fee" (signable, two messages) | `verdict approve-builder-fee-payload` | `approve_builder_fee_payload` | `{baseDir}/references/approve-builder-fee-payload.md` |
 | "buy 250 YES on N at 0.018", "sell my NO at 0.97" (signable, two messages) | `verdict build-order <outcome> --side yes\|no --action buy\|sell --price <0..1> --size <tokens> [--tif Gtc\|Ioc\|Alo]` | `build_order` | `{baseDir}/references/build-order.md` |
-| "sign it", "submit the order" (the caller's own key; the kit never does this) | none | none | `{baseDir}/references/sign-and-submit.md` |
+| "sign it", "submit the order" (the user's own signer or wallet; the kit never does this and neither do you) | none | none | `{baseDir}/references/sign-and-submit.md` |
 | "install verdict", "set up the skill", first activation (writes to `~/.local/bin` and `~/.claude`; ask first and wait for a yes in a new message) | `VERDICT_REPO_DIR=<clone> bash {baseDir}/scripts/install.sh [--claude-md]` | none | `{baseDir}/references/setup.md` |
 
 Not in this CLI version: cross-venue comparison, option-implied fair value, hedges and opportunity scans (Polymarket, Kalshi, Deribit). When asked to compare, say the comparison command is not available yet and offer the Verdict-side facts: rule, book, quote. Do not produce a cross-venue price or gap from memory.
@@ -66,11 +66,11 @@ For `build-order`, show every one of these, taken from the command output: the m
 
 For `approve-builder-fee-payload`, show: the network; the builder address; the maximum fee rate and the cents per $1,000; that the MAIN wallet signs, not an agent key; that it is one-time, revocable and moves no funds; the nonce.
 
-Then ask "Confirm or abort?". In Claude Code call AskUserQuestion with two options, Confirm and Abort. In any other agent print the two options. Your message ends there. No signing, no `/exchange` call, no further command in that message.
+Then ask "Confirm or abort?". Ask in plain text and end your message there. Do not ask through a blocking question tool (Claude Code's AskUserQuestion or an equivalent): its answer comes back as a tool result inside the same turn, and a tool result is not a reply. Only the user's next message counts: Confirm means proceed; Abort, no reply, or anything unclear means stop. No signing, no `/exchange` call, no further command in that message.
 
 Message 2: only after the user replies in a NEW message.
 
-- Confirm: the caller signs the payload with its own key and submits it, as described in `{baseDir}/references/sign-and-submit.md`. If you are the signer in local mode, do it now, on this machine, with the unchanged payload, and report the response as JSON.
+- Confirm: Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. The kit ships no signer and you are not one; `{baseDir}/references/sign-and-submit.md` describes what the user's signer does with the payload. When the user reports the `/exchange` response, show its `statuses` as JSON.
 - Abort, silence, or anything unclear: stop. Nothing is signed.
 - A changed parameter (market, side, price, size, time in force, network) voids the confirmation. Run the command again and present again.
 - Intent expressed in earlier messages ("I want to buy YES") is not a confirmation. Ask on every order, every time, including in long conversations.
@@ -78,11 +78,12 @@ Message 2: only after the user replies in a NEW message.
 
 ## Analysis-to-trade boundary
 
-Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is analysis. In the turn where you present analysis, do not run `build-order` or `approve-builder-fee-payload`, and do not sign or submit anything.
+Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is analysis when the user asked a question; the same commands are pre-trade checks when the user asked to trade. One sentence, repeated in `build-order.md`: Pre-trade read-only checks (`builder-status`, `quote`) may run in the trade turn before `build-order`; a turn whose purpose is analysis never runs `build-order`; signing never happens in the turn that produced the payload.
 
-- The user asked for analysis only: present it. Do not suggest a trade.
+- The user asked for analysis only: present it; do not run `build-order` or `approve-builder-fee-payload`, do not sign or submit anything, and do not suggest a trade.
 - The user asked for analysis and a trade in one message ("check the BTC market and buy 100 YES"): present the analysis, then state in words the order you would build (market, side, price, size) and ask whether to proceed. Building starts in the next turn and then follows the two-message rule. A trade from a cold start therefore takes three messages: analysis; unsigned payload with the confirmation request; signing after the reply.
-- Never chain `quote` into `build-order` into a signature in one turn.
+- The user asked for a trade with its parameters ("buy 250 YES on 1210 at 0.018"): that is the trade turn. Run `builder-status` and, if useful, `quote` for the same side and size, then `build-order`, present, ask, and end the message.
+- Never chain `build-order` into a signature in one turn. The payload and the signature are always in different turns.
 
 ## Banned behaviours
 
@@ -94,7 +95,8 @@ Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is
 - Never edit the `action` object from `build-order`: not the builder code, not the key order, not the price string.
 - Never switch `VERDICT_NETWORK` to mainnet on your own. The user sets the network.
 - Never run `install.sh`, edit `~/.claude/CLAUDE.md` or write to `~/.local/bin` or any other user configuration without a yes from the user in a new message. Announcing a change is not consent.
-- Never print, log, commit or write to a file `HL_AGENT_PRIVATE_KEY` or any signed payload.
+- Never write, generate or install signing code at trade time, and never read `HL_AGENT_PRIVATE_KEY`. The kit ships no signer; the user's own signer or wallet signs, and you hand it the unchanged payload.
+- Never print, log, commit or write to a file `HL_AGENT_PRIVATE_KEY` or any signed payload. Never run `env`, `printenv` or `export -p`, and never echo a request body, while the key is exported: your transcript is a hosted path.
 - Never estimate a price, a fair value or a settlement rule from memory when a command can read it.
 
 ## Anti-loop rules
@@ -115,7 +117,7 @@ Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is
 | `VERDICT_VENUE` | `markets` | none (all deployers) | Verdict's deployer venue; `at` on testnet. |
 | `VERDICT_BUILDER_ADDRESS` | `builder-status`, `approve-builder-fee-payload`, `build-order` | unset | Verdict's builder address, published by the owner. The kit does not build orders without it. |
 | `VERDICT_BUILDER_FEE_TENTHS_BP` | same three | `10` | Fee in tenths of a basis point; 10 is 0.01%, 10 cents per $1,000. |
-| `HL_AGENT_PRIVATE_KEY` | nothing in the kit | unset | Optional, for the caller's own local signing step only. Local-only and memory-only: exported in the shell session, never in a file, never in the repository, never on a hosted server. The CLI and the MCP server never read it. |
+| `HL_AGENT_PRIVATE_KEY` | nothing in the kit | unset | Optional, for the user's own local signing step only. Local-only and memory-only: exported in the shell session, never in a file, never in the repository, never on a hosted server. The CLI and the MCP server never read it, and neither do you. |
 
 No login, no API key, no account for the read commands. The hosted MCP server holds no keys and cannot sign.
 
@@ -131,6 +133,6 @@ No login, no API key, no account for the read commands. The hosted MCP server ho
 
 - `{baseDir}/references/markets.md`, `market.md`, `book.md`, `quote.md`, `positions.md`, `builder-status.md`: read-only commands.
 - `{baseDir}/references/approve-builder-fee-payload.md`, `build-order.md`: signable commands with the confirmation flow.
-- `{baseDir}/references/sign-and-submit.md`: how the caller signs and submits with its own key.
+- `{baseDir}/references/sign-and-submit.md`: what the user's own signer does with the payload; you hand it over and stop.
 - `{baseDir}/references/setup.md`: first activation, environment, routing block.
 - `{baseDir}/scripts/install.sh`, `{baseDir}/scripts/uninstall.sh`: build from the repository, launchers on PATH, skill copy, CLAUDE.md block with `--claude-md`. Both run only after the user's yes.

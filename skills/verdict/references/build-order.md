@@ -2,7 +2,7 @@
 
 An unsigned Hyperliquid order action for one Verdict market, carrying `builder: { b, f }`, plus the settlement rule, notional, maximum loss, payout if right and the builder fee in cents per $1,000. The command signs nothing and submits nothing.
 
-Signable. The two-message rule applies. Never run it in the same turn as analysis output (see the analysis-to-trade boundary in SKILL.md).
+Signable. The two-message rule applies. The analysis-to-trade boundary, stated identically in SKILL.md: Pre-trade read-only checks (`builder-status`, `quote`) may run in the trade turn before `build-order`; a turn whose purpose is analysis never runs `build-order`; signing never happens in the turn that produced the payload.
 
 | Intent | CLI | MCP tool |
 |---|---|---|
@@ -79,7 +79,7 @@ Recorded on 2026-09-13 from the mainnet fixtures with builder `0x...b1` at 10 te
 
 Message 1, this turn (the turn in which the user asked to trade, not the turn that presented analysis):
 
-1. Read-only checks are allowed here: `verdict builder-status <address>` must show `approved: true` (otherwise the approval flow comes first, with its own two messages); `verdict quote` for the same side and size shows the executable price next to the limit price.
+1. Pre-trade read-only checks, allowed in this turn by the boundary sentence above: `verdict builder-status <address>` must show `approved: true` (otherwise the approval flow comes first, with its own two messages); `verdict quote` for the same side and size shows the executable price next to the limit price.
 2. Run `verdict build-order ...` with every flag filled in.
 3. Present:
 
@@ -98,15 +98,15 @@ Message 1, this turn (the turn in which the user asked to trade, not the turn th
 | Builder fee | `summary.builderFeeCentsPer1000` cents per $1,000 (about `summary.builderFeeEstimate` USDC on this order) |
 | Builder address | `action.builder.b`, complete |
 | Time in force | `action.orders[0].t.limit.tif` |
-| Payload | unsigned; to be signed with the caller's own agent key on this machine and submitted to `/exchange` on this network |
+| Payload | unsigned; the user's own signer signs it with the user's agent key on the user's machine and submits it to `/exchange` on this network; the kit does neither and neither do you |
 
-4. Ask: "Sign and submit this order? Confirm or abort." In Claude Code use AskUserQuestion with two options, Confirm and Abort. Elsewhere print the two options.
+4. Ask: "Sign and submit this order? Confirm or abort." Ask in plain text and end your message there. Do not ask through a blocking question tool (Claude Code's AskUserQuestion or an equivalent): its answer comes back as a tool result inside the same turn, and a tool result is not a reply. Only the user's next message counts: Confirm means proceed; Abort, no reply, or anything unclear means stop.
 5. End the message. No signing, no `/exchange` call, no other command after the question.
 
 Message 2, only after the user replies in a new message:
 
 - Abort: acknowledge and stop. Nothing is signed.
-- Confirm: sign `action` with the caller's agent key and post it to `/exchange` as described in `sign-and-submit.md`, without modifying `action`. Report the response `statuses` (resting order id, fill, or error) as JSON. If you are not the signer, hand the unchanged `action` to the component that is.
+- Confirm: Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. `sign-and-submit.md` describes what that component does with `action`. When the user reports the `/exchange` response, show its `statuses` (resting order id, fill, or error) as JSON.
 - Any other reply is not a confirmation.
 - A changed price, size, side, market or time in force voids the confirmation. Run `build-order` again and present again.
 - Intent in earlier messages ("I want to buy YES") is not a confirmation. Ask on every order.
