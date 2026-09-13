@@ -37,6 +37,88 @@ Payload tools, signed by the caller, never by the kit:
 - `approve_builder_fee_payload`: the typed data for the one-time builder-fee approval. Main wallet signature, not an agent key.
 - `build_order`: an unsigned Hyperliquid order action for a Verdict market carrying `builder: {b, f}`, plus the settlement rule and the fee in cents per $1,000, ready for the caller to sign and submit.
 
+## Use it from an agent
+
+Nothing is published yet, so build once from a clone: `pnpm install && pnpm run build`. Replace `<repo>` below with the absolute path of the clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000). The builder address is published by the owner; without it the read tools work and the payload tools return `not_configured`.
+
+| Face | Read tools | Unsigned payloads | Signing |
+|---|---|---|---|
+| CLI `verdict` | yes | yes | never; the caller signs with its own key ([sign-and-submit](skills/verdict/references/sign-and-submit.md)) |
+| Skill `skills/verdict` | yes, via the CLI | yes, with the two-message rule | never |
+| MCP stdio | yes | yes | never |
+| MCP streamable HTTP (hosted) | yes | yes | never; the server holds no keys |
+
+### Claude Desktop (stdio)
+
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows:
+
+```json
+{
+  "mcpServers": {
+    "verdict": {
+      "command": "node",
+      "args": ["<repo>/packages/mcp/dist/bin.js"],
+      "env": {
+        "VERDICT_NETWORK": "testnet",
+        "VERDICT_VENUE": "at",
+        "VERDICT_BUILDER_ADDRESS": "0x<builder address published by Verdict>",
+        "VERDICT_BUILDER_FEE_TENTHS_BP": "10"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+`.cursor/mcp.json` in the project, or `~/.cursor/mcp.json` for every project:
+
+```json
+{
+  "mcpServers": {
+    "verdict": {
+      "command": "node",
+      "args": ["<repo>/packages/mcp/dist/bin.js"],
+      "env": {
+        "VERDICT_NETWORK": "testnet",
+        "VERDICT_VENUE": "at",
+        "VERDICT_BUILDER_ADDRESS": "0x<builder address published by Verdict>",
+        "VERDICT_BUILDER_FEE_TENTHS_BP": "10"
+      }
+    }
+  }
+}
+```
+
+### Claude Code
+
+MCP server, user scope:
+
+```bash
+claude mcp add verdict -s user \
+  -e VERDICT_NETWORK=testnet -e VERDICT_VENUE=at \
+  -e VERDICT_BUILDER_ADDRESS=0x<builder address> -e VERDICT_BUILDER_FEE_TENTHS_BP=10 \
+  -- node <repo>/packages/mcp/dist/bin.js
+```
+
+Skill, one line (builds the CLI, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict`, and appends a `## Verdict` routing block to `~/.claude/CLAUDE.md` after printing it, only if absent):
+
+```bash
+bash <repo>/skills/verdict/scripts/install.sh
+```
+
+`bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it. Both are idempotent and download nothing.
+
+### Hosted, streamable HTTP
+
+```bash
+VERDICT_NETWORK=testnet VERDICT_VENUE=at VERDICT_BUILDER_ADDRESS=0x<builder address> verdict-mcp --http 8787
+```
+
+Endpoint `http://127.0.0.1:8787/mcp`, health check `GET /healthz`. Add `--host 0.0.0.0` inside a container. The server is stateless: one transport per request, no sessions. Connect a client with `claude mcp add --transport http verdict https://<host>/mcp`, or the equivalent `"url"` entry in a `mcp.json`.
+
+The hosted server holds no keys and signs nothing. It serves the read tools and the unsigned payloads; signing happens on the caller's machine with the caller's key. The process has no TLS and no access control of its own; put a reverse proxy in front of it and do not set `HL_AGENT_PRIVATE_KEY` in its environment.
+
 ## Layout
 
 ```
