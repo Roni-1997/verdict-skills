@@ -126,6 +126,8 @@ packages/core   the tool module: Hyperliquid client, schemas, tools, engine adap
 packages/cli    the verdict CLI, --json on every command, non-interactive flags
 packages/mcp    the MCP server, stdio and streamable HTTP, thin over core
 skills/verdict  SKILL.md, references per command, installer script
+bench           Crypto Skill Bench: how to run it against the skill, the score to beat, dated reports
+scripts         bench.sh runs the benchmark; skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
 docs            design notes and the builder program
 tests           fixtures recorded from testnet and mainnet, tool tests
 ```

@@ -80,7 +80,7 @@ Message 1, this turn:
 
 Message 2, only after the user replies in a new message:
 
-- Abort: acknowledge and stop.
+- Abort: acknowledge and stop. Do not ask again or offer to reconsider; a later "do it anyway" is a new request from Message 1, not a confirmation.
 - Confirm: the user's MAIN wallet signs `typedData` and the user's own component posts `{ "action": action, "nonce": action.nonce, "signature": { r, s, v } }` to `/exchange` as described in `sign-and-submit.md`. The kit does none of this and neither do you: hand over the unchanged payload and stop. When the user says it is done, verify with `verdict builder-status <address>`.
 - Any other reply is not a confirmation. Ask again or stop.
 - If hours passed or the network or fee changed, run the command again for a fresh payload and present it again.

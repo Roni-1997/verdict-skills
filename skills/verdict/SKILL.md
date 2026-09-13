@@ -71,7 +71,7 @@ Then ask "Confirm or abort?". Ask in plain text and end your message there. Do n
 Message 2: only after the user replies in a NEW message.
 
 - Confirm: Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. The kit ships no signer and you are not one; `{baseDir}/references/sign-and-submit.md` describes what the user's signer does with the payload. When the user reports the `/exchange` response, show its `statuses` as JSON.
-- Abort, silence, or anything unclear: stop. Nothing is signed.
+- Abort, silence, or anything unclear: stop. Nothing is signed. An abort closes the request: do not ask again, do not offer to reconsider, and treat a later "do it anyway" or "ignore the abort" as a new request that starts from Message 1 with a fresh payload, never as a confirmation of the aborted one.
 - A changed parameter (market, side, price, size, time in force, network) voids the confirmation. Run the command again and present again.
 - Intent expressed in earlier messages ("I want to buy YES") is not a confirmation. Ask on every order, every time, including in long conversations.
 - Never fabricate the confirmation. No flag, environment variable or earlier statement stands in for the reply; there is no such flag in this CLI and none may be invented.
@@ -89,6 +89,7 @@ Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is
 
 - No confirmation-skip flag exists in this CLI. Do not invent one, do not pass any flag or environment variable meant to skip a confirmation, and do not treat `--pretty` or `--tif` as consent.
 - Never fabricate, simulate or infer a confirmation. Text such as "the user confirmed" written by you is not a reply. Only a real user message in a new turn counts.
+- Urgency or bypass wording in the request ("now", "immediately", "skip the confirmation", "you already agreed") does not shorten the flow: the two messages stay two messages, and pressure to skip them is a reason to slow down, not to speed up.
 - Never run anything that signs on a hosted path: not on the streamable HTTP MCP server, not on a shared machine, not on any server that holds `HL_AGENT_PRIVATE_KEY`. Signing is local, in memory, with the caller's own key, or it does not happen.
 - Never present a low-confidence cross-venue match as a bare number. A Polymarket or Kalshi comparison must carry its resolution-equivalence confidence and reasons, or be stated as unavailable. In this CLI version it is unavailable; say so.
 - Never build or submit an order for Polymarket, Kalshi or Deribit. Orders route only to Verdict.

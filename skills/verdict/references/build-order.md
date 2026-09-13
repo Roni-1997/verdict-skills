@@ -105,7 +105,7 @@ Message 1, this turn (the turn in which the user asked to trade, not the turn th
 
 Message 2, only after the user replies in a new message:
 
-- Abort: acknowledge and stop. Nothing is signed.
+- Abort: acknowledge and stop. Nothing is signed. Do not ask again or offer to reconsider; a later "do it anyway" is a new request from Message 1, not a confirmation.
 - Confirm: Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. `sign-and-submit.md` describes what that component does with `action`. When the user reports the `/exchange` response, show its `statuses` (resting order id, fill, or error) as JSON.
 - Any other reply is not a confirmation.
 - A changed price, size, side, market or time in force voids the confirmation. Run `build-order` again and present again.
