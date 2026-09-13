@@ -1,0 +1,13 @@
+{
+  "name": "verdict",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verdict CLI: markets, settlement rules, books, quotes, builder codes and unsigned orders for HIP-4 outcome markets",
+  "type": "module",
+  "bin": { "verdict": "./dist/bin.js" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "dependencies": { "@verdict/core": "workspace:*" }
+}

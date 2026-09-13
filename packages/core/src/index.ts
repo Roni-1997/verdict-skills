@@ -13,3 +13,7 @@ export { approveBuilderFeePayload, buildOrder, builderStatus, canonicalDecimal, 
 export type { ApproveBuilderFeeAction, ApproveBuilderFeePayload, BuildOrderRequest, BuilderCode, BuilderStatus, BuiltOrder, OrderAction, TimeInForce } from './builder.js';
 export { positions } from './positions.js';
 export type { OutcomePosition } from './positions.js';
+export { BUILDER_UNSET_MESSAGE, configFromEnv } from './config.js';
+export type { KitConfig } from './config.js';
+export { TOOL_DOCS, ToolError, createTools, resolveSide, summarize } from './tools.js';
+export type { MarketSummary, SideInput, Tools } from './tools.js';

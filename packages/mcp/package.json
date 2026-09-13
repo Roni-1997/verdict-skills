@@ -1,0 +1,23 @@
+{
+  "name": "@verdict/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verdict MCP server: the core tool module over stdio and streamable HTTP",
+  "type": "module",
+  "bin": {
+    "verdict-mcp": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@verdict/core": "workspace:*",
+    "zod": "3.25.76"
+  }
+}
