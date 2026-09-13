@@ -8,6 +8,8 @@ import {
   ENGINE_UPSTREAM,
   deribitImpliedProb,
   findHedgeCandidates,
+  fmtCents,
+  fmtUsd,
   normalizeVerdictSnapshot,
   runOpportunity,
   runResearch,
@@ -16,7 +18,7 @@ import {
 import { z } from 'zod';
 import type { InfoClient } from './hl/client.js';
 import { type Catalog, type Market, marketsFromCatalog } from './markets.js';
-import { buildSnapshot, type EngineSnapshot, UnpricedReason } from './snapshot.js';
+import { buildSnapshot, type EngineSnapshot, UnpricedReason, withoutUnpricedBooks } from './snapshot.js';
 import { MarketSummary, summarize } from './summary.js';
 import { withValidatedVenueFetch } from './venues.js';
 
@@ -306,23 +308,43 @@ export const FindHedgesResult = z.object({
 });
 export type FindHedgesResult = z.infer<typeof FindHedgesResult>;
 
-export const OpportunityItem = z.object({
-  rank: z.number().int().positive(),
-  outcome: z.number().int().nonnegative(),
-  venue: z.string(),
-  displayName: z.string(),
-  expiresAt: z.string().nullable(),
-  yesMid: Prob.nullable(),
-  spread: Prob.nullable(),
-  depthUsd: z.number().nullable(),
-  volumeUsd: z.number().nullable(),
-  priceSource: z.enum(['book', 'ctx']).nullable(),
-  why: z.string().nullable(),
-  tradeCall: TradeCall,
-  actionState: z.string(),
-  crossVenue: z.string().nullable(),
-  hedge: z.object({ symbol: z.string(), kind: z.string(), directionForYes: z.enum(['short', 'long', 'none']) }).nullable(),
-});
+export const OpportunityItem = z
+  .object({
+    rank: z.number().int().positive(),
+    outcome: z.number().int().nonnegative(),
+    venue: z.string(),
+    displayName: z.string(),
+    expiresAt: z.string().nullable(),
+    /**
+     * false when Verdict has no tradable price for the market (see unpriced): the row is carried for completeness,
+     * ranks after every priced market, and nothing in it is a probability.
+     */
+    priced: z.boolean(),
+    /** YES probability from the kit's snapshot; null when unpriced, never Hyperliquid's placeholder or a wall-book average. */
+    yesMid: Prob.nullable(),
+    /** Top-of-book YES spread and depth; null when unpriced (a wall-only book is not interest). */
+    spread: Prob.nullable(),
+    depthUsd: z.number().nullable(),
+    volumeUsd: z.number().nullable(),
+    priceSource: z.enum(['book', 'ctx']).nullable(),
+    /** Why yesMid is null (VerdictPrice.unpriced); null when priced. */
+    unpriced: UnpricedReason.nullable(),
+    /** Kit-built ranking reason from the snapshot's own price, spread and depth; for an unpriced market it starts with "unpriced". */
+    why: z.string(),
+    tradeCall: TradeCall,
+    actionState: z.string(),
+    /** The engine's cross-venue edge line, only for a priced market with a high-confidence tradable twin; always null when unpriced. */
+    crossVenue: z.string().nullable(),
+    hedge: z.object({ symbol: z.string(), kind: z.string(), directionForYes: z.enum(['short', 'long', 'none']) }).nullable(),
+  })
+  .superRefine((item, ctx) => {
+    if (item.priced !== (item.yesMid !== null)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'priced must agree with yesMid' });
+    if (item.priced && item.unpriced !== null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a priced item carries no unpriced reason' });
+    if (!item.priced && (item.priceSource !== null || item.unpriced === null || item.crossVenue !== null || item.spread !== null || item.depthUsd !== null || !item.why.startsWith('unpriced'))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'an unpriced item must carry its reason, an "unpriced" why, and no price source, spread, depth or cross-venue line' });
+    }
+  });
+export type OpportunityItem = z.infer<typeof OpportunityItem>;
 
 export const OpportunitiesResult = z.object({
   network: z.enum(['testnet', 'mainnet']),
@@ -335,6 +357,8 @@ export const OpportunitiesResult = z.object({
   /** The engine ranks at most this many markets per scan. */
   engineMax: z.literal(8),
   items: z.array(OpportunityItem),
+  /** How many of items are unpriced (priced: false); they always come last. */
+  unpricedCount: z.number().int().nonnegative(),
   comparators: z.array(Comparator),
   dataStatus: z.object({ polymarket: z.string(), kalshi: z.string() }),
   bookErrors: z.array(z.object({ coin: z.string(), message: z.string() })),
@@ -657,6 +681,72 @@ function isExpired(m: Market, now: number): boolean {
   return m.expiresAt !== null && Date.parse(m.expiresAt) <= now;
 }
 
+/** The fields of a normalized Verdict base that tie the engine's title-keyed references back to an outcome. */
+export interface BaseRef {
+  readonly rawId: number;
+  readonly title: string;
+  readonly expiry: string | null;
+  readonly underlying: string | null;
+  readonly direction: 'above' | 'below' | 'range' | null;
+  readonly strike: number | null;
+}
+
+function expiryDeltaDays(a: string | null, b: string | null): number | null {
+  if (a === null || b === null) return null;
+  const aa = Date.parse(a);
+  const bb = Date.parse(b);
+  return Number.isFinite(aa) && Number.isFinite(bb) ? Math.abs(aa - bb) / 86_400_000 : null;
+}
+
+/**
+ * The engine names the Verdict base behind each cross-venue reference by title only (matchedBaseTitle), and titles
+ * collide: its outcomeTitle omits the expiry, so every same-strike daily ("BTC closes above $77,250" on Sep 14, 16 and
+ * 18) shares one. Resolve to an outcome instead. Among the markets the engine ranked (in its order) that carry the
+ * title, the one it matched is the one its referenceRelevance scored highest; with equal titles, hence equal strikes,
+ * that score differs only by the expiry term, min(0.4, days * 0.02), and a tie keeps the first ranked. Null when no
+ * ranked market carries the title.
+ */
+export function resolveMatchedBase<B extends BaseRef>(ref: { readonly matchedBaseTitle: string | null; readonly expiry: string | null }, ranked: readonly B[]): B | null {
+  if (ref.matchedBaseTitle === null) return null;
+  let best: B | null = null;
+  let bestPenalty = Number.POSITIVE_INFINITY;
+  for (const base of ranked) {
+    if (base.title !== ref.matchedBaseTitle) continue;
+    const penalty = Math.min(0.4, (expiryDeltaDays(base.expiry, ref.expiry) ?? 0) * 0.02);
+    if (best === null || penalty < bestPenalty) {
+      best = base;
+      bestPenalty = penalty;
+    }
+  }
+  return best;
+}
+
+const OPTIONS_UNDERLYINGS = new Set(['BTC', 'ETH', 'SOL']);
+
+/**
+ * The market the engine priced its Deribit reference off: the first ranked market that is a BTC, ETH or SOL directional
+ * strike market with an expiry (appendDeribitEvidence walks the ranked list in order). The engine reports that market
+ * by title only; the choice is checked against it, and a disagreement is an error, never a silent guess.
+ */
+export function resolveOptionsBase<B extends BaseRef>(ranked: readonly B[], baseTitle: string | undefined): B | null {
+  const base = ranked.find((b) => b.underlying !== null && OPTIONS_UNDERLYINGS.has(b.underlying) && b.strike !== null && b.expiry !== null && (b.direction === 'above' || b.direction === 'below')) ?? null;
+  if (baseTitle !== undefined && base === null) throw new Error(`engine priced its Deribit reference off "${baseTitle}", but no ranked market is eligible`);
+  if (baseTitle !== undefined && base !== null && base.title !== baseTitle) throw new Error(`engine priced its Deribit reference off "${baseTitle}", but the first eligible ranked market is "${base.title}"`);
+  return base;
+}
+
+/** The ranking reason for an opportunities row, from the kit's own price and the engine's spread and depth; never a phantom probability. */
+function opportunityWhy(vp: VerdictPrice, spread: number | null, depthUsd: number | null): string {
+  if (vp.yesMid === null) return `unpriced (${unpricedNote(vp) ?? 'no Verdict price in this scan'}); no Verdict price, spread or depth to rank on`;
+  const bits: string[] = [];
+  if (spread !== null) bits.push(`${fmtCents(spread)} spread`);
+  if (depthUsd !== null) bits.push(`${fmtUsd(depthUsd)} depth`);
+  bits.push(`YES ${fmtCents(vp.yesMid)}${vp.priceSource === 'ctx' ? ` (${HL_MARK_NOTE})` : ''}`);
+  return bits.join(', ');
+}
+
+const CROSS_VENUE_PREFIX = 'Cross-venue: ';
+
 // Tools.
 export async function compareMarket(client: InfoClient, catalog: Catalog, market: Market, opts: EngineOptions = {}): Promise<CompareMarketResult> {
   const snap = await buildSnapshot(client, catalog, [market]);
@@ -775,47 +865,66 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
   const now = Date.now();
   const markets = marketsFromCatalog(catalog, venue ? { venue } : {}).filter((m) => !isExpired(m, now));
   const snap = await buildSnapshot(client, catalog, markets, { coinMids: true, onBookError: 'skip', maxBooks: opts.maxBooks ?? OPPORTUNITIES_DEFAULT_BOOKS });
-  const raw = await withValidatedVenueFetch(() => runOpportunity({ query: '', snap, deadlineAt: deadline(opts) }));
+  // The engine averages any top of book it is given when the mid is null, so it never sees the book of an unpriced
+  // market: with neither a book nor a mid it scores the market at its floor and prints no probability for it.
+  const engineSnap = withoutUnpricedBooks(snap);
+  const raw = await withValidatedVenueFetch(() => runOpportunity({ query: '', snap: engineSnap, deadlineAt: deadline(opts) }));
   const res = ResearchResult.parse(raw);
   const cards = res.cards.map((c) => StrategyCard.safeParse(c)).flatMap((p) => (p.success ? [p.data] : []));
-  const bases = normalizeVerdictSnapshot(snap).map((m) => NormalizedBase.parse(m));
-  // The engine's Deribit evidence names the base it priced by title; rebuild that line from the kit's Verdict price.
-  const optionsBase = res.optionsImplied ? bases.find((b) => b.title === res.optionsImplied?.baseTitle) : undefined;
-  const options = kitOptionsImplied(res, optionsBase, optionsBase ? verdictPrice(optionsBase, snap) : NO_VERDICT_PRICE);
+  const baseById = new Map(normalizeVerdictSnapshot(engineSnap).map((m) => NormalizedBase.parse(m)).map((b) => [b.rawId, b] as const));
   const byOutcome = new Map(markets.map((m) => [m.outcome, m] as const));
-  const items = cards.slice(0, limit).map((card, i) => {
+  // One card per market the engine ranked, in its order (runOpportunity builds the cards from its selection one to
+  // one); the card's leg carries the outcome id, and everything below is tied to a market through it, never a title.
+  const ranked = cards.map((card) => {
     const leg = card.marketLegs[0];
     const outcome = num(leg?.rawId);
-    const m = outcome !== null ? byOutcome.get(outcome) : undefined;
-    if (!leg || outcome === null || !m) throw new Error(`engine card ${card.id} does not map to a scanned market`);
-    const snapOutcome = snap.outcomes.find((o) => o.outcome === outcome);
-    const why = card.evidence.find((e) => e.startsWith('Why this ranks: '));
-    const cross = card.evidence.find((e) => e.startsWith('Cross-venue: '));
-    const hedge = card.hedgeLegs[0];
+    const base = outcome !== null ? baseById.get(outcome) : undefined;
+    const market = outcome !== null ? byOutcome.get(outcome) : undefined;
+    if (!leg || !base || !market) throw new Error(`engine card ${card.id} does not map to a scanned market`);
+    return { card, leg, base, market, vp: verdictPrice(base, snap) };
+  });
+  const bases = ranked.map((r) => r.base);
+  const optionsBase = res.optionsImplied ? resolveOptionsBase(bases, res.optionsImplied.baseTitle) : null;
+  const options = kitOptionsImplied(res, optionsBase ?? undefined, optionsBase ? verdictPrice(optionsBase, snap) : NO_VERDICT_PRICE);
+  // Priced markets first, the engine's order within each group. A market without a book scores at the engine's floor,
+  // so this decides an exact tie at most; it is what makes "an unpriced market never ranks above a priced one" a rule.
+  const ordered = [...ranked.filter((r) => r.vp.yesMid !== null), ...ranked.filter((r) => r.vp.yesMid === null)];
+  const items = ordered.slice(0, limit).map((r, i) => {
+    const priced = r.vp.yesMid !== null;
+    const spread = priced ? r.leg.spread : null;
+    const depthUsd = priced ? r.leg.depthUsd : null;
+    const cross = priced ? r.card.evidence.find((e) => e.startsWith(CROSS_VENUE_PREFIX)) : undefined;
+    const hedge = r.card.hedgeLegs[0];
     return {
       rank: i + 1,
-      outcome,
-      venue: m.venue,
-      displayName: m.displayName,
-      expiresAt: m.expiresAt,
-      // The engine averages a wall-only book to 0.5 when the snapshot carries no mid; the snapshot's verdict wins.
-      yesMid: snapOutcome && snapOutcome.mid === null ? null : leg.mid,
-      spread: leg.spread,
-      depthUsd: leg.depthUsd,
-      volumeUsd: leg.volumeUsd,
-      priceSource: snapOutcome?.midSource ?? null,
-      why: why ? why.slice('Why this ranks: '.length) : null,
-      tradeCall: card.tradeCall,
-      actionState: card.actionState,
-      crossVenue: cross ? cross.slice('Cross-venue: '.length) : null,
+      outcome: r.base.rawId,
+      venue: r.market.venue,
+      displayName: r.market.displayName,
+      expiresAt: r.market.expiresAt,
+      priced,
+      yesMid: r.vp.yesMid,
+      spread,
+      depthUsd,
+      volumeUsd: r.leg.volumeUsd,
+      priceSource: r.vp.priceSource,
+      unpriced: r.vp.unpriced,
+      why: opportunityWhy(r.vp, spread, depthUsd),
+      tradeCall: r.card.tradeCall,
+      actionState: r.card.actionState,
+      crossVenue: cross ? cross.slice(CROSS_VENUE_PREFIX.length) : null,
       hedge: hedge && hedge.direction !== 'none' ? { symbol: hedge.symbol, kind: hedge.kind, directionForYes: hedge.direction } : null,
     };
   });
   const comparators = res.externalMarkets.flatMap((ref) => {
     if (!isVenue(ref.venue)) return [];
-    const base = bases.find((b) => b.title === ref.matchedBaseTitle);
+    const base = resolveMatchedBase(ref, bases);
     return [comparatorFromReference(ref, ref.venue, base ? verdictPrice(base, snap) : NO_VERDICT_PRICE)];
   });
+  const unpricedCount = items.filter((item) => !item.priced).length;
+  const summary =
+    unpricedCount === 0
+      ? res.summary
+      : `${res.summary} ${unpricedCount} of the ${items.length} shown ${unpricedCount === 1 ? 'has' : 'have'} no Verdict price (unpriced) and ${unpricedCount === 1 ? 'ranks' : 'rank'} last.`;
   return OpportunitiesResult.parse({
     network: client.config.network,
     venue,
@@ -825,10 +934,11 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
     limit,
     engineMax: OPPORTUNITIES_ENGINE_MAX,
     items,
+    unpricedCount,
     comparators,
     dataStatus: { polymarket: res.dataStatus.polymarket ?? 'unavailable', kalshi: res.dataStatus.kalshi ?? 'unavailable' },
     bookErrors: snap.bookErrors,
-    summary: res.summary,
+    summary,
     evidence: options.evidence,
     engine: engineInfo(res.route, res.generatedAt),
   });

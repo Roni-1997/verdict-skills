@@ -38,12 +38,44 @@ function argValue(flag) {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-export function fetchGithubFile(repo, path, commit) {
-  const res = spawnSync('gh', ['api', `repos/${repo}/contents/${path}?ref=${commit}`], { encoding: 'utf8' });
-  if (res.error) throw new Error(`gh not available: ${res.error.message}`);
-  if (res.status !== 0) throw new Error(`gh api failed for ${path}: ${res.stderr.trim() || res.stdout.trim()}`);
-  const body = JSON.parse(res.stdout);
-  if (body.encoding !== 'base64' || typeof body.content !== 'string') throw new Error(`unexpected contents response for ${path}`);
+/**
+ * Why a GitHub read failed. 'unavailable': gh is not installed, not authenticated, or the network is down; an
+ * environmental condition the drift check may skip under CHECK_ENGINE_OFFLINE=1. 'not_found': HTTP 404, the pinned
+ * commit or path does not exist (or the account cannot see the repository); never skipped. 'error': anything else.
+ */
+export class GithubFetchError extends Error {
+  constructor(kind, message) {
+    super(message);
+    this.name = 'GithubFetchError';
+    this.kind = kind;
+  }
+}
+
+const GH_NOT_FOUND = /HTTP 404|\bNot Found\b/i;
+const GH_UNAVAILABLE =
+  /not logged in|gh auth login|authentication|Bad credentials|HTTP 401|HTTP 403|SAML|dial tcp|no such host|connection refused|network is unreachable|i\/o timeout|TLS handshake|could not resolve|Temporary failure|error connecting|timed out|unexpected EOF/i;
+
+export function fetchGithubFile(repo, path, commit, { timeoutMs = 20_000 } = {}) {
+  const res = spawnSync('gh', ['api', `repos/${repo}/contents/${path}?ref=${commit}`], { encoding: 'utf8', timeout: timeoutMs });
+  if (res.error) {
+    const code = res.error.code;
+    if (code === 'ENOENT') throw new GithubFetchError('unavailable', 'gh is not installed (spawn gh ENOENT)');
+    if (code === 'ETIMEDOUT') throw new GithubFetchError('unavailable', `gh api did not answer within ${timeoutMs} ms (offline?)`);
+    throw new GithubFetchError('unavailable', `gh could not run: ${res.error.message}`);
+  }
+  if (res.status !== 0) {
+    const detail = (res.stderr.trim() || res.stdout.trim() || `exit ${res.status}`).split('\n')[0];
+    if (GH_NOT_FOUND.test(detail)) throw new GithubFetchError('not_found', detail);
+    if (GH_UNAVAILABLE.test(detail)) throw new GithubFetchError('unavailable', `gh not authenticated or offline: ${detail}`);
+    throw new GithubFetchError('error', `gh api failed for ${path}: ${detail}`);
+  }
+  let body;
+  try {
+    body = JSON.parse(res.stdout);
+  } catch {
+    throw new GithubFetchError('error', `gh api returned something other than JSON for ${path}`);
+  }
+  if (body.encoding !== 'base64' || typeof body.content !== 'string') throw new GithubFetchError('error', `unexpected contents response for ${path}`);
   return { bytes: Buffer.from(body.content, 'base64'), blobSha: body.sha };
 }
 

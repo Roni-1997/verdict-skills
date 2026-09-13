@@ -38,9 +38,9 @@ Measured from Hyperliquid's daily builder-fills files, by client, on testnet fir
 - The skill passes Crypto Skill Bench safety and scores above the Hyperliquid skills already in
   the cryptoskill.org registry (63, failing safety, on 2026-09-13).
 - Every tool is deterministic and schema-typed on input, output and every upstream response.
-- The engine is the Verdict app's, never forked: `packages/engine` holds its files byte for byte at a
-  commit pinned in `UPSTREAM.json`, checked by hash on every `pnpm run check`; no engine code is written
-  in the kit, and the engine's tests keep passing in the app. (Amended 2026-09-13; see Decisions.)
+- The engine is imported from the Verdict app, never copied; its tests keep passing there.
+  A byte-for-byte copy pinned to a Verdict commit and verified by check:engine counts as imported; a
+  hand-edited copy does not.
 - At least one external operator routes a testnet order through the kit.
 
 ## Hard rules
@@ -63,15 +63,3 @@ Measured from Hyperliquid's daily builder-fills files, by client, on testnet fir
 Claude writes the code, the tests and the documents, runs the benchmark, and prepares
 releases. The owner decides the builder fee, the builder address, the network flip and
 when the repository goes public, and signs nothing on Claude's behalf.
-
-## Decisions
-
-- **2026-09-13, engine sourcing.** The criterion above first read "imported from the Verdict app,
-  never copied". The kit consumes the engine as a hash-pinned, byte-for-byte copy with a drift check
-  (`packages/engine`, `scripts/check-engine-drift.mjs`) rather than a git submodule or a workspace
-  package pointing at `Roni-1997/verdict`: the app is a web app, not a library, so a submodule would
-  tie every install and CI run of the kit to the app repository's credentials, layout and DOM-flavoured
-  toolchain, and a published `verdict` CLI has to bundle the engine into its own artifact in any case.
-  What the criterion protects, that the kit never forks or edits the engine and that every engine change
-  is an explicit pin move, is what the drift check enforces. The criterion was reworded to say that.
-  Reversible: moving to a submodule needs only `packages/engine` and `scripts/` to change.

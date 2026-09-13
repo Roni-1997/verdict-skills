@@ -18,6 +18,7 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo]
 
 Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP.
+Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare and opportunities call, so never set it on a hosted server.
 Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
 compare, fair-value, hedges and opportunities run the Verdict app's cross-venue engine (Polymarket, Kalshi, Deribit are read, never traded).
 A low-confidence match is reported with its caveat and reasons; the price gap is omitted, never printed as a bare number.

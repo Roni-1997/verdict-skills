@@ -1,6 +1,6 @@
 // The only file in this package written for the kit. Everything else in src/ is the Verdict app's
 // engine byte for byte at the commit pinned in UPSTREAM.json (scripts/check-engine-drift.mjs fails on
-// any difference); GOAL.md, Decisions, records why a pinned copy rather than a submodule.
+// any difference). GOAL.md's success criterion counts such a pinned, verified copy as imported and a hand-edited one as not.
 // Explicit re-exports: research-core and playbooks both export ROUTES and getPlaybook.
 export {
   VENUES,

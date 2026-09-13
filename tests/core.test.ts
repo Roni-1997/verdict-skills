@@ -17,6 +17,7 @@ import {
   parseHlDateTime,
   positions,
   quoteFromBook,
+  retryDelayMs,
   sideBookFrom,
   splitTemplateDescription,
 } from '../packages/core/src/index.js';
@@ -209,5 +210,50 @@ describe('client turns upstream drift into typed errors', () => {
   it('rejects a book with a missing level field', async () => {
     const client = new InfoClient({ network: 'testnet', fetch: fakeFetch({ 'l2Book:#1': { coin: '#1', time: 1, levels: [[{ px: '0.5' }], []] } }) });
     await expect(client.l2Book('#1')).rejects.toMatchObject({ name: 'UpstreamError', kind: 'schema' });
+  });
+});
+
+describe('client retries once on HTTP 429 (Hyperliquid: 1,200 request weight per minute per IP)', () => {
+  const book = { coin: '#1', time: 1, levels: [[{ px: '0.5', sz: '1', n: 1 }], []] };
+  /** A fetch that answers the given statuses in order (200 carries a valid book), recording every request body. */
+  function sequence(statuses: readonly number[], headers: Record<string, string> = {}): { fetch: typeof fetch; bodies: string[] } {
+    const bodies: string[] = [];
+    const impl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''));
+      const status = statuses[bodies.length - 1] ?? 200;
+      return status === 200 ? new Response(JSON.stringify(book), { status, headers: { 'content-type': 'application/json' } }) : new Response('', { status, headers });
+    }) as typeof fetch;
+    return { fetch: impl, bodies };
+  }
+  it('a 429 followed by a 200 yields the second response after one retry of the same request', async () => {
+    const f = sequence([429, 200], { 'retry-after': '0' });
+    const client = new InfoClient({ network: 'testnet', fetch: f.fetch, retryAfterMs: 1 });
+    const parsed = await client.l2Book('#1');
+    expect(parsed.coin).toBe('#1');
+    expect(f.bodies).toHaveLength(2);
+    expect(f.bodies[0]).toBe(f.bodies[1]);
+  });
+  it('a second 429 is the caller\'s error: exactly two requests, then a typed http error', async () => {
+    const f = sequence([429, 429]);
+    const client = new InfoClient({ network: 'testnet', fetch: f.fetch, retryAfterMs: 1 });
+    await expect(client.l2Book('#1')).rejects.toMatchObject({ name: 'UpstreamError', kind: 'http', detail: 429 });
+    expect(f.bodies).toHaveLength(2);
+  });
+  it('other HTTP errors are not retried', async () => {
+    const f = sequence([503, 200]);
+    const client = new InfoClient({ network: 'testnet', fetch: f.fetch, retryAfterMs: 1 });
+    await expect(client.l2Book('#1')).rejects.toMatchObject({ name: 'UpstreamError', kind: 'http', detail: 503 });
+    expect(f.bodies).toHaveLength(1);
+  });
+  it('the backoff honours Retry-After in seconds or as a date, capped at 10 s, and falls back to the configured delay', () => {
+    const now = Date.UTC(2026, 8, 13, 22, 0, 0);
+    expect(retryDelayMs('2', 1_000, now)).toBe(2_000);
+    expect(retryDelayMs('0', 1_000, now)).toBe(0);
+    expect(retryDelayMs('120', 1_000, now)).toBe(10_000);
+    expect(retryDelayMs(new Date(now + 3_000).toUTCString(), 1_000, now)).toBe(3_000);
+    expect(retryDelayMs(new Date(now - 3_000).toUTCString(), 1_000, now)).toBe(0);
+    expect(retryDelayMs('soon', 1_000, now)).toBe(1_000);
+    expect(retryDelayMs(null, 250, now)).toBe(250);
+    expect(retryDelayMs(null, 60_000, now)).toBe(10_000);
   });
 });

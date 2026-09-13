@@ -26,6 +26,8 @@ if (values.help) {
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
       'Environment: VERDICT_NETWORK (testnet|mainnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP',
+      "Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare_market",
+      '          and opportunities call, so never set it on a hosted (--http) server.',
       '',
     ].join('\n'),
   );
@@ -54,12 +56,19 @@ if (values.http === undefined) {
       res.writeHead(404).end();
       return;
     }
-    let body: unknown = undefined;
+    let body: unknown;
     if (req.method === 'POST') {
       const chunks: Buffer[] = [];
       for await (const c of req) chunks.push(c as Buffer);
       const text = Buffer.concat(chunks).toString('utf8');
-      body = text ? JSON.parse(text) : undefined;
+      try {
+        body = text ? JSON.parse(text) : undefined;
+      } catch {
+        // A malformed POST is the client's error, never a rejected handler promise that could take the process down.
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: request body is not JSON' }, id: null }));
+        return;
+      }
     }
     const server = createServer(config);
     // Stateless: no session ids, one transport per request. The SDK's option type marks

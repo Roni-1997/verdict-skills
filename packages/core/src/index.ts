@@ -1,6 +1,6 @@
 export { networkConfig, parseNetwork } from './network.js';
 export type { Network, NetworkConfig } from './network.js';
-export { InfoClient, UpstreamError } from './hl/client.js';
+export { InfoClient, UpstreamError, retryDelayMs } from './hl/client.js';
 export type { InfoClientOptions } from './hl/client.js';
 export * as hlSchemas from './hl/schemas.js';
 export { OUTCOME_ASSET_BASE, decodeOutcomeToken, outcomeAssetId, outcomeCoin, outcomeEncoding, outcomeTokenName } from './hl/encoding.js';
@@ -15,7 +15,7 @@ export { positions } from './positions.js';
 export type { OutcomePosition } from './positions.js';
 export { BUILDER_UNSET_MESSAGE, configFromEnv } from './config.js';
 export type { KitConfig } from './config.js';
-export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, UnpricedReason, buildSnapshot, isPlaceholderCtx, isStaleCtx, priceFromBook, tradedToday } from './snapshot.js';
+export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, OUTCOME_WALL_BAND, UnpricedReason, buildSnapshot, isPlaceholderCtx, isStaleCtx, priceFromBook, tradedToday, withoutUnpricedBooks } from './snapshot.js';
 export type { PriceFromBook, SnapshotOptions } from './snapshot.js';
 export {
   Comparator,
@@ -39,9 +39,11 @@ export {
   fairValue,
   findHedges,
   opportunities,
+  resolveMatchedBase,
+  resolveOptionsBase,
   strikeOffsetCaveat,
 } from './crossvenue.js';
-export type { EngineOptions } from './crossvenue.js';
+export type { BaseRef, EngineOptions } from './crossvenue.js';
 export { MarketSummary, summarize } from './summary.js';
 export {
   DeribitResponse,

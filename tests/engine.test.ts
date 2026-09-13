@@ -1,15 +1,16 @@
 // The cross-venue engine in the kit: pinned copy, snapshot adapter, and the four tools over it,
 // all against recorded fixtures with the clock frozen at the recording time and no network.
 import { spawnSync } from 'node:child_process';
-import { cpSync, appendFileSync, mkdtempSync, readFileSync } from 'node:fs';
+import { cpSync, appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ENGINE_UPSTREAM, type MaturityAdjustResult, buildMaturityAdjustedCard, normalizeVerdictSnapshot } from '@verdict/engine';
+import { ENGINE_UPSTREAM, type MaturityAdjustResult, buildMaturityAdjustedCard, fmtCents, fmtUsd, normalizeVerdictSnapshot } from '@verdict/engine';
 import {
+  type BaseRef,
   Comparator,
   CompareMarketResult,
   FairValueResult,
@@ -17,6 +18,7 @@ import {
   HL_MARK_TAG,
   InfoClient,
   type KitConfig,
+  OUTCOME_WALL_BAND,
   OpportunitiesResult,
   UNPRICED_TAG_PREFIX,
   UpstreamError,
@@ -30,14 +32,17 @@ import {
   loadCatalog,
   marketFromCatalog,
   priceFromBook,
+  resolveMatchedBase,
+  resolveOptionsBase,
   strikeOffsetCaveat,
   validateVenueResponse,
   validatingFetch,
   withValidatedVenueFetch,
+  withoutUnpricedBooks,
 } from '../packages/core/src/index.js';
 import { runCli } from '../packages/cli/src/index.js';
 import { createServer } from '../packages/mcp/src/server.js';
-import { engineFixture, fixtureFetch, recordedAt } from './helpers/fixture-fetch.js';
+import { type FixtureFetchOptions, engineFixture, fixtureFetch, recordedAt } from './helpers/fixture-fetch.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -46,12 +51,13 @@ function must<T>(value: T | undefined | null, what: string): T {
   return value;
 }
 
+/** Every request any fetch in this file makes lands here; the hard-rules test reads it. */
 const log: string[] = [];
 const fetchAll = fixtureFetch({ log });
 
 /** The recorded fixtures with the asset contexts of some coins overwritten, e.g. to make a never-traded coin look traded. */
-function patchedCtxFetch(coins: readonly string[], patch: Record<string, string>): typeof fetch {
-  const inner = fixtureFetch();
+function patchedCtxFetch(coins: readonly string[], patch: Record<string, string>, opts: Omit<FixtureFetchOptions, 'log'> = {}): typeof fetch {
+  const inner = fixtureFetch({ ...opts, log });
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const res = await inner(input, init);
     const body = JSON.parse(String(init?.body ?? '{}')) as { type?: string };
@@ -76,26 +82,105 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * A stand-in `gh` on PATH, so the drift check's GitHub leg runs without the network. 'serve' answers
+ * `gh api repos/<repo>/contents/<path>?ref=<sha>` with this checkout's engine files the way GitHub does (base64 content
+ * plus blob sha); the other modes fail the way gh fails.
+ */
+function fakeGh(mode: 'serve' | 'not_found' | 'offline' | 'unauthenticated'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'fake-gh-'));
+  const script = join(dir, 'gh.mjs');
+  const bodies: Record<typeof mode, string> = {
+    serve: [
+      "import { readFileSync } from 'node:fs';",
+      "import { createHash } from 'node:crypto';",
+      "const m = /contents\\/(.+)\\?ref=/.exec(process.argv[3] ?? '');",
+      `const upstream = JSON.parse(readFileSync(${JSON.stringify(join(ROOT, 'packages/engine/UPSTREAM.json'))}, 'utf8'));`,
+      'const f = upstream.files.find((x) => x.upstream === m?.[1]);',
+      "if (!f) { process.stderr.write('gh: Not Found (HTTP 404)\\n'); process.exit(1); }",
+      `const bytes = readFileSync(${JSON.stringify(ROOT)} + f.local);`,
+      "const sha = createHash('sha1').update('blob ' + bytes.length + '\\0').update(bytes).digest('hex');",
+      "process.stdout.write(JSON.stringify({ encoding: 'base64', content: bytes.toString('base64'), sha }));",
+    ].join('\n'),
+    not_found: "process.stderr.write('gh: No commit found for the ref 0000000000000000000000000000000000000000 (HTTP 404)\\n'); process.exit(1);",
+    offline: "process.stderr.write('error connecting to api.github.com\\ncheck your internet connection or https://githubstatus.com\\n'); process.exit(1);",
+    unauthenticated: "process.stderr.write('To get started with GitHub CLI, please run:  gh auth login\\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.\\n'); process.exit(4);",
+  };
+  writeFileSync(script, `${bodies[mode]}\n`);
+  writeFileSync(join(dir, 'gh'), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`, { mode: 0o755 });
+  return dir;
+}
+
 describe('engine pin', () => {
-  it('the local copies are the pinned upstream files (offline drift check)', () => {
-    const r = spawnSync(process.execPath, ['scripts/check-engine-drift.mjs', '--offline'], { cwd: ROOT, encoding: 'utf8' });
+  /** Run the drift check with only `pathDir` on PATH (so the real gh is never reached) and CHECK_ENGINE_OFFLINE set or unset. */
+  function drift(pathDir: string, offlineFlag: boolean, args: readonly string[] = []) {
+    const env: Record<string, string | undefined> = { ...process.env, PATH: pathDir };
+    delete env.CHECK_ENGINE_OFFLINE;
+    if (offlineFlag) env.CHECK_ENGINE_OFFLINE = '1';
+    return spawnSync(process.execPath, ['scripts/check-engine-drift.mjs', ...args], { cwd: ROOT, encoding: 'utf8', env });
+  }
+  it('the local copies are the pinned upstream files: recorded hashes and the GitHub copies agree', () => {
+    const r = drift(fakeGh('serve'), false);
     expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toContain('3 file(s) compared against GitHub');
     expect(r.stdout).toContain('engine drift: none');
+    expect(r.stdout).not.toContain('skip');
   });
-  it('a modified copy fails the drift check', () => {
+  it('a modified copy fails the drift check, against the recorded hash and against GitHub', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'engine-drift-'));
     cpSync(join(ROOT, 'packages/engine/UPSTREAM.json'), join(tmp, 'packages/engine/UPSTREAM.json'));
     cpSync(join(ROOT, 'packages/engine/src'), join(tmp, 'packages/engine/src'), { recursive: true });
     appendFileSync(join(tmp, 'packages/engine/src/research-core.ts'), '\n// drift\n');
-    const r = spawnSync(process.execPath, ['scripts/check-engine-drift.mjs', '--offline', '--root', tmp], { cwd: ROOT, encoding: 'utf8' });
+    const r = drift(fakeGh('serve'), false, ['--root', tmp]);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('FAIL');
+    expect(r.stdout).toContain('FAIL  packages/engine/src/research-core.ts: local sha256');
+    expect(r.stdout).toContain('differs from the GitHub copy at the pinned commit (hash mismatch; never skipped)');
+    expect(r.stdout).toContain('ok    src/research/playbooks.ts@');
+  });
+  it('a pin GitHub cannot find (HTTP 404) fails even under CHECK_ENGINE_OFFLINE=1', () => {
+    for (const flag of [false, true]) {
+      const r = drift(fakeGh('not_found'), flag);
+      expect(r.status, r.stdout).toBe(1);
+      expect(r.stdout).toContain('not found on GitHub (HTTP 404)');
+      expect(r.stdout).toContain('Not skippable');
+      expect(r.stdout).not.toContain('skip  ');
+      // Every file is reported, not just the first.
+      expect(r.stdout.match(/not found on GitHub/g)).toHaveLength(3);
+    }
+  });
+  it('gh offline or not authenticated fails by default and is skipped, saying so, only under CHECK_ENGINE_OFFLINE=1', () => {
+    for (const mode of ['offline', 'unauthenticated'] as const) {
+      const dir = fakeGh(mode);
+      const closed = drift(dir, false);
+      expect(closed.status, closed.stdout).toBe(1);
+      expect(closed.stdout).toContain('FAIL  GitHub comparison could not run: gh not authenticated or offline');
+      expect(closed.stdout).toContain('set CHECK_ENGINE_OFFLINE=1 to skip this leg knowingly');
+      const open = drift(dir, true);
+      expect(open.status, open.stdout).toBe(0);
+      expect(open.stdout).toContain('skip  GitHub comparison skipped (CHECK_ENGINE_OFFLINE=1): gh not authenticated or offline');
+      expect(open.stdout).toContain('engine drift: none');
+      expect(open.stdout).not.toContain('compared against GitHub');
+    }
+  });
+  it('gh not installed: the same, with the reason named', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'no-gh-'));
+    const closed = drift(empty, false);
+    expect(closed.status).toBe(1);
+    expect(closed.stdout).toContain('gh is not installed');
+    const open = drift(empty, true);
+    expect(open.status, open.stdout).toBe(0);
+    expect(open.stdout).toContain('skip  GitHub comparison skipped (CHECK_ENGINE_OFFLINE=1): gh is not installed');
   });
   it('the generated provenance constant matches UPSTREAM.json', () => {
     const upstream = JSON.parse(readFileSync(join(ROOT, 'packages/engine/UPSTREAM.json'), 'utf8')) as { repo: string; commit: string; files: { sha256: string }[] };
     expect(ENGINE_UPSTREAM.repo).toBe(upstream.repo);
     expect(ENGINE_UPSTREAM.commit).toBe(upstream.commit);
     expect(ENGINE_UPSTREAM.files.map((f) => f.sha256)).toEqual(upstream.files.map((f) => f.sha256));
+  });
+  it('the kit wall band mirrors the pinned hl-shape constant, so a pin move that changes it fails here', () => {
+    const src = readFileSync(join(ROOT, 'packages/engine/src/hl-shape.ts'), 'utf8');
+    const m = /const OUTCOME_WALL_BAND = ([0-9.]+);/.exec(src);
+    expect(Number(must(m?.[1], 'OUTCOME_WALL_BAND in hl-shape.ts'))).toBe(OUTCOME_WALL_BAND);
   });
 });
 
@@ -158,6 +243,26 @@ describe('snapshot adapter', () => {
     expect(o.mid).toBeNull();
     expect(o.midSource).toBeNull();
     expect(o.unpriced).toBe('never_traded_wall_book');
+  });
+  it('withoutUnpricedBooks: the engine is handed no book for an unpriced market, so it cannot average the walls to 0.5; priced books stay', async () => {
+    const catalog = await loadCatalog(client);
+    const markets = [1210, 2899].map((id) => must(marketFromCatalog(catalog, id), `market ${id}`));
+    const snap = await buildSnapshot(client, catalog, markets);
+    const engineBase = (s: typeof snap, id: number) => must(normalizeVerdictSnapshot(s).find((b) => (b as { rawId: number }).rawId === id), `base ${id}`) as Record<string, unknown>;
+    // The engine's own reading of the kit snapshot: the wall book (0.00001 / 0.99999) averages to the phantom.
+    expect(engineBase(snap, 2899).yesMid as number).toBeCloseTo(0.5, 9);
+    const view = withoutUnpricedBooks(snap);
+    expect(must(view.outcomes.find((o) => o.outcome === 2899), '2899')).toMatchObject({ books: { yes: null, no: null }, mid: null, unpriced: 'never_traded_wall_book' });
+    expect(must(view.standalone.find((o) => o.outcome === 2899), '2899').books.yes).toBeNull();
+    expect(must(must(view.outcomes.find((o) => o.outcome === 1210), '1210').books.yes, '1210 book').bid).toBeCloseTo(0.0191, 6);
+    const b2899 = engineBase(view, 2899);
+    expect(b2899.yesMid).toBeNull();
+    expect(b2899.yesBid).toBeNull();
+    expect(b2899.spread).toBeNull();
+    expect(b2899.depthUsd).toBeNull();
+    expect(engineBase(view, 1210).yesMid as number).toBeCloseTo(0.0221, 6);
+    // The kit's own snapshot keeps every book it read.
+    expect(must(snap.outcomes.find((o) => o.outcome === 2899), '2899').books.yes).not.toBeNull();
   });
   it('priceFromBook: a traded coin on a wide book prices off the mark; a coin with no trades today only off a real quote it read', () => {
     const book = (bid: string | null, ask: string | null) =>
@@ -270,14 +375,14 @@ describe('compare_market', () => {
     expect(k.fairProb).toBeGreaterThan(0);
     expect(r.summary).toContain('Kalshi: low-confidence match');
     expect(r.summary).toContain('Verdict YES 2.2%');
-    const p = r.comparators.polymarket;
-    if (p) {
-      expect(p.reasons.length).toBeGreaterThan(0);
-      if (p.confidence === 'low') expect(p.caveat).toBeTruthy();
-    }
+    // The recorded gamma events (BTC-titled, six markets each) hold nothing comparable to a $100,000 Oct 1 binary, so
+    // Polymarket was read and yields no comparator; the Polymarket comparator rules are exercised on constructed cards below.
+    expect(r.comparators.polymarket).toBeNull();
+    expect(r.summary).toContain('Polymarket: no comparable market found.');
+    expect(r.dataStatus).toEqual({ polymarket: 'ok', kalshi: 'ok' });
+    expect(r.errors).toEqual({});
     expect(must(r.optionsImplied, 'options implied').prob).toBeGreaterThan(0);
     expect(r.engine.commit).toBe(ENGINE_UPSTREAM.commit);
-    expect(['ok', 'partial', 'unavailable']).toContain(r.dataStatus.kalshi);
   });
   it('2899, never traded on a wall-only book: the Kalshi ladder prices the Verdict contract, but no gap is reported against the 0.5 placeholder', async () => {
     const r = await tools.compare_market({ outcome: 2899 });
@@ -310,12 +415,7 @@ describe('compare_market', () => {
     } else {
       expect(must(k.expiryAdjusted, 'expiry adjusted').offsetHours).toBeGreaterThan(0);
     }
-    for (const c of [r.comparators.polymarket, r.comparators.kalshi]) {
-      if (!c) continue;
-      expect(c.gap).toBeNull();
-      expect(c.spreadAdjustedGap).toBeNull();
-      expect(c.line).not.toMatch(/gap [+-]?\d/);
-    }
+    expect(r.comparators.polymarket).toBeNull();
     expect(r.summary).toContain('Verdict has no tradable price (never traded, wall-only book)');
     expect(r.summary).not.toContain('Verdict YES');
     // The engine's optionsImplied.marketProb and its evidence line average the wall book to 0.5; the kit replaces both.
@@ -327,13 +427,17 @@ describe('compare_market', () => {
     expect(must(options[0], 'options evidence')).toContain('Verdict has no tradable price (never traded, wall-only book)');
     expect(r.evidence.some((e) => /market YES/.test(e))).toBe(false);
     expect(JSON.stringify(r)).not.toMatch(/50\.0%/);
+    // The recorded Deribit chain has a Sep 18 08:00 UTC expiry, two hours after the market settles.
     const fv = await tools.fair_value({ outcome: 2899 });
-    if (fv.available) {
-      expect(fv.marketProb).toBeNull();
-      expect(fv.gap).toBeNull();
-      expect(fv.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
-      expect(fv.evidence).toContain('Verdict has no tradable price (never traded, wall-only book)');
-    }
+    if (!fv.available) throw new Error(`expected available, got ${fv.reason}: ${fv.detail}`);
+    expect(fv.optionsExpiryOffsetHours).toBe(2);
+    expect(fv.impliedProb).toBeCloseTo(must(oi.prob, 'engine prob'), 9);
+    expect(fv.marketProb).toBeNull();
+    expect(fv.gap).toBeNull();
+    expect(fv.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
+    expect(fv.caveats).not.toContain(HL_MARK_TAG);
+    expect(fv.evidence).toContain('Verdict has no tradable price (never traded, wall-only book)');
+    expect(fv.evidence).not.toMatch(/market YES/);
   });
   it('2899 with a stale context: no Verdict price, no gap, no HL-mark label, and the 0.5 midPx appears nowhere', async () => {
     const stale = createTools(config, new InfoClient({ network: 'mainnet', fetch: patchedCtxFetch(['#28990', '#28991'], { markPx: '0.31' }) }), { engine: { timeoutMs: 5_000 } });
@@ -468,6 +572,46 @@ describe('edge confidence read from the engine card, not from the hardcoded equi
     expect(c.line).toContain('vs Verdict 65.0% (Verdict price is the HL mark; no two-sided book), gap +12.0pp, +6.0pp after spreads');
     expect(c.caveat).toContain('Verdict price is the HL mark; no two-sided book');
   });
+  it('a Polymarket comparator follows the same rules (the recorded gamma events hold no twin of a fixture market, so the venue path runs on a constructed card)', () => {
+    const pm = { ...comp, id: 'polymarket:0xabc', venue: 'polymarket', rawId: '0xabc', url: 'https://polymarket.com/event/btc-sep-18' };
+    const card = buildMaturityAdjustedCard({ ...base, yesMid: 0.65, yesBid: 0.64, yesAsk: 0.66 }, pm, adj(0.5, 0.56));
+    const priced = comparatorFromEngineCard(card, 'polymarket', { ...verdict, yesMid: 0.65 });
+    expect(priced.venue).toBe('polymarket');
+    expect(priced.url).toBe('https://polymarket.com/event/btc-sep-18');
+    expect(priced.line).toContain('Polymarket: 53.0% vs Verdict 65.0%, gap +12.0pp, +6.0pp after spreads (medium confidence');
+    expect(must(priced.legs[0], 'leg').id).toBe('polymarket:0xabc');
+    expect(() => comparatorFromEngineCard(card, 'kalshi', verdict)).toThrow(/has no kalshi comparator/);
+    const unpriced = comparatorFromEngineCard(card, 'polymarket', { yesMid: null, priceSource: null, unpriced: 'never_traded_wall_book' });
+    expect(unpriced.gap).toBeNull();
+    expect(unpriced.spreadAdjustedGap).toBeNull();
+    expect(unpriced.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
+    expect(unpriced.line).toBe(`Polymarket: 53.0% at the Verdict contract (medium confidence: ${unpriced.reasons.join(', ')}; maturity_adjusted_digital). Verdict has no tradable price (never traded, wall-only book); comparator shown for reference.`);
+  });
+});
+
+describe('engine references resolve to an outcome, never to the title dailies share', () => {
+  const b = (rawId: number, expiry: string | null, title = 'BTC closes above $77,250'): BaseRef => ({ rawId, title, expiry, underlying: 'BTC', direction: 'above', strike: 77250 });
+  const ranked = [b(2897, '2026-09-14T06:00:00.000Z'), b(2898, '2026-09-16T06:00:00.000Z'), b(2899, '2026-09-18T06:00:00.000Z'), b(1210, '2026-10-01T00:00:00.000Z', 'BTC closes above $100,000')];
+  it('a cross-venue reference resolves to the same-title market whose expiry is closest, as the engine matched it', () => {
+    expect(resolveMatchedBase({ matchedBaseTitle: 'BTC closes above $77,250', expiry: '2026-09-18T21:00:00Z' }, ranked)?.rawId).toBe(2899);
+    expect(resolveMatchedBase({ matchedBaseTitle: 'BTC closes above $77,250', expiry: '2026-09-14T21:00:00Z' }, ranked)?.rawId).toBe(2897);
+    expect(resolveMatchedBase({ matchedBaseTitle: 'BTC closes above $77,250', expiry: '2026-09-15T12:00:00Z' }, ranked)?.rawId).toBe(2898);
+    // Without an expiry on the reference nothing separates the three; the engine kept the first it ranked, and so does the kit.
+    expect(resolveMatchedBase({ matchedBaseTitle: 'BTC closes above $77,250', expiry: null }, ranked)?.rawId).toBe(2897);
+    expect(resolveMatchedBase({ matchedBaseTitle: 'BTC closes above $77,250', expiry: '2026-09-18T21:00:00Z' }, [...ranked].reverse())?.rawId).toBe(2899);
+    expect(resolveMatchedBase({ matchedBaseTitle: 'BTC closes above $100,000', expiry: null }, ranked)?.rawId).toBe(1210);
+    expect(resolveMatchedBase({ matchedBaseTitle: 'ETH closes above $4,000', expiry: null }, ranked)).toBeNull();
+    expect(resolveMatchedBase({ matchedBaseTitle: null, expiry: '2026-09-18T21:00:00Z' }, ranked)).toBeNull();
+  });
+  it('the Deribit base is the first ranked BTC/ETH/SOL strike market, checked against the title the engine reports', () => {
+    expect(resolveOptionsBase(ranked, 'BTC closes above $77,250')?.rawId).toBe(2897);
+    expect(resolveOptionsBase([must(ranked[3], '1210'), ...ranked.slice(0, 3)], 'BTC closes above $100,000')?.rawId).toBe(1210);
+    expect(() => resolveOptionsBase(ranked, 'BTC closes above $100,000')).toThrow(/first eligible ranked market is "BTC closes above \$77,250"/);
+    const sports: BaseRef = { rawId: 1473, title: 'Premier League winner · Arsenal', expiry: null, underlying: null, direction: null, strike: null };
+    expect(resolveOptionsBase([sports], undefined)).toBeNull();
+    expect(() => resolveOptionsBase([sports], 'BTC closes above $77,250')).toThrow(/no ranked market is eligible/);
+    expect(resolveOptionsBase([sports, ...ranked], 'BTC closes above $77,250')?.rawId).toBe(2897);
+  });
 });
 
 describe('strike offset caveat (kit-side reading aid on exact twins)', () => {
@@ -528,43 +672,130 @@ describe('find_hedges', () => {
     expect(leg.directionForNo).toBe('long');
     expect(leg.limitations.length).toBeGreaterThan(0);
   });
-  it('a sports market has no mapped hedge', async () => {
+  it('a sports market has no mapped hedge: the engine still returns a leg, with direction none on both sides and no price', async () => {
     const r = await tools.find_hedges({ outcome: 1473 });
     expect(r.hedgeable).toBe(false);
+    expect(r.underlying).toBeNull();
     expect(must(r.candidates[0], 'candidate').available).toBe(false);
-    expect(r.leg?.directionForYes ?? 'none').toBe('none');
+    const leg = must(r.leg, 'hedge leg');
+    expect(leg.directionForYes).toBe('none');
+    expect(leg.directionForNo).toBe('none');
+    expect(leg.mid).toBeNull();
+    expect(leg.rationale).toBe('No direct HL hedge is mapped for this market.');
   });
 });
 
 describe('opportunities', () => {
-  const subsetFetch = fixtureFetch({ outcomes: [1209, 1210, 1211, 1212, 1213, 1214, 1215, 1216, 1217, 1251, 1472, 1473] });
+  const OUT_OUTCOMES = [1209, 1210, 1211, 1212, 1213, 1214, 1215, 1216, 1217, 1251, 1472, 1473];
+  const subsetFetch = fixtureFetch({ log, outcomes: OUT_OUTCOMES });
   const subsetTools = createTools(config, new InfoClient({ network: 'mainnet', fetch: subsetFetch }), { engine: { timeoutMs: 5_000 } });
-  it('ranks the venue markets by tradeable quality with a reason per row', async () => {
+  const skewConfig: KitConfig = { ...config, venue: 'skew' };
+  it('ranks the venue markets by tradeable quality with a kit-built reason per row', async () => {
     const r = await subsetTools.opportunities({ limit: 3 });
     expect(OpportunitiesResult.safeParse(r).success).toBe(true);
     expect(r.venue).toBe('out');
     expect(r.scanned).toBe(11);
     expect(r.booksFetched).toBe(11);
-    expect(r.items.length).toBeGreaterThan(0);
-    expect(r.items.length).toBeLessThanOrEqual(3);
-    expect(r.items.map((i) => i.rank)).toEqual(r.items.map((_, i) => i + 1));
+    expect(r.items).toHaveLength(3);
+    expect(r.items.map((i) => i.rank)).toEqual([1, 2, 3]);
+    expect(r.items.map((i) => i.outcome)).toEqual([1216, 1473, 1214]);
     for (const item of r.items) {
-      expect(item.why).toMatch(/spread|depth|YES/);
+      expect(item.priced).toBe(true);
+      expect(item.unpriced).toBeNull();
+      expect(item.priceSource).toBe('book');
+      expect(item.why).toBe(`${fmtCents(item.spread)} spread, ${fmtUsd(item.depthUsd)} depth, YES ${fmtCents(must(item.yesMid, 'yesMid'))}`);
       expect(item.tradeCall.label.length).toBeGreaterThan(0);
       expect(item.venue).toBe('out');
     }
+    expect(must(r.items[0], 'top item').why).toBe('0.0% spread, $56 depth, YES 8.9%');
+    expect(r.unpricedCount).toBe(0);
+    expect(r.summary).toBe('Scanned 11 live Verdict markets and ranked the 8 most tradeable by spread, depth, and live odds.');
     expect(r.bookErrors).toHaveLength(0);
-    for (const c of r.comparators) if (c.confidence === 'low') expect(c.caveat).toBeTruthy();
+    // Both venues were read; the recorded payloads hold nothing comparable to the out-venue markets.
+    expect(r.dataStatus).toEqual({ polymarket: 'ok', kalshi: 'ok' });
+    expect(r.comparators).toHaveLength(0);
   });
-  it('caps book reads at maxBooks and says so in the result', async () => {
+  it('caps book reads at maxBooks and says so in the result; the rest price off the HL mark, labelled', async () => {
     const capped = createTools(config, new InfoClient({ network: 'mainnet', fetch: subsetFetch }), { engine: { timeoutMs: 5_000, maxBooks: 3 } });
-    const r = await capped.opportunities({ limit: 2 });
+    const r = await capped.opportunities({ limit: 8 });
     expect(r.scanned).toBe(11);
     expect(r.booksFetched).toBe(3);
-    expect(r.items.length).toBeGreaterThan(0);
+    expect(r.items).toHaveLength(8);
+    expect(r.unpricedCount).toBe(0);
+    const fromBook = r.items.filter((i) => i.priceSource === 'book');
+    const fromMark = r.items.filter((i) => i.priceSource === 'ctx');
+    expect(fromBook.length).toBeLessThanOrEqual(3);
+    expect(fromMark.length).toBeGreaterThanOrEqual(5);
+    for (const i of fromMark) expect(i.why).toBe(`YES ${fmtCents(must(i.yesMid, 'yesMid'))} (${'Verdict price is the HL mark; no two-sided book'})`);
   });
   it('rejects a limit above the engine maximum', async () => {
     await expect(subsetTools.opportunities({ limit: 9 })).rejects.toMatchObject({ name: 'ToolError', code: 'bad_input' });
+  });
+  it('an unpriced market carries no probability anywhere, is described as unpriced, and ranks after every priced market', async () => {
+    // Skew venue: 2949 and 2823 traded today (HL mark); 2897, 2898 and 2899 never traded. 2899's wall-only book was
+    // recorded; the other two books are not, so they are unread. Before the fix 2899 ranked first with "YES 50.0%".
+    const skew = createTools(skewConfig, new InfoClient({ network: 'mainnet', fetch: fixtureFetch({ log, outcomes: [2897, 2898, 2899, 2949, 2823] }) }), { engine: { timeoutMs: 5_000 } });
+    const r = await skew.opportunities({ limit: 8 });
+    expect(OpportunitiesResult.safeParse(r).success).toBe(true);
+    expect(r.scanned).toBe(5);
+    expect(r.items).toHaveLength(5);
+    const priced = r.items.filter((i) => i.priced);
+    const unpriced = r.items.filter((i) => !i.priced);
+    expect(priced.map((i) => i.outcome).sort()).toEqual([2823, 2949]);
+    expect(unpriced.map((i) => i.outcome).sort()).toEqual([2897, 2898, 2899]);
+    expect(Math.max(...priced.map((i) => i.rank))).toBeLessThan(Math.min(...unpriced.map((i) => i.rank)));
+    expect(r.items.map((i) => i.rank)).toEqual([1, 2, 3, 4, 5]);
+    for (const i of priced) {
+      expect(i.priceSource).toBe('ctx');
+      expect(i.why).toBe(`YES ${fmtCents(must(i.yesMid, 'yesMid'))} (Verdict price is the HL mark; no two-sided book)`);
+    }
+    const i2899 = must(r.items.find((i) => i.outcome === 2899), '2899');
+    expect(i2899).toMatchObject({ priced: false, yesMid: null, priceSource: null, unpriced: 'never_traded_wall_book', spread: null, depthUsd: null, crossVenue: null });
+    expect(i2899.why).toBe('unpriced (never traded, wall-only book); no Verdict price, spread or depth to rank on');
+    expect(i2899.tradeCall).toEqual({ label: 'Watch only', reason: 'No live executable price.' });
+    expect(must(r.items.find((i) => i.outcome === 2897), '2897').why).toBe('unpriced (never traded, book not read); no Verdict price, spread or depth to rank on');
+    expect(r.unpricedCount).toBe(3);
+    expect(r.summary).toBe('Scanned 5 live Verdict markets and ranked the 5 most tradeable by spread, depth, and live odds. 3 of the 5 shown have no Verdict price (unpriced) and rank last.');
+    expect(r.bookErrors).toHaveLength(8);
+    expect(JSON.stringify(r)).not.toMatch(/50\.0%/);
+  });
+  it('ties every cross-venue reference and the Deribit line to a ranked market by outcome, not by the title three dailies share', async () => {
+    // The engine titles 2897, 2898 and 2899 (Sep 14, 16, 18) all "BTC closes above $77,250". Make 2898 the only priced
+    // one (a traded context prices it off the HL mark at 31%) and leave 2899 on its recorded wall book.
+    const f = patchedCtxFetch(['#28980', '#28981'], { dayNtlVlm: '512.5', markPx: '0.31' }, { outcomes: [2897, 2898, 2899] });
+    const skew = createTools(skewConfig, new InfoClient({ network: 'mainnet', fetch: f }), { engine: { timeoutMs: 5_000 } });
+    const r = await skew.opportunities({ limit: 8 });
+    expect(OpportunitiesResult.safeParse(r).success).toBe(true);
+    expect(r.items.map((i) => i.outcome)).toEqual([2898, 2897, 2899]);
+    expect(must(r.items[0], 'top item')).toMatchObject({ outcome: 2898, priced: true, yesMid: 0.31, priceSource: 'ctx' });
+    // Every Kalshi reference settles Sep 18, so the engine matched it to 2899 (the closest expiry). The comparator must
+    // carry 2899's state, a read wall-only book: not 2897's unread book (the first same-title market) and not 2898's 31%.
+    expect(r.comparators).toHaveLength(10);
+    expect(r.comparators.filter((c) => c.confidence === 'medium')).toHaveLength(8);
+    expect(r.comparators.filter((c) => c.confidence === 'low')).toHaveLength(2);
+    for (const c of r.comparators) {
+      expect(c.venue).toBe('kalshi');
+      expect(c.expiry).toBe('2026-09-18T21:00:00Z');
+      expect(c.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
+      expect(c.caveats).not.toContain(`${UNPRICED_TAG_PREFIX}never_traded_no_book`);
+      expect(c.caveats).not.toContain(HL_MARK_TAG);
+      expect(c.gap).toBeNull();
+      expect(c.spreadAdjustedGap).toBeNull();
+      expect(must(c.caveat, 'caveat').length).toBeGreaterThan(0);
+      expect(c.line).not.toContain('31.0%');
+      expect(c.line).not.toMatch(/gap [+-]?\d/);
+    }
+    for (const c of r.comparators.filter((x) => x.confidence === 'medium')) expect(c.line).toContain('Verdict has no tradable price (never traded, wall-only book); comparator shown for reference.');
+    for (const c of r.comparators.filter((x) => x.confidence === 'low')) expect(c.line).toContain('low-confidence match');
+    // The Deribit reference was priced off 2898, the first ranked BTC strike market; the engine names it by title only.
+    const options = r.evidence.filter((e) => e.startsWith('Options-implied reference'));
+    expect(options).toHaveLength(1);
+    const line = must(options[0], 'options line');
+    expect(line).toContain('P(BTC above $77,250 at settle) = 52.2%');
+    expect(line).toContain('nearest options expiry +2h vs market settle; market YES 31.0% (Verdict price is the HL mark; no two-sided book)');
+    expect(line).not.toContain('no tradable price');
+    expect(JSON.stringify(r)).not.toMatch(/50\.0%/);
+    expect(JSON.stringify(r.comparators)).not.toContain('book not read');
   });
 });
 
@@ -634,7 +865,7 @@ describe('venue payloads are Zod-validated before the engine reads them', () => 
     expect(globalThis.fetch).toBe(fetchAll);
   });
   it('a malformed Kalshi ladder payload never reaches the engine: 2899 loses its Kalshi ladder instead of pricing off bad data', async () => {
-    const inner = fixtureFetch();
+    const inner = fixtureFetch({ log });
     const malformed = (async (input: string | URL | Request, init?: RequestInit) => {
       const u = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
       if (u.hostname === 'external-api.kalshi.com' && u.pathname.endsWith('/events') && u.searchParams.get('series_ticker') === 'KXBTCD') {
@@ -689,12 +920,18 @@ describe('faces over the engine tools', () => {
 });
 
 describe('hard rules', () => {
-  it('nothing in these tools touches an exchange endpoint or a venue trading API', () => {
-    expect(log.length).toBeGreaterThan(0);
+  it('every request made in this file was a Hyperliquid info POST or a venue read GET; nothing touched an exchange endpoint or a venue trading API', () => {
+    // Partition by host, not by substring: the engine's Polymarket discovery query carries "search=hyperliquid".
+    const isHyperliquid = (entry: string) => /^[A-Z]+ https:\/\/api\.hyperliquid(-testnet)?\.xyz\//.test(entry);
+    const hyperliquid = log.filter(isHyperliquid);
+    const venues = log.filter((entry) => !isHyperliquid(entry));
+    expect(hyperliquid.length).toBeGreaterThan(0);
+    expect(venues.length).toBeGreaterThan(0);
+    for (const entry of hyperliquid) expect(entry).toMatch(/^POST https:\/\/api\.hyperliquid(-testnet)?\.xyz\/info$/);
+    for (const entry of venues) expect(entry).toMatch(/^GET https:\/\/(gamma-api\.polymarket\.com|external-api\.kalshi\.com|www\.deribit\.com)\//);
     for (const entry of log) {
       expect(entry).not.toMatch(/\/exchange\b/);
       expect(entry).not.toMatch(/clob\.polymarket\.com|trading-api\.kalshi|\/orders\b/);
-      if (!/hyperliquid/.test(entry)) expect(entry.startsWith('GET ')).toBe(true);
     }
   });
 });

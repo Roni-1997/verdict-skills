@@ -173,10 +173,13 @@ function currentMark(ctx: SpotAssetCtx | undefined): number | null {
   return Number.isFinite(m) ? Math.max(0, Math.min(1, m)) : null;
 }
 
-/** hl-shape OUTCOME_WALL_BAND: on an outcome book a quote within 5c of 0 or 1 is a parked wall, not interest. */
-const WALL_BAND = 0.05;
+/**
+ * Mirrors hl-shape's unexported OUTCOME_WALL_BAND: on an outcome book a quote within 5c of 0 or 1 is a parked wall,
+ * not interest. The engine tests read the constant out of the pinned hl-shape.ts and fail if a pin move changes it.
+ */
+export const OUTCOME_WALL_BAND = 0.05;
 function hasRealQuote(top: TopOfBook): boolean {
-  return (top.bid !== null && top.bid > WALL_BAND) || (top.ask !== null && top.ask < 1 - WALL_BAND);
+  return (top.bid !== null && top.bid > OUTCOME_WALL_BAND) || (top.ask !== null && top.ask < 1 - OUTCOME_WALL_BAND);
 }
 
 /** Why a coin with no trades today and no real quote is unpriced: never traded, or traded on an earlier day. */
@@ -226,6 +229,23 @@ export function priceFromBook(book: L2Book | null, ctx: SpotAssetCtx | undefined
   const tightTwoSided = top.bid != null && top.ask != null && top.ask - top.bid <= 0.1;
   const fromBook = tightTwoSided || mid !== mark;
   return { top, mid, source: fromBook ? 'book' : 'ctx', unpriced: null };
+}
+
+/**
+ * The snapshot as the ranking engine may read it: the books of unpriced outcomes removed. The engine's
+ * normalizeVerdictOutcome averages whatever top of book it is given when mid is null, so a wall-only book
+ * (0.00001 / 0.99999) would print the 0.5 phantom, earn opportunityScore's in-band probability bonus and be described
+ * as "YES 50.0%". With neither a book nor a mid the engine has nothing to price the market with: it scores it at the
+ * floor and prints no probability. Priced outcomes keep their books; the kit's own snapshot keeps every book.
+ */
+export function withoutUnpricedBooks(snap: EngineSnapshot): EngineSnapshot {
+  const blank = (o: EngineOutcome): EngineOutcome => (o.mid === null ? { ...o, books: { yes: null, no: null } } : o);
+  return {
+    ...snap,
+    outcomes: snap.outcomes.map(blank),
+    standalone: snap.standalone.map(blank),
+    questions: snap.questions.map((q) => ({ ...q, namedOutcomes: q.namedOutcomes.map(blank), fallbackOutcome: q.fallbackOutcome ? blank(q.fallbackOutcome) : null })),
+  };
 }
 
 function questionDisplay(q: OutcomeMetaQuestion, catalog: Catalog): { name: string; description: string } {
