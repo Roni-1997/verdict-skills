@@ -1,0 +1,8 @@
+{
+ "recorded_at": "2026-09-13T20:14:15Z",
+ "sources": {
+  "testnet": "https://api.hyperliquid-testnet.xyz/info",
+  "mainnet": "https://api.hyperliquid.xyz/info"
+ },
+ "note": "Recorded with tests/fixtures/record.py; do not edit by hand."
+}
