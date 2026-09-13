@@ -19,19 +19,25 @@ import {
   type KitConfig,
   OpportunitiesResult,
   UNPRICED_TAG_PREFIX,
+  UpstreamError,
   VOL_FLIP_TAG,
   buildSnapshot,
   comparatorFromEngineCard,
   createTools,
   hlSchemas,
+  isPlaceholderCtx,
+  isStaleCtx,
   loadCatalog,
   marketFromCatalog,
   priceFromBook,
   strikeOffsetCaveat,
+  validateVenueResponse,
+  validatingFetch,
+  withValidatedVenueFetch,
 } from '../packages/core/src/index.js';
 import { runCli } from '../packages/cli/src/index.js';
 import { createServer } from '../packages/mcp/src/server.js';
-import { fixtureFetch, recordedAt } from './helpers/fixture-fetch.js';
+import { engineFixture, fixtureFetch, recordedAt } from './helpers/fixture-fetch.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -153,7 +159,7 @@ describe('snapshot adapter', () => {
     expect(o.midSource).toBeNull();
     expect(o.unpriced).toBe('never_traded_wall_book');
   });
-  it('priceFromBook: a traded coin on a wide book prices off the mark; a never-traded coin only off a real quote', () => {
+  it('priceFromBook: a traded coin on a wide book prices off the mark; a coin with no trades today only off a real quote it read', () => {
     const book = (bid: string | null, ask: string | null) =>
       hlSchemas.L2Book.parse({ coin: '#1', time: 0, levels: [bid ? [{ px: bid, sz: '100', n: 1 }] : [], ask ? [{ px: ask, sz: '100', n: 1 }] : []] });
     const ctx = (dayNtlVlm: string, markPx: string, midPx: string | null) => hlSchemas.SpotAssetCtx.parse({ coin: '#1', dayNtlVlm, markPx, midPx });
@@ -164,22 +170,58 @@ describe('snapshot adapter', () => {
     expect(traded.source).toBe('ctx');
     expect(traded.unpriced).toBeNull();
     expect(must(traded.top, 'top').ask).toBeCloseTo(0.99999, 9);
+    expect(priceFromBook(null, ctx('512.5', '0.31', '0.5'))).toMatchObject({ top: null, mid: 0.31, source: 'ctx', unpriced: null });
     // Never traded: markPx 0.5 is Hyperliquid's placeholder, so walls or an empty book price nothing.
     const placeholder = ctx('0.0', '0.5', '0.5');
+    expect(isPlaceholderCtx(placeholder)).toBe(true);
+    expect(isStaleCtx(placeholder)).toBe(false);
     expect(priceFromBook(walls, placeholder)).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_wall_book' });
     expect(priceFromBook(book(null, '0.99999'), placeholder)).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_wall_book' });
     expect(priceFromBook(book(null, null), ctx('0.0', '0.5', null))).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_wall_book' });
     expect(priceFromBook(null, placeholder)).toMatchObject({ top: null, mid: null, source: null, unpriced: 'never_traded_no_book' });
     expect(priceFromBook(null, ctx('0.0', '0.5', null))).toMatchObject({ mid: null, unpriced: 'never_traded_no_book' });
-    // A real quote on a never-traded coin is a price: the non-wall side, a tight book's mid, or the midPx of an unread two-sided book.
+    // Traded on an earlier day but not in the last 24h (34 of 368 recorded mainnet outcome coins): markPx is a stale
+    // mark and midPx the raw wall average. Before this rule the wall book priced at the 0.5 midPx labelled 'ctx'.
+    const stale = ctx('0.0', '0.31', '0.5');
+    expect(isStaleCtx(stale)).toBe(true);
+    expect(isPlaceholderCtx(stale)).toBe(false);
+    expect(priceFromBook(walls, stale)).toMatchObject({ mid: null, source: null, unpriced: 'stale_wall_book' });
+    expect(priceFromBook(book(null, '0.99999'), stale)).toMatchObject({ mid: null, source: null, unpriced: 'stale_wall_book' });
+    expect(priceFromBook(book('0.00001', null), stale)).toMatchObject({ mid: null, source: null, unpriced: 'stale_wall_book' });
+    expect(priceFromBook(book(null, null), stale)).toMatchObject({ mid: null, source: null, unpriced: 'stale_wall_book' });
+    expect(priceFromBook(null, stale)).toMatchObject({ top: null, mid: null, source: null, unpriced: 'stale_no_book' });
+    expect(priceFromBook(null, ctx('0.0', '0.31', null))).toMatchObject({ mid: null, unpriced: 'stale_no_book' });
+    // A real quote on a book the kit read prices a coin with no trades today: the non-wall side, or a tight book's mid.
     expect(priceFromBook(book('0.3', '0.99999'), ctx('0.0', '0.5', '0.649995'))).toMatchObject({ mid: 0.3, source: 'book', unpriced: null });
+    expect(priceFromBook(book('0.00001', '0.66'), stale)).toMatchObject({ mid: 0.66, source: 'book', unpriced: null });
     const tight = priceFromBook(book('0.56', '0.58'), ctx('0.0', '0.5', '0.57'));
     expect(tight.mid).toBeCloseTo(0.57, 9);
     expect(tight).toMatchObject({ source: 'book', unpriced: null });
-    expect(priceFromBook(null, ctx('0.0', '0.5', '0.57'))).toMatchObject({ mid: 0.57, source: 'ctx', unpriced: null });
-    // No context and nothing on the book: no price data at all.
+    // Without the book, the context's midPx is never a price: it is a raw average that hides a wall (recorded coin
+    // #28940 shows midPx 0.959995 = (0.92 + 0.99999) / 2 next to markPx 0.92), so an unread book stays unpriced.
+    expect(priceFromBook(null, ctx('0.0', '0.5', '0.57'))).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_no_book' });
+    expect(priceFromBook(null, ctx('0.0', '0.92', '0.959995'))).toMatchObject({ mid: null, source: null, unpriced: 'stale_no_book' });
+    // No context: only a real quote on the book prices the coin.
+    expect(priceFromBook(walls, undefined)).toMatchObject({ mid: null, source: null, unpriced: 'no_price_data' });
+    expect(priceFromBook(book('0.3', null), undefined)).toMatchObject({ mid: 0.3, source: 'book', unpriced: null });
     expect(priceFromBook(book(null, null), undefined)).toMatchObject({ mid: null, unpriced: 'no_price_data' });
     expect(priceFromBook(null, undefined)).toMatchObject({ mid: null, unpriced: 'no_price_data' });
+  });
+  it('2899 with a stale context (markPx from an earlier day, no trades in 24h): the wall book stays unpriced and nothing prints the 0.5 midPx', async () => {
+    const stale = new InfoClient({ network: 'mainnet', fetch: patchedCtxFetch(['#28990', '#28991'], { markPx: '0.31' }) });
+    const catalog = await loadCatalog(stale);
+    const m = must(marketFromCatalog(catalog, 2899), 'market 2899');
+    const snap = await buildSnapshot(stale, catalog, [m]);
+    const o = must(snap.outcomes[0], 'outcome');
+    const ctx = must(snap.assetCtxByCoin[o.yesCoin], 'ctx');
+    expect(ctx.dayNtlVlm).toBe('0.0');
+    expect(ctx.markPx).toBe('0.31');
+    expect(ctx.midPx).toBe('0.5');
+    expect(o.mid).toBeNull();
+    expect(o.midSource).toBeNull();
+    expect(o.unpriced).toBe('stale_wall_book');
+    const unread = await buildSnapshot(stale, catalog, [m], { books: false });
+    expect(must(unread.outcomes[0], 'outcome')).toMatchObject({ mid: null, midSource: null, unpriced: 'stale_no_book' });
   });
   it('maxBooks reads books for the most-traded markets only; the rest price off asset contexts', async () => {
     const catalog = await loadCatalog(client);
@@ -276,12 +318,44 @@ describe('compare_market', () => {
     }
     expect(r.summary).toContain('Verdict has no tradable price (never traded, wall-only book)');
     expect(r.summary).not.toContain('Verdict YES');
+    // The engine's optionsImplied.marketProb and its evidence line average the wall book to 0.5; the kit replaces both.
+    const oi = must(r.optionsImplied, 'options implied');
+    expect(oi.prob).toBeGreaterThan(0);
+    expect(oi.marketProb).toBeNull();
+    const options = r.evidence.filter((e) => e.startsWith('Options-implied reference'));
+    expect(options).toHaveLength(1);
+    expect(must(options[0], 'options evidence')).toContain('Verdict has no tradable price (never traded, wall-only book)');
+    expect(r.evidence.some((e) => /market YES/.test(e))).toBe(false);
+    expect(JSON.stringify(r)).not.toMatch(/50\.0%/);
     const fv = await tools.fair_value({ outcome: 2899 });
     if (fv.available) {
       expect(fv.marketProb).toBeNull();
       expect(fv.gap).toBeNull();
       expect(fv.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
+      expect(fv.evidence).toContain('Verdict has no tradable price (never traded, wall-only book)');
     }
+  });
+  it('2899 with a stale context: no Verdict price, no gap, no HL-mark label, and the 0.5 midPx appears nowhere', async () => {
+    const stale = createTools(config, new InfoClient({ network: 'mainnet', fetch: patchedCtxFetch(['#28990', '#28991'], { markPx: '0.31' }) }), { engine: { timeoutMs: 5_000 } });
+    const r = await stale.compare_market({ outcome: 2899 });
+    expect(CompareMarketResult.safeParse(r).success).toBe(true);
+    expect(r.verdict.yesMid).toBeNull();
+    expect(r.verdict.priceSource).toBeNull();
+    expect(r.verdict.unpriced).toBe('stale_wall_book');
+    const k = must(r.comparators.kalshi, 'kalshi comparator');
+    expect(k.gap).toBeNull();
+    expect(k.spreadAdjustedGap).toBeNull();
+    expect(k.caveats).toContain(`${UNPRICED_TAG_PREFIX}stale_wall_book`);
+    expect(k.caveats).not.toContain(HL_MARK_TAG);
+    expect(k.caveat).toContain('Verdict has no tradable price (no trades in 24h, wall-only book)');
+    expect(k.line).toContain('Verdict has no tradable price (no trades in 24h, wall-only book); comparator shown for reference.');
+    expect(r.summary).toContain('Verdict has no tradable price (no trades in 24h, wall-only book)');
+    expect(r.summary).not.toContain('Verdict YES');
+    expect(must(r.optionsImplied, 'options implied').marketProb).toBeNull();
+    const json = JSON.stringify(r);
+    expect(json).not.toMatch(/50\.0%/);
+    expect(json).not.toContain('HL mark');
+    expect(json).not.toContain('31.0%');
   });
   it('2899 with a traded context: the Verdict price is the HL mark and the line, caveat and summary say so; the low-rated edge has no after-spreads gap', async () => {
     const traded = createTools(config, new InfoClient({ network: 'mainnet', fetch: patchedCtxFetch(['#28990', '#28991'], { dayNtlVlm: '512.5' }) }), { engine: { timeoutMs: 5_000 } });
@@ -491,6 +565,95 @@ describe('opportunities', () => {
   });
   it('rejects a limit above the engine maximum', async () => {
     await expect(subsetTools.opportunities({ limit: 9 })).rejects.toMatchObject({ name: 'ToolError', code: 'bad_input' });
+  });
+});
+
+describe('venue payloads are Zod-validated before the engine reads them', () => {
+  const url = (s: string) => new URL(s);
+  it('accepts the recorded Polymarket, Kalshi and Deribit payloads and passes non-venue bodies through', () => {
+    expect(() => validateVenueResponse(url('https://gamma-api.polymarket.com/events?limit=200&tag_id=21'), engineFixture('polymarket_events_crypto'))).not.toThrow();
+    expect(() => validateVenueResponse(url('https://gamma-api.polymarket.com/markets?limit=60'), [])).not.toThrow();
+    expect(() => validateVenueResponse(url('https://external-api.kalshi.com/trade-api/v2/events?series_ticker=KXBTCD'), engineFixture('kalshi_events_KXBTCD'))).not.toThrow();
+    expect(() => validateVenueResponse(url('https://external-api.kalshi.com/trade-api/v2/events?series_ticker=KXBTC'), engineFixture('kalshi_events_KXBTC'))).not.toThrow();
+    expect(() => validateVenueResponse(url('https://external-api.kalshi.com/trade-api/v2/markets?limit=100'), { markets: [] })).not.toThrow();
+    expect(() => validateVenueResponse(url('https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option'), engineFixture('deribit_btc_options'))).not.toThrow();
+    expect(() => validateVenueResponse(url('https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=SOL'), { jsonrpc: '2.0', error: { code: 1, message: 'x' } })).not.toThrow();
+    expect(() => validateVenueResponse(url('https://api.oddpool.com/search/markets?q=btc'), [{ exchange: 'kalshi', market_id: 'a', yes_bid: '0.4' }])).not.toThrow();
+    expect(() => validateVenueResponse(url('https://api.oddpool.com/search/events/abc/markets'), [])).not.toThrow();
+    const hl = { anything: [1, 2, 3] };
+    expect(validateVenueResponse(url('https://api.hyperliquid.xyz/info'), hl)).toBe(hl);
+  });
+  it('rejects a body that does not match as an UpstreamError of kind schema', () => {
+    const reject = (u: string, body: unknown) => {
+      let err: unknown = null;
+      try {
+        validateVenueResponse(url(u), body);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(UpstreamError);
+      expect((err as UpstreamError).kind).toBe('schema');
+      expect((err as UpstreamError).message).toContain('did not match the expected shape');
+    };
+    reject('https://gamma-api.polymarket.com/events?tag_id=21', { foo: 1 });
+    reject('https://gamma-api.polymarket.com/events?tag_id=21', [{ markets: [{ bestBid: { nested: true } }] }]);
+    reject('https://gamma-api.polymarket.com/markets?limit=60', 'not json shaped');
+    reject('https://external-api.kalshi.com/trade-api/v2/events?series_ticker=KXBTCD', { events: 'KXBTCD' });
+    reject('https://external-api.kalshi.com/trade-api/v2/events?series_ticker=KXBTCD', { events: [{ markets: [{ yes_bid_dollars: {} }] }] });
+    reject('https://external-api.kalshi.com/trade-api/v2/markets?limit=100', { markets: [{ floor_strike: [1] }] });
+    reject('https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC', { result: [{ instrument_name: 5 }] });
+    reject('https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency=BTC', { result: 'x' });
+    reject('https://api.oddpool.com/search/markets?q=btc', { markets: [] });
+  });
+  it('the validating fetch returns the body unchanged when it matches and throws before the engine can read one that does not', async () => {
+    const good = validatingFetch(fetchAll);
+    const res = await good('https://external-api.kalshi.com/trade-api/v2/events?limit=100&status=open&with_nested_markets=true&series_ticker=KXBTCD');
+    expect(res.ok).toBe(true);
+    expect(await res.json()).toEqual(engineFixture('kalshi_events_KXBTCD'));
+    const bad = validatingFetch((async () => new Response(JSON.stringify({ events: 'nope' }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch);
+    await expect(bad('https://external-api.kalshi.com/trade-api/v2/events?series_ticker=KXBTCD')).rejects.toMatchObject({ name: 'UpstreamError', kind: 'schema' });
+    const notJson = validatingFetch((async () => new Response('<html>', { status: 200 })) as typeof fetch);
+    expect(await (await notJson('https://gamma-api.polymarket.com/events?tag_id=21')).text()).toBe('<html>');
+    const failed = validatingFetch((async () => new Response('{}', { status: 503 })) as typeof fetch);
+    expect((await failed('https://gamma-api.polymarket.com/events?tag_id=21')).status).toBe(503);
+  });
+  it('installs the wrapper on the global fetch for the duration of an engine call only, reference counted', async () => {
+    const before = globalThis.fetch;
+    await withValidatedVenueFetch(async () => {
+      const outer = globalThis.fetch;
+      expect(outer).not.toBe(before);
+      await withValidatedVenueFetch(async () => {
+        expect(globalThis.fetch).toBe(outer);
+      });
+      expect(globalThis.fetch).toBe(outer);
+    });
+    expect(globalThis.fetch).toBe(before);
+    await expect(withValidatedVenueFetch(async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
+    expect(globalThis.fetch).toBe(before);
+    await tools.compare_market({ outcome: 1210 });
+    expect(globalThis.fetch).toBe(fetchAll);
+  });
+  it('a malformed Kalshi ladder payload never reaches the engine: 2899 loses its Kalshi ladder instead of pricing off bad data', async () => {
+    const inner = fixtureFetch();
+    const malformed = (async (input: string | URL | Request, init?: RequestInit) => {
+      const u = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+      if (u.hostname === 'external-api.kalshi.com' && u.pathname.endsWith('/events') && u.searchParams.get('series_ticker') === 'KXBTCD') {
+        return new Response(JSON.stringify({ events: [{ event_ticker: 'KXBTCD-26SEP1817', markets: 'not a list' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return inner(input, init);
+    }) as typeof fetch;
+    vi.stubGlobal('fetch', malformed);
+    try {
+      const r = await tools.compare_market({ outcome: 2899 });
+      expect(CompareMarketResult.safeParse(r).success).toBe(true);
+      const method = r.comparators.kalshi?.method ?? 'none';
+      expect(['ladder_interpolation', 'maturity_adjusted_digital']).not.toContain(method);
+      expect(r.comparators.kalshi?.gap ?? null).toBeNull();
+    } finally {
+      vi.stubGlobal('fetch', fetchAll);
+    }
+    const good = await tools.compare_market({ outcome: 2899 });
+    expect(['ladder_interpolation', 'maturity_adjusted_digital']).toContain(must(good.comparators.kalshi, 'kalshi comparator').method);
   });
 });
 

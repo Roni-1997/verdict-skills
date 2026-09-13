@@ -2,9 +2,11 @@
 // research-core.ts) reads a live-state snapshot the app assembles from outcomeMeta, the outcome
 // books and spotMetaAndAssetCtxs (src/live/live-hl.ts, applyOutcomeMeta). This module builds
 // the same object from InfoClient calls, using the app's own shape helpers (hl-shape.ts, also
-// pinned in packages/engine) so descriptions parse and mids resolve exactly as they do on
-// hyperverdict.xyz. Read only; nothing here needs an account.
-import { type AssetCtx, bookTopBidAsk, ctxOutcomeMid, parseDescription as parseHlDescription, robustOutcomeMid, type TopOfBook } from '@verdict/engine';
+// pinned in packages/engine) so descriptions parse and books read exactly as they do on
+// hyperverdict.xyz. The mid rule is stricter than the app's (priceFromBook): a coin with no
+// trades in the last 24h is priced only off a real quote on a book the kit read, never off the
+// asset context's midPx or a stale mark. Read only; nothing here needs an account.
+import { type AssetCtx, bookTopBidAsk, parseDescription as parseHlDescription, robustOutcomeMid, type TopOfBook } from '@verdict/engine';
 import { z } from 'zod';
 import type { InfoClient } from './hl/client.js';
 import type { L2Book, OutcomeMetaQuestion, SpotAssetCtx } from './hl/schemas.js';
@@ -16,12 +18,15 @@ export const HEDGE_SYMBOLS = ['BTC', 'ETH', 'HYPE', 'SOL'] as const;
 const Num = z.number().finite();
 
 /**
- * Why a market carries no price. `never_traded_*`: the coin has zero 24h notional and Hyperliquid's asset context
- * holds the 0.5 placeholder mark, which is not a price; with the book read, it is empty or holds only parked walls
- * (a bid within 5c of 0, an ask within 5c of 1), or the book was not read and the context's midPx is the same
- * placeholder. `no_price_data`: neither a book mid nor a mark exists for the coin.
+ * Why a market carries no price. A coin with zero 24h notional has no trade signal today, so only a real quote on
+ * a book the kit read can price it: `never_traded_*` when Hyperliquid's asset context holds the 0.5 placeholder
+ * mark (the coin has never traded), `stale_*` when it holds a mark from an earlier day (the coin traded before but
+ * not in the last 24h; that mark is not a current price). `*_wall_book`: the book was read and is empty or holds
+ * only parked walls (a bid within 5c of 0, an ask within 5c of 1). `*_no_book`: the book was not read; the
+ * context's midPx is a raw (bid+ask)/2 that prints a phantom on a wall or one-sided book, so it is not used.
+ * `no_price_data`: neither a book mid nor a mark exists for the coin.
  */
-export const UnpricedReason = z.enum(['never_traded_wall_book', 'never_traded_no_book', 'no_price_data']);
+export const UnpricedReason = z.enum(['never_traded_wall_book', 'never_traded_no_book', 'stale_wall_book', 'stale_no_book', 'no_price_data']);
 export type UnpricedReason = z.infer<typeof UnpricedReason>;
 
 export const EngineTopOfBook = z.object({ bid: Num.nullable(), bidSz: Num.nullable(), ask: Num.nullable(), askSz: Num.nullable() });
@@ -57,8 +62,9 @@ export const EngineOutcome = z.object({
   yesAssetId: z.number().int(),
   noAssetId: z.number().int(),
   books: z.object({ yes: EngineTopOfBook.nullable(), no: EngineTopOfBook.nullable() }),
-  /** YES probability the app would display: robust book mid, falling back to the asset-context mark; null when nothing prices the market. */
+  /** YES probability: robust book mid, else Hyperliquid's mark for a coin that traded in the last 24h; null when nothing prices the market. */
   mid: Num.nullable(),
+  /** 'book': from the book the kit read. 'ctx': Hyperliquid's markPx (the coin traded today; the book is wide, one-sided or unread). */
   midSource: z.enum(['book', 'ctx']).nullable(),
   /** Why mid is null, when it is; always null when mid is a number. */
   unpriced: UnpricedReason.nullable(),
@@ -142,9 +148,29 @@ function toHlCtx(ctx: SpotAssetCtx): AssetCtx & { coin: string } {
   };
 }
 
+/** The coin traded in the last 24h (positive dayNtlVlm), so Hyperliquid's markPx is a current trade/EMA fair value. */
+export function tradedToday(ctx: SpotAssetCtx | undefined): boolean {
+  return ctx !== undefined && Number(ctx.dayNtlVlm) > 0;
+}
+
 /** Hyperliquid's context for a coin that has never traded: zero 24h notional and the 0.5 placeholder mark, which is not a price. */
 export function isPlaceholderCtx(ctx: SpotAssetCtx | undefined): boolean {
   return ctx !== undefined && Number(ctx.dayNtlVlm) === 0 && Number(ctx.markPx) === 0.5;
+}
+
+/**
+ * Hyperliquid's context for a coin that traded on an earlier day but not in the last 24h: zero 24h notional and a
+ * markPx that is not the placeholder. That mark is the last fair value from when it traded, not a current price.
+ */
+export function isStaleCtx(ctx: SpotAssetCtx | undefined): boolean {
+  return ctx !== undefined && Number(ctx.dayNtlVlm) === 0 && ctx.markPx !== undefined && Number(ctx.markPx) !== 0.5;
+}
+
+/** Hyperliquid's markPx as a probability, only for a coin that traded today; the context's midPx is never a mark. */
+function currentMark(ctx: SpotAssetCtx | undefined): number | null {
+  if (ctx === undefined || !tradedToday(ctx) || ctx.markPx === undefined) return null;
+  const m = Number(ctx.markPx);
+  return Number.isFinite(m) ? Math.max(0, Math.min(1, m)) : null;
 }
 
 /** hl-shape OUTCOME_WALL_BAND: on an outcome book a quote within 5c of 0 or 1 is a parked wall, not interest. */
@@ -153,40 +179,50 @@ function hasRealQuote(top: TopOfBook): boolean {
   return (top.bid !== null && top.bid > WALL_BAND) || (top.ask !== null && top.ask < 1 - WALL_BAND);
 }
 
+/** Why a coin with no trades today and no real quote is unpriced: never traded, or traded on an earlier day. */
+function untradedReason(ctx: SpotAssetCtx | undefined, kind: 'wall_book' | 'no_book'): UnpricedReason {
+  if (ctx === undefined || tradedToday(ctx)) return 'no_price_data';
+  return isStaleCtx(ctx) ? `stale_${kind}` : `never_traded_${kind}`;
+}
+
 export interface PriceFromBook {
   top: z.infer<typeof EngineTopOfBook> | null;
   mid: number | null;
+  /** 'ctx' only when mid is Hyperliquid's markPx for a coin that traded today; never the context's midPx. */
   source: 'book' | 'ctx' | null;
   /** Set exactly when mid is null. */
   unpriced: UnpricedReason | null;
 }
 
 /**
- * Top of book plus the mid the app would show for this coin: robust book mid, else the asset-context mark.
- * A never-traded coin is the exception: its context carries Hyperliquid's 0.5 placeholder as both markPx and, on a
- * wall-only book, midPx, and hl-shape cannot tell that from a real 50% (ctxOutcomeMid returns the midPx and
- * robustOutcomeMid anchors a wide book to it). Most deployer markets sit in that state, so when the coin has never
- * traded and no real quote exists, the result is unpriced rather than 0.5.
+ * Top of book plus the mid the kit reports for this coin.
+ *
+ * A coin that traded in the last 24h prices the way the app does: robust book mid, anchored to Hyperliquid's markPx
+ * when the book is wide or one-sided, and the mark alone when the book is empty or unread (source 'ctx').
+ *
+ * A coin with zero 24h notional has no trade signal today, and its context carries nothing usable as a mark:
+ * markPx is the 0.5 placeholder (never traded) or a fair value from an earlier day (stale), and midPx is a raw
+ * (bid+ask)/2 that prints 0.5 over a wall-only book and a phantom over any one-sided one. The app's ctxOutcomeMid
+ * returns that midPx and robustOutcomeMid anchors a wide book to it, so a wall book comes out at 50% either way.
+ * Most deployer markets sit in one of these states. The kit therefore prices such a coin only off a real quote
+ * (outside the 5c wall bands) on a book it read; otherwise the market is unpriced with the reason recorded.
  */
 export function priceFromBook(book: L2Book | null, ctx: SpotAssetCtx | undefined): PriceFromBook {
-  const mark = ctx ? ctxOutcomeMid(toHlCtx(ctx)) : null;
-  const placeholder = isPlaceholderCtx(ctx);
+  const mark = currentMark(ctx);
   if (!book) {
-    // Without the book, a never-traded coin's midPx is the only quote-derived value: none or exactly 0.5 is the
-    // placeholder pattern; anything else reflects a real two-sided book.
-    if (placeholder && (mark === null || mark === 0.5)) return { top: null, mid: null, source: null, unpriced: 'never_traded_no_book' };
-    return mark === null ? { top: null, mid: null, source: null, unpriced: 'no_price_data' } : { top: null, mid: mark, source: 'ctx', unpriced: null };
+    if (mark !== null) return { top: null, mid: mark, source: 'ctx', unpriced: null };
+    return { top: null, mid: null, source: null, unpriced: untradedReason(ctx, 'no_book') };
   }
   const top = bookTopBidAsk(book);
-  if (placeholder) {
-    // The context of a never-traded coin carries no mark (markPx is the placeholder) and a midPx that is the raw book
-    // average, a phantom on a wall book; price off the book alone, and only off a real quote.
-    if (!hasRealQuote(top)) return { top, mid: null, source: null, unpriced: 'never_traded_wall_book' };
+  if (mark === null) {
+    // No current mark to anchor to: only a real quote prices the market. Without this guard robustOutcomeMid
+    // returns the bid wall of a wall-only book (0.00001) as if it were interest.
+    if (!hasRealQuote(top)) return { top, mid: null, source: null, unpriced: untradedReason(ctx, 'wall_book') };
     const fromQuotes = robustOutcomeMid(top, null);
-    return fromQuotes == null ? { top, mid: null, source: null, unpriced: 'never_traded_wall_book' } : { top, mid: fromQuotes, source: 'book', unpriced: null };
+    return fromQuotes == null ? { top, mid: null, source: null, unpriced: untradedReason(ctx, 'wall_book') } : { top, mid: fromQuotes, source: 'book', unpriced: null };
   }
   const mid = robustOutcomeMid(top, mark);
-  if (mid == null) return mark === null ? { top, mid: null, source: null, unpriced: 'no_price_data' } : { top, mid: mark, source: 'ctx', unpriced: null };
+  if (mid == null) return { top, mid: mark, source: 'ctx', unpriced: null };
   const tightTwoSided = top.bid != null && top.ask != null && top.ask - top.bid <= 0.1;
   const fromBook = tightTwoSided || mid !== mark;
   return { top, mid, source: fromBook ? 'book' : 'ctx', unpriced: null };

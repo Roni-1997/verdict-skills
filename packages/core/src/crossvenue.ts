@@ -1,7 +1,8 @@
 // compare_market, fair_value, find_hedges and opportunities: thin, typed calls into the Verdict
 // app's cross-venue engine (packages/engine, pinned; see UPSTREAM.json). The engine fetches
 // Polymarket, Kalshi and Deribit itself; this module builds its snapshot from Hyperliquid, runs
-// it, and validates what comes back with Zod so callers get typed results and every
+// the engine under a validating fetch (venues.ts) so every venue body is Zod-checked before the
+// engine reads it, and validates what comes back with Zod so callers get typed results and every
 // low-confidence match carries a caveat instead of a bare number. Read only; no account, no LLM.
 import {
   ENGINE_UPSTREAM,
@@ -17,6 +18,7 @@ import type { InfoClient } from './hl/client.js';
 import { type Catalog, type Market, marketsFromCatalog } from './markets.js';
 import { buildSnapshot, type EngineSnapshot, UnpricedReason } from './snapshot.js';
 import { MarketSummary, summarize } from './summary.js';
+import { withValidatedVenueFetch } from './venues.js';
 
 export interface EngineOptions {
   /** Budget for the engine's venue fetches (Polymarket, Kalshi, Deribit). Default 20 s. */
@@ -107,7 +109,12 @@ const StrategyCard = z
   })
   .passthrough();
 
-const OptionsImplied = z.object({ prob: Prob.nullable(), iv: z.number(), strikeUsed: z.number(), spot: z.number(), offsetHours: z.number(), marketProb: Prob.nullable() }).passthrough();
+/**
+ * The engine's Deribit reference. Its marketProb is normalizeProbability(base), which averages a wall-only book to
+ * the 0.5 phantom; the tools replace it with the kit's Verdict price (kitOptionsImplied) before returning it.
+ */
+const OptionsImplied = z.object({ prob: Prob.nullable(), iv: z.number(), strikeUsed: z.number(), spot: z.number(), offsetHours: z.number(), marketProb: Prob.nullable(), baseTitle: z.string().optional() }).passthrough();
+type OptionsImplied = z.infer<typeof OptionsImplied>;
 
 const ResearchResult = z
   .object({
@@ -122,6 +129,7 @@ const ResearchResult = z
     generatedAt: z.string(),
   })
   .passthrough();
+type ResearchResult = z.infer<typeof ResearchResult>;
 
 /** The engine's normalized view of a Verdict market (normalizeVerdictOutcome), the fields the tools read. */
 const NormalizedBase = z
@@ -206,9 +214,12 @@ export type Comparator = z.infer<typeof Comparator>;
 export const VerdictPrice = z.object({
   /** YES probability; null when Verdict has no tradable price (see unpriced), never Hyperliquid's placeholder. */
   yesMid: Prob.nullable(),
-  /** 'book': robust mid of a two-sided book. 'ctx': Hyperliquid's mark because the book is wide or one-sided; not an executable price. */
+  /** 'book': robust mid of a book the kit read. 'ctx': Hyperliquid's markPx (the coin traded today; the book is wide, one-sided or unread); not an executable price. */
   priceSource: z.enum(['book', 'ctx']).nullable(),
-  /** Why yesMid is null: a never-traded market carries Hyperliquid's 0.5 placeholder mark and a wall-only (or unread) book, which is not a price. */
+  /**
+   * Why yesMid is null: the coin has no trades in the last 24h (never traded, or traded on an earlier day) and no real
+   * quote on a book the kit read; its context holds only the 0.5 placeholder or a stale mark, neither a price.
+   */
   unpriced: UnpricedReason.nullable(),
 });
 export type VerdictPrice = z.infer<typeof VerdictPrice>;
@@ -393,6 +404,8 @@ export function strikeOffsetCaveat(baseStrike: number | null, compStrike: number
 const UNPRICED_NOTE: Record<UnpricedReason, string> = {
   never_traded_wall_book: 'never traded, wall-only book',
   never_traded_no_book: 'never traded, book not read',
+  stale_wall_book: 'no trades in 24h, wall-only book',
+  stale_no_book: 'no trades in 24h, book not read',
   no_price_data: 'no book mid and no mark',
 };
 /** Why Verdict has no price to compare against, or null when it has one. */
@@ -601,6 +614,29 @@ function verdictPrice(base: NormalizedBase, snap: EngineSnapshot): VerdictPrice 
   return { yesMid: base.yesMid, priceSource: o.midSource, unpriced: null };
 }
 
+const OPTIONS_EVIDENCE_PREFIX = 'Options-implied reference';
+
+/** The options-implied evidence line, with the kit's Verdict price (or its absence) in place of the engine's. */
+function optionsEvidence(underlying: string, direction: string, strike: number, ref: { prob: number; iv: number; offsetHours: number }, vp: VerdictPrice): string {
+  const market = vp.yesMid !== null ? `; market YES ${pct(vp.yesMid)}${vp.priceSource === 'ctx' ? ` (${HL_MARK_NOTE})` : ''}` : `; Verdict has no tradable price (${unpricedNote(vp) ?? ''})`;
+  return `${OPTIONS_EVIDENCE_PREFIX} (${underlying} options chain): P(${underlying} ${direction} $${Math.round(strike).toLocaleString()} at settle) = ${pct(ref.prob)} (iv ${ref.iv.toFixed(1)}%, nearest options expiry ${ref.offsetHours >= 0 ? '+' : ''}${ref.offsetHours}h vs market settle${market}). Derivatives reference only, not a tradable comparator.`;
+}
+
+/**
+ * The engine's optionsImplied and evidence line carry normalizeProbability(base) as the market probability, which
+ * averages a wall-only book to the 0.5 phantom. Replace marketProb with the kit's Verdict price and rebuild the
+ * evidence line from it (or drop the line when the base the engine used is not known).
+ */
+function kitOptionsImplied(res: ResearchResult, base: NormalizedBase | undefined, vp: VerdictPrice): { optionsImplied: OptionsImplied | null; evidence: string[] } {
+  const evidence = res.evidence.filter((e) => !e.startsWith(OPTIONS_EVIDENCE_PREFIX));
+  const oi = res.optionsImplied;
+  if (!oi) return { optionsImplied: null, evidence };
+  if (oi.prob !== null && base && base.underlying !== null && base.direction !== null && base.strike !== null) {
+    evidence.push(optionsEvidence(base.underlying, base.direction, base.strike, { prob: oi.prob, iv: oi.iv, offsetHours: oi.offsetHours }, vp));
+  }
+  return { optionsImplied: { ...oi, marketProb: vp.yesMid }, evidence };
+}
+
 function verdictSide(base: NormalizedBase, snap: EngineSnapshot): z.infer<typeof VerdictSide> {
   return {
     ...verdictPrice(base, snap),
@@ -626,10 +662,11 @@ export async function compareMarket(client: InfoClient, catalog: Catalog, market
   const snap = await buildSnapshot(client, catalog, [market]);
   const base = normalizedBase(snap, market.outcome);
   const query = [base.title, base.underlying].filter((x): x is string => typeof x === 'string' && x !== '').join(' ');
-  const raw = await runResearch({ query, mode: 'cross_venue_scanner', snap, activeMarketId: base.id, deadlineAt: deadline(opts) });
+  const raw = await withValidatedVenueFetch(() => runResearch({ query, mode: 'cross_venue_scanner', snap, activeMarketId: base.id, deadlineAt: deadline(opts) }));
   const res = ResearchResult.parse(raw);
   const cards = mispricingCards(res.cards);
   const vp = verdictPrice(base, snap);
+  const options = kitOptionsImplied(res, base, vp);
   const comparators = {
     polymarket: bestComparator('polymarket', cards, res.externalMarkets, vp),
     kalshi: bestComparator('kalshi', cards, res.externalMarkets, vp),
@@ -638,8 +675,8 @@ export async function compareMarket(client: InfoClient, catalog: Catalog, market
     comparators.polymarket?.line ?? 'Polymarket: no comparable market found.',
     comparators.kalshi?.line ?? 'Kalshi: no comparable market found.',
   ];
-  if (res.optionsImplied) {
-    const oi = res.optionsImplied;
+  if (options.optionsImplied) {
+    const oi = options.optionsImplied;
     lines.push(`Deribit options-implied: ${pct(oi.prob)} (iv ${oi.iv.toFixed(1)}%, nearest expiry ${oi.offsetHours >= 0 ? '+' : ''}${oi.offsetHours}h from settle); reference only, not a tradable comparator.`);
   }
   const errors: Record<string, string> = {};
@@ -650,12 +687,12 @@ export async function compareMarket(client: InfoClient, catalog: Catalog, market
     market: summarize(market),
     verdict: verdictSide(base, snap),
     comparators,
-    optionsImplied: res.optionsImplied ?? null,
+    optionsImplied: options.optionsImplied,
     dataStatus: { polymarket: res.dataStatus.polymarket ?? 'unavailable', kalshi: res.dataStatus.kalshi ?? 'unavailable' },
     errors,
     summary: `${market.displayName}: ${head}. ${lines.join(' ')}`,
     lines,
-    evidence: res.evidence,
+    evidence: options.evidence,
     engine: engineInfo(res.route, res.generatedAt),
   });
 }
@@ -675,7 +712,7 @@ export async function fairValue(client: InfoClient, catalog: Catalog, market: Ma
   if (!base.expiry) return unavailable('missing_expiry', 'The market has no parseable expiry, so no options expiry can be matched.');
   let ref: Awaited<ReturnType<typeof deribitImpliedProb>>;
   try {
-    ref = await deribitImpliedProb(base, deadline(opts));
+    ref = await withValidatedVenueFetch(() => deribitImpliedProb(base, deadline(opts)));
   } catch (e) {
     return unavailable('upstream_unavailable', `Deribit request failed: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -707,7 +744,7 @@ export async function fairValue(client: InfoClient, catalog: Catalog, market: Ma
       ...(Math.abs(ref.strikeUsed - base.strike) / base.strike > 0.005 ? [`nearest_listed_strike_${Math.round(ref.strikeUsed)}_not_${Math.round(base.strike)}`] : []),
       ...(vp.yesMid === null ? [unpricedTag(vp)] : vp.priceSource === 'ctx' ? [HL_MARK_TAG] : []),
     ],
-    evidence: `Options-implied reference (${underlying.data} options chain): P(${underlying.data} ${base.direction} $${Math.round(base.strike).toLocaleString()} at settle) = ${pct(ref.prob)} (iv ${ref.iv.toFixed(1)}%, nearest options expiry ${ref.offsetHours >= 0 ? '+' : ''}${ref.offsetHours}h vs market settle${vp.yesMid !== null ? `; market YES ${pct(vp.yesMid)}${vp.priceSource === 'ctx' ? ` (${HL_MARK_NOTE})` : ''}` : `; Verdict has no tradable price (${unpricedNote(vp) ?? ''})`}). Derivatives reference only, not a tradable comparator.`,
+    evidence: optionsEvidence(underlying.data, base.direction, base.strike, { prob: ref.prob, iv: ref.iv, offsetHours: ref.offsetHours }, vp),
     engine: engineInfo(null, generatedAt),
   });
 }
@@ -716,7 +753,7 @@ export async function findHedges(client: InfoClient, catalog: Catalog, market: M
   const snap = await buildSnapshot(client, catalog, [market], { coinMids: true });
   const base = normalizedBase(snap, market.outcome);
   const candidates = findHedgeCandidates(base, snap).map((c) => HedgeCandidateResult.parse(c));
-  const raw = await runResearch({ query: base.title, mode: 'hedgeability', snap, activeMarketId: base.id, deadlineAt: deadline(opts) });
+  const raw = await withValidatedVenueFetch(() => runResearch({ query: base.title, mode: 'hedgeability', snap, activeMarketId: base.id, deadlineAt: deadline(opts) }));
   const res = ResearchResult.parse(raw);
   const card = res.cards.map((c) => StrategyCard.safeParse(c)).flatMap((p) => (p.success ? [p.data] : []))[0];
   const hedge = card?.hedgeLegs[0];
@@ -738,10 +775,13 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
   const now = Date.now();
   const markets = marketsFromCatalog(catalog, venue ? { venue } : {}).filter((m) => !isExpired(m, now));
   const snap = await buildSnapshot(client, catalog, markets, { coinMids: true, onBookError: 'skip', maxBooks: opts.maxBooks ?? OPPORTUNITIES_DEFAULT_BOOKS });
-  const raw = await runOpportunity({ query: '', snap, deadlineAt: deadline(opts) });
+  const raw = await withValidatedVenueFetch(() => runOpportunity({ query: '', snap, deadlineAt: deadline(opts) }));
   const res = ResearchResult.parse(raw);
   const cards = res.cards.map((c) => StrategyCard.safeParse(c)).flatMap((p) => (p.success ? [p.data] : []));
   const bases = normalizeVerdictSnapshot(snap).map((m) => NormalizedBase.parse(m));
+  // The engine's Deribit evidence names the base it priced by title; rebuild that line from the kit's Verdict price.
+  const optionsBase = res.optionsImplied ? bases.find((b) => b.title === res.optionsImplied?.baseTitle) : undefined;
+  const options = kitOptionsImplied(res, optionsBase, optionsBase ? verdictPrice(optionsBase, snap) : NO_VERDICT_PRICE);
   const byOutcome = new Map(markets.map((m) => [m.outcome, m] as const));
   const items = cards.slice(0, limit).map((card, i) => {
     const leg = card.marketLegs[0];
@@ -789,7 +829,7 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
     dataStatus: { polymarket: res.dataStatus.polymarket ?? 'unavailable', kalshi: res.dataStatus.kalshi ?? 'unavailable' },
     bookErrors: snap.bookErrors,
     summary: res.summary,
-    evidence: res.evidence,
+    evidence: options.evidence,
     engine: engineInfo(res.route, res.generatedAt),
   });
 }

@@ -15,7 +15,7 @@ export { positions } from './positions.js';
 export type { OutcomePosition } from './positions.js';
 export { BUILDER_UNSET_MESSAGE, configFromEnv } from './config.js';
 export type { KitConfig } from './config.js';
-export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, UnpricedReason, buildSnapshot, isPlaceholderCtx, priceFromBook } from './snapshot.js';
+export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, UnpricedReason, buildSnapshot, isPlaceholderCtx, isStaleCtx, priceFromBook, tradedToday } from './snapshot.js';
 export type { PriceFromBook, SnapshotOptions } from './snapshot.js';
 export {
   Comparator,
@@ -43,5 +43,19 @@ export {
 } from './crossvenue.js';
 export type { EngineOptions } from './crossvenue.js';
 export { MarketSummary, summarize } from './summary.js';
+export {
+  DeribitResponse,
+  KalshiEventsResponse,
+  KalshiMarketsResponse,
+  OddpoolEventsResponse,
+  OddpoolMarketsResponse,
+  PolymarketEventsResponse,
+  PolymarketMarketsResponse,
+  validateVenueResponse,
+  validatingFetch,
+  venueSchemaFor,
+  withValidatedVenueFetch,
+} from './venues.js';
+export type { VenueName } from './venues.js';
 export { TOOL_DOCS, ToolError, createTools, resolveSide } from './tools.js';
 export type { SideInput, ToolOptions, Tools } from './tools.js';

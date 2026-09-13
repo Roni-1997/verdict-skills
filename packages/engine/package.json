@@ -2,7 +2,7 @@
   "name": "@verdict/engine",
   "version": "0.0.0",
   "private": true,
-  "description": "A verified copy of the Verdict app's cross-venue research engine: three files copied byte for byte from Roni-1997/verdict at a pinned commit and checked by hash (see UPSTREAM.json); not an import, and no code is written here",
+  "description": "The Verdict app's cross-venue research engine: three files byte for byte from Roni-1997/verdict at a pinned commit, checked by hash on every pnpm run check (see UPSTREAM.json); no engine code is written here (GOAL.md, Decisions)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
