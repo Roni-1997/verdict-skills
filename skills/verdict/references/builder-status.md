@@ -17,7 +17,7 @@ Read only. No key, no confirmation. Needs `VERDICT_BUILDER_ADDRESS` in the envir
 
 ## Output
 
-Recorded on 2026-09-13 with builder `0x...b1` at 10 tenths of a basis point. Approved:
+Recorded on 2026-09-13 with builder `0x...b1` at 10 tenths of a basis point. Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them. Approved:
 
 ```json
 {

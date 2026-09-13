@@ -17,7 +17,7 @@ Read only. No account, no key, no confirmation.
 
 ## Output
 
-Recorded from the mainnet fixtures (outcome 1210) on 2026-09-13. Levels trimmed to the first two of each side (the recorded YES book had 6 bids and 20 asks; the NO book 20 bids and 6 asks).
+Recorded from the mainnet fixtures (outcome 1210) on 2026-09-13. Levels trimmed to the first two of each side (the recorded YES book had 6 bids and 20 asks; the NO book 20 bids and 6 asks). Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them.
 
 ```json
 {

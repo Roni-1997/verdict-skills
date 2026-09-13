@@ -39,7 +39,7 @@ Payload tools, signed by the caller, never by the kit:
 
 ## Use it from an agent
 
-Nothing is published yet, so build once from a clone: `pnpm install && pnpm run build`. Replace `<repo>` below with the absolute path of the clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000). The builder address is published by the owner; without it the read tools work and the payload tools return `not_configured`.
+Nothing is published yet, so build once from a clone: `pnpm install && pnpm run build`. Replace `<repo>` below with the absolute path of the clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000). The builder address is published by the owner; without it the read tools other than `builder_status` work, and `builder_status` and the two payload tools return `not_configured`.
 
 | Face | Read tools | Unsigned payloads | Signing |
 |---|---|---|---|
@@ -107,7 +107,7 @@ Skill, one line (builds the CLI, writes `verdict` and `verdict-mcp` launchers to
 bash <repo>/skills/verdict/scripts/install.sh --claude-md
 ```
 
-`bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it and removes from `CLAUDE.md` only a verbatim copy of that block. Both are idempotent, never prompt and download nothing. An agent runs either only after the user has said yes ([setup.md](skills/verdict/references/setup.md)).
+`bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it and removes from `CLAUDE.md` only a verbatim copy of that block. Both are idempotent and never prompt. The installer's only network access is `pnpm install --frozen-lockfile`, which fetches the repository's lockfile-pinned npm dependencies from the npm registry (registry.npmjs.org, integrity-checked against `pnpm-lock.yaml`); it fetches no scripts and pipes nothing from the network into a shell. Neither script replaces or removes a launcher or a skill directory it did not write (its launchers carry a marker comment, its skill copy carries `.repo-dir`). An agent runs either only after the user has said yes ([setup.md](skills/verdict/references/setup.md)).
 
 ### Hosted, streamable HTTP
 
@@ -123,9 +123,9 @@ The hosted server holds no keys and signs nothing. It serves the read tools and 
 
 ```
 packages/core   the tool module: Hyperliquid client, schemas, tools, engine adapter
-packages/cli    the verdict CLI, --json on every command, non-interactive flags
+packages/cli    the verdict CLI, JSON by default and --pretty to indent, no prompts
 packages/mcp    the MCP server, stdio and streamable HTTP, thin over core
-skills/verdict  SKILL.md, references per command, installer script
+skills/verdict  SKILL.md, references per command and for setup and signing, install and uninstall scripts
 bench           Crypto Skill Bench: how to run it against the skill, the score to beat, dated reports
 scripts         bench.sh runs the benchmark; skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
 docs            design notes and the builder program

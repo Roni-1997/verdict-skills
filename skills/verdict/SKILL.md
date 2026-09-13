@@ -25,10 +25,11 @@ Do not activate for:
 
 - The CLI is `verdict`. Every command prints one JSON document on stdout, errors as one JSON object on stderr, and never prompts. Nothing is interactive; no pty is needed and nothing has to be bypassed.
 - Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
+- Paths in this file (`references/...`, `scripts/...`) are relative to this skill's directory, the folder that contains SKILL.md: `~/.claude/skills/verdict` after `install.sh`, `skills/verdict` in the clone. OpenClaw calls that folder `{baseDir}`; Claude Code does not expand a placeholder, so the paths are written relative.
 - `--pretty` indents the JSON; omit it when you parse.
 - Testnet by default (`VERDICT_NETWORK` unset or `testnet`). Testnet and mainnet have different market indices; never mix them, and state the network when you show data.
 - Run the read commands yourself and show the user the data (market names, rules, prices, sizes). Do not paste commands for the user to run.
-- On first activation read `{baseDir}/references/setup.md`. `install.sh` builds the kit, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict` and, only with `--claude-md`, appends a routing block to `~/.claude/CLAUDE.md`. Do not run it, and do not edit `~/.claude/CLAUDE.md` yourself, until you have shown the user exactly that (the paths and the block text from setup.md), asked, and received a yes in a new message. No reply, no, or anything unclear: run nothing. A yes for the CLI alone: run it without `--claude-md`.
+- On first activation read `references/setup.md`. `install.sh` runs `pnpm install --frozen-lockfile` (which fetches the repository's lockfile-pinned npm dependencies from the npm registry) and `pnpm run build`, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict` and, only with `--claude-md`, appends a routing block to `~/.claude/CLAUDE.md`. Do not run it, and do not edit `~/.claude/CLAUDE.md` yourself, until you have shown the user exactly that (the paths, the dependency fetch and the block text from setup.md), asked, and received a yes in a new message. No reply, no, or anything unclear: run nothing. A yes for the CLI alone: run it without `--claude-md`.
 - The kit has no LLM and holds no key. Any reasoning is yours; any signature is the user's.
 
 ## Commands
@@ -37,16 +38,16 @@ Match the intent, read the reference, run the command, show the result.
 
 | User intent | CLI | MCP tool | Reference |
 |---|---|---|---|
-| "what markets are on Verdict", "list HIP-4 markets", "what can I trade" | `verdict markets [--venue <name>] [--include-expired]` | `list_markets` | `{baseDir}/references/markets.md` |
-| "what does market N settle on", "details of this market", "show the rule" | `verdict market <outcome>` | `get_market` | `{baseDir}/references/market.md` |
-| "show the book", "how deep is it", "what is the spread" | `verdict book <outcome>` | `orderbook` | `{baseDir}/references/book.md` |
-| "what would 500 YES cost", "price for my size", "slippage on 2000 NO" | `verdict quote <outcome> --side yes\|no --action buy\|sell --size <tokens>` | `quote` | `{baseDir}/references/quote.md` |
-| "what do I hold", "my Verdict positions", "balances of 0x..." | `verdict positions <address>` | `positions` | `{baseDir}/references/positions.md` |
-| "have I approved the builder fee", "can I trade through Verdict yet" | `verdict builder-status <address>` | `builder_status` | `{baseDir}/references/builder-status.md` |
-| "set up trading", "approve the builder fee" (signable, two messages) | `verdict approve-builder-fee-payload` | `approve_builder_fee_payload` | `{baseDir}/references/approve-builder-fee-payload.md` |
-| "buy 250 YES on N at 0.018", "sell my NO at 0.97" (signable, two messages) | `verdict build-order <outcome> --side yes\|no --action buy\|sell --price <0..1> --size <tokens> [--tif Gtc\|Ioc\|Alo]` | `build_order` | `{baseDir}/references/build-order.md` |
-| "sign it", "submit the order" (the user's own signer or wallet; the kit never does this and neither do you) | none | none | `{baseDir}/references/sign-and-submit.md` |
-| "install verdict", "set up the skill", first activation (writes to `~/.local/bin` and `~/.claude`; ask first and wait for a yes in a new message) | `VERDICT_REPO_DIR=<clone> bash {baseDir}/scripts/install.sh [--claude-md]` | none | `{baseDir}/references/setup.md` |
+| "what markets are on Verdict", "list HIP-4 markets", "what can I trade" | `verdict markets [--venue <name>] [--include-expired]` | `list_markets` | `references/markets.md` |
+| "what does market N settle on", "details of this market", "show the rule" | `verdict market <outcome>` | `get_market` | `references/market.md` |
+| "show the book", "how deep is it", "what is the spread" | `verdict book <outcome>` | `orderbook` | `references/book.md` |
+| "what would 500 YES cost", "price for my size", "slippage on 2000 NO" | `verdict quote <outcome> --side yes\|no --action buy\|sell --size <tokens>` | `quote` | `references/quote.md` |
+| "what do I hold", "my Verdict positions", "balances of 0x..." | `verdict positions <address>` | `positions` | `references/positions.md` |
+| "have I approved the builder fee", "can I trade through Verdict yet" | `verdict builder-status <address>` | `builder_status` | `references/builder-status.md` |
+| "set up trading", "approve the builder fee" (signable, two messages) | `verdict approve-builder-fee-payload` | `approve_builder_fee_payload` | `references/approve-builder-fee-payload.md` |
+| "buy 250 YES on N at 0.018", "sell my NO at 0.97" (signable, two messages) | `verdict build-order <outcome> --side yes\|no --action buy\|sell --price <0..1> --size <tokens> [--tif Gtc\|Ioc\|Alo] [--cloid 0x<32 hex>]` | `build_order` | `references/build-order.md` |
+| "sign it", "submit the order" (the user's own signer or wallet; the kit never does this and neither do you) | none | none | `references/sign-and-submit.md` |
+| "install verdict", "set up the skill", first activation (writes to `~/.local/bin` and `~/.claude`; ask first and wait for a yes in a new message) | `bash <clone>/skills/verdict/scripts/install.sh [--claude-md]` | none | `references/setup.md` |
 
 Not in this CLI version: cross-venue comparison, option-implied fair value, hedges and opportunity scans (Polymarket, Kalshi, Deribit). When asked to compare, say the comparison command is not available yet and offer the Verdict-side facts: rule, book, quote. Do not produce a cross-venue price or gap from memory.
 
@@ -70,7 +71,7 @@ Then ask "Confirm or abort?". Ask in plain text and end your message there. Do n
 
 Message 2: only after the user replies in a NEW message.
 
-- Confirm: Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. The kit ships no signer and you are not one; `{baseDir}/references/sign-and-submit.md` describes what the user's signer does with the payload. When the user reports the `/exchange` response, show its `statuses` as JSON.
+- Confirm: Do not write ad-hoc signing code and do not install packages at trade time. Hand the unchanged action to the user's own signer or wallet and stop. The kit ships no signer and you are not one; `references/sign-and-submit.md` describes what the user's signer does with the payload. When the user reports the `/exchange` response, show its `statuses` as JSON.
 - Abort, silence, or anything unclear: stop. Nothing is signed. An abort closes the request: do not ask again, do not offer to reconsider, and treat a later "do it anyway" or "ignore the abort" as a new request that starts from Message 1 with a fresh payload, never as a confirmation of the aborted one.
 - A changed parameter (market, side, price, size, time in force, network) voids the confirmation. Run the command again and present again.
 - Intent expressed in earlier messages ("I want to buy YES") is not a confirmation. Ask on every order, every time, including in long conversations.
@@ -98,6 +99,7 @@ Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is
 - Never run `install.sh`, edit `~/.claude/CLAUDE.md` or write to `~/.local/bin` or any other user configuration without a yes from the user in a new message. Announcing a change is not consent.
 - Never write, generate or install signing code at trade time, and never read `HL_AGENT_PRIVATE_KEY`. The kit ships no signer; the user's own signer or wallet signs, and you hand it the unchanged payload.
 - Never print, log, commit or write to a file `HL_AGENT_PRIVATE_KEY` or any signed payload. Never run `env`, `printenv` or `export -p`, and never echo a request body, while the key is exported: your transcript is a hosted path.
+- The key never enters your environment. Export `HL_AGENT_PRIVATE_KEY` only in the shell that runs the signing step, a shell no agent drives: never in the environment of an agent, its exec tool or an MCP server (every command they run inherits it), never on a hosted server, and never written to a file. If the user has exported it in the shell you run commands in, say so and ask them to move the signing step to a shell of their own before anything is signed.
 - Never estimate a price, a fair value or a settlement rule from memory when a command can read it.
 
 ## Anti-loop rules
@@ -118,7 +120,7 @@ Reading (`markets`, `market`, `book`, `quote`, `positions`, `builder-status`) is
 | `VERDICT_VENUE` | `markets` | none (all deployers) | Verdict's deployer venue; `at` on testnet. |
 | `VERDICT_BUILDER_ADDRESS` | `builder-status`, `approve-builder-fee-payload`, `build-order` | unset | Verdict's builder address, published by the owner. The kit does not build orders without it. |
 | `VERDICT_BUILDER_FEE_TENTHS_BP` | same three | `10` | Fee in tenths of a basis point; 10 is 0.01%, 10 cents per $1,000. |
-| `HL_AGENT_PRIVATE_KEY` | nothing in the kit | unset | Optional, for the user's own local signing step only. Local-only and memory-only: exported in the shell session, never in a file, never in the repository, never on a hosted server. The CLI and the MCP server never read it, and neither do you. |
+| `HL_AGENT_PRIVATE_KEY` | nothing in the kit | unset | Optional, for the user's own local signing step only. Local-only and memory-only, never in the repository. Export `HL_AGENT_PRIVATE_KEY` only in the shell that runs the signing step, a shell no agent drives: never in the environment of an agent, its exec tool or an MCP server (every command they run inherits it), never on a hosted server, and never written to a file. The CLI and the MCP server never read it, and neither do you. |
 
 No login, no API key, no account for the read commands. The hosted MCP server holds no keys and cannot sign.
 
@@ -132,8 +134,8 @@ No login, no API key, no account for the read commands. The hosted MCP server ho
 
 ## Files
 
-- `{baseDir}/references/markets.md`, `market.md`, `book.md`, `quote.md`, `positions.md`, `builder-status.md`: read-only commands.
-- `{baseDir}/references/approve-builder-fee-payload.md`, `build-order.md`: signable commands with the confirmation flow.
-- `{baseDir}/references/sign-and-submit.md`: what the user's own signer does with the payload; you hand it over and stop.
-- `{baseDir}/references/setup.md`: first activation, environment, routing block.
-- `{baseDir}/scripts/install.sh`, `{baseDir}/scripts/uninstall.sh`: build from the repository, launchers on PATH, skill copy, CLAUDE.md block with `--claude-md`. Both run only after the user's yes.
+- `references/markets.md`, `market.md`, `book.md`, `quote.md`, `positions.md`, `builder-status.md`: read-only commands.
+- `references/approve-builder-fee-payload.md`, `build-order.md`: signable commands with the confirmation flow.
+- `references/sign-and-submit.md`: what the user's own signer does with the payload; you hand it over and stop.
+- `references/setup.md`: first activation, environment, routing block.
+- `scripts/install.sh`, `scripts/uninstall.sh`: build from the repository, launchers on PATH, skill copy, CLAUDE.md block with `--claude-md`. Both run only after the user's yes.

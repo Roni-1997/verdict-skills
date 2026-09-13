@@ -20,7 +20,7 @@ Read only. No account, no key, no confirmation. A quote is not an order.
 
 ## Output
 
-Recorded from the mainnet fixtures (outcome 1210, buy 10 YES) on 2026-09-13. `market` is the same summary `markets` prints; trimmed here.
+Recorded from the mainnet fixtures (outcome 1210, buy 10 YES) on 2026-09-13. `market` is the same summary `markets` prints; trimmed here. Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them, so `notional` shows the float `10 * 0.0238` comes out as, not a rounded `0.238`.
 
 ```json
 {
@@ -33,7 +33,7 @@ Recorded from the mainnet fixtures (outcome 1210, buy 10 YES) on 2026-09-13. `ma
   "worstPrice": 0.0238,
   "bestPrice": 0.0238,
   "slippageCents": 0,
-  "notional": 0.238,
+  "notional": 0.23800000000000002,
   "levelsUsed": 1,
   "market": { "outcome": 1210, "venue": "out", "displayName": "BTC above 100000 at 20261001-0000?", "settlementRule": "...", "expiresAt": "2026-10-01T00:00:00.000Z" }
 }

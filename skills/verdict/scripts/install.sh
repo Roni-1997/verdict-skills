@@ -8,7 +8,13 @@
 #      .repo-dir so the copied script can find the repository when it is run again
 #   4. only with --claude-md: append the `## Verdict` routing block to ~/.claude/CLAUDE.md, after
 #      printing it, and only if no line is exactly `## Verdict`
-# Downloads nothing from third parties. Touches no keys. Never prompts. Safe to run again.
+# Network access: only `pnpm install --frozen-lockfile`, which fetches the repository's
+# lockfile-pinned npm dependencies from the npm registry (registry.npmjs.org, integrity-checked
+# against pnpm-lock.yaml; pnpm 10 runs no dependency install scripts except esbuild, see
+# pnpm-workspace.yaml). It fetches no scripts and pipes nothing from the network into a shell.
+# Touches no keys. Never prompts. Safe to run again.
+# Refuses to replace a launcher or a skill directory it did not write: its launchers carry the marker
+# comment below and its skill copy carries .repo-dir; anything else at those paths is the user's and stays.
 # An agent must ask the user and wait for a yes before running this script (skills/verdict/SKILL.md).
 set -euo pipefail
 
@@ -59,9 +65,31 @@ CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 SKILL_SRC="$REPO_DIR/skills/verdict"
 SKILL_DST="$CLAUDE_HOME/skills/verdict"
 CLAUDE_MD="$CLAUDE_HOME/CLAUDE.md"
+# The comment line every launcher this script writes carries. uninstall.sh removes a launcher only when
+# it is present; this script overwrites a launcher only when it is present. Same string in uninstall.sh.
+MARKER="verdict-skills launcher, written by skills/verdict/scripts/install.sh"
 
 if [[ ! -f "$REPO_DIR/pnpm-workspace.yaml" || ! -f "$REPO_DIR/packages/cli/package.json" || ! -f "$SKILL_SRC/SKILL.md" ]]; then
   echo "error: $REPO_DIR (from $REPO_DIR_FROM) is not the verdict-skills repository. Run this script from a clone, or set VERDICT_REPO_DIR=<clone>." >&2
+  exit 1
+fi
+
+# Refuse before changing anything. A file at a launcher path without the marker, or a skill directory
+# without .repo-dir, was not written by this script and belongs to the user.
+for name in verdict verdict-mcp; do
+  target="$BIN_DIR/$name"
+  if [[ -e "$target" ]] && ! { [[ -f "$target" ]] && grep -q "$MARKER" "$target"; }; then
+    echo "error: $target exists and was not written by install.sh (no marker comment). First line: $(head -n 1 "$target" 2>/dev/null || echo '(unreadable)')" >&2
+    echo "       Move it, or set VERDICT_BIN_DIR to another directory. Nothing was changed." >&2
+    exit 1
+  fi
+done
+SRC_REAL="$(cd "$SKILL_SRC" && pwd -P)"
+DST_REAL=""
+if [[ -d "$SKILL_DST" ]]; then DST_REAL="$(cd "$SKILL_DST" && pwd -P)"; fi
+if [[ "$SKIP_SKILL" == 0 && -e "$SKILL_DST" && "$DST_REAL" != "$SRC_REAL" && ! -f "$SKILL_DST/.repo-dir" ]]; then
+  echo "error: $SKILL_DST exists and was not written by install.sh (no .repo-dir file)." >&2
+  echo "       Move it, or run with --skip-skill to leave it alone. Nothing was changed." >&2
   exit 1
 fi
 command -v node >/dev/null 2>&1 || { echo "error: node not found (Node 22 expected)" >&2; exit 1; }
@@ -79,10 +107,11 @@ pnpm -C "$REPO_DIR" run build
 echo "==> [2/4] Launchers in $BIN_DIR"
 mkdir -p "$BIN_DIR"
 write_launcher() {
+  # Only reached when the target is absent or carries the marker (checked above).
   local target="$BIN_DIR/$1"
   cat > "$target" <<LAUNCHER
 #!/usr/bin/env bash
-# verdict-skills launcher, written by skills/verdict/scripts/install.sh
+# $MARKER
 exec node "$2" "\$@"
 LAUNCHER
   chmod 0755 "$target"
@@ -98,21 +127,17 @@ esac
 echo "==> [3/4] Skill in $SKILL_DST"
 if [[ "$SKIP_SKILL" == 1 ]]; then
   echo "    skipped"
+elif [[ -n "$DST_REAL" && "$SRC_REAL" == "$DST_REAL" ]]; then
+  echo "    source and destination are the same directory; nothing to copy"
 else
+  # Only reached when the destination is absent or carries .repo-dir (checked above).
   mkdir -p "$CLAUDE_HOME/skills"
-  SRC_REAL="$(cd "$SKILL_SRC" && pwd -P)"
-  DST_REAL=""
-  if [[ -d "$SKILL_DST" ]]; then DST_REAL="$(cd "$SKILL_DST" && pwd -P)"; fi
-  if [[ "$SRC_REAL" == "$DST_REAL" ]]; then
-    echo "    source and destination are the same directory; nothing to copy"
-  else
-    rm -rf "$SKILL_DST.tmp"
-    cp -R "$SKILL_SRC" "$SKILL_DST.tmp"
-    printf '%s\n' "$REPO_DIR" > "$SKILL_DST.tmp/.repo-dir"
-    rm -rf "$SKILL_DST"
-    mv "$SKILL_DST.tmp" "$SKILL_DST"
-    echo "    copied $(find "$SKILL_DST" -type f | wc -l | tr -d ' ') files; the clone path is saved in $SKILL_DST/.repo-dir"
-  fi
+  rm -rf "$SKILL_DST.tmp"
+  cp -R "$SKILL_SRC" "$SKILL_DST.tmp"
+  printf '%s\n' "$REPO_DIR" > "$SKILL_DST.tmp/.repo-dir"
+  rm -rf "$SKILL_DST"
+  mv "$SKILL_DST.tmp" "$SKILL_DST"
+  echo "    copied $(find "$SKILL_DST" -type f | wc -l | tr -d ' ') files; the clone path is saved in $SKILL_DST/.repo-dir, which also marks the copy as written by this script"
 fi
 
 echo "==> [4/4] Routing block in $CLAUDE_MD"
@@ -153,6 +178,13 @@ else
   echo "    ------------------------------------------------------------"
   mkdir -p "$CLAUDE_HOME"
   if [[ -s "$CLAUDE_MD" ]]; then
+    # A file whose last byte is not a newline gets one first, so the blank separator and the block
+    # start on lines of their own. uninstall.sh removes the block and the separator; that one added
+    # newline is the only byte it cannot give back, and it says so.
+    if [[ -n "$(tail -c 1 "$CLAUDE_MD")" ]]; then
+      printf '\n' >> "$CLAUDE_MD"
+      echo "    note: $CLAUDE_MD had no final newline; one was added before the block (uninstall.sh leaves it)"
+    fi
     printf '\n%s\n' "$CLAUDE_MD_BLOCK" >> "$CLAUDE_MD"
   else
     printf '%s\n' "$CLAUDE_MD_BLOCK" > "$CLAUDE_MD"

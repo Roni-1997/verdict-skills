@@ -20,7 +20,7 @@ Read only. No account, no key, no confirmation. Run it yourself and show the use
 
 ## Output
 
-Trimmed to one market. Recorded from the mainnet fixtures (venue `out`) on 2026-09-13; testnet output has the same shape.
+Trimmed to one market. Recorded from the mainnet fixtures (venue `out`) on 2026-09-13; testnet output has the same shape. Values are as recorded on 2026-09-13 and may differ on a later run: `count` follows expiries (83 at recording time; the same fixture lists 82 without `--include-expired` once market 2940 expired later that day, 83 with it).
 
 ```json
 {

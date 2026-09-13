@@ -6,6 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
 import { InfoClient, createTools, type KitConfig } from '../packages/core/src/index.js';
 import { runCli } from '../packages/cli/src/index.js';
+import { parseJsonBody } from '../packages/mcp/src/http.js';
 import { createServer } from '../packages/mcp/src/server.js';
 
 const fixture = (name: string): unknown => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
@@ -67,6 +68,22 @@ describe('CLI face', () => {
     expect(built.action.orders[0]?.b).toBe(false);
     expect(built.confirmation.at(-1)).toContain('unsigned');
   });
+  it('validates --cloid as 0x plus 32 hex characters before the payload exists, and passes a valid one through as c', async () => {
+    const base = ['build-order', '1210', '--side', 'yes', '--action', 'buy', '--price', '0.018', '--size', '250'];
+    for (const bad of ['garbage', '0x1234', '0xZZ000000000000000000000000000000', `0x${'a'.repeat(31)}`, `0x${'a'.repeat(33)}`]) {
+      const r = await runCli([...base, '--cloid', bad], config, tools);
+      expect(r.exitCode, bad).toBe(1);
+      expect(r.stdout).toBe('');
+      expect(JSON.parse(r.stderr)).toMatchObject({ error: 'bad_input' });
+      expect(r.stderr).toContain('--cloid');
+    }
+    const cloid = '0x00112233445566778899aabbccddeeff';
+    const ok = await runCli([...base, '--cloid', cloid], config, tools);
+    expect(ok.exitCode).toBe(0);
+    const built = JSON.parse(ok.stdout) as { action: { orders: { c?: string }[] } };
+    expect(built.action.orders[0]?.c).toBe(cloid);
+    expect((await runCli(base, config, tools)).stdout).not.toContain('"c":');
+  });
   it('maps tool errors to exit codes and JSON on stderr', async () => {
     expect((await runCli(['market', '999999'], config, tools)).exitCode).toBe(2);
     expect((await runCli(['quote', '1210', '--side', 'yes', '--action', 'hold', '--size', '1'], config, tools)).exitCode).toBe(1);
@@ -80,6 +97,22 @@ describe('CLI face', () => {
     expect(yes.approved).toBe(true);
     expect(no.approved).toBe(false);
     expect(no.nextStep).toContain('MAIN wallet');
+  });
+});
+
+describe('MCP streamable HTTP body parsing (no port bound)', () => {
+  it('answers a malformed POST body with 400 and a JSON-RPC parse error instead of throwing', () => {
+    const r = parseJsonBody('{not json');
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('expected a parse failure');
+    expect(r.status).toBe(400);
+    expect(JSON.parse(r.response)).toMatchObject({ jsonrpc: '2.0', id: null, error: { code: -32700 } });
+    expect((JSON.parse(r.response) as { error: { message: string } }).error.message).toMatch(/^Parse error: /);
+  });
+  it('treats an empty body as absent and returns parsed JSON otherwise', () => {
+    expect(parseJsonBody('')).toEqual({ ok: true, body: undefined });
+    expect(parseJsonBody('{"jsonrpc":"2.0","method":"ping","id":1}')).toEqual({ ok: true, body: { jsonrpc: '2.0', method: 'ping', id: 1 } });
+    expect(parseJsonBody('null')).toEqual({ ok: true, body: null });
   });
 });
 

@@ -6,7 +6,7 @@
 // needs no build, so it also runs against scratch CLAUDE_HOMEs: it must remove exactly the block
 // install.sh wrote and nothing the user owns.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,8 +98,14 @@ describe('every CLI command has a table row and a reference', () => {
     expect(section).not.toContain('build-order');
     expect(section).not.toContain('approve-builder-fee-payload');
   });
-  it('resolves every {baseDir} path it mentions to a file in the skill directory', () => {
-    const refs = new Set([...skill.matchAll(/\{baseDir\}\/([\w./-]+)/g)].map((m) => must(m[1], 'baseDir path')));
+  it('writes paths relative to the skill directory, says what that directory is, and every one resolves to a file', () => {
+    // Claude Code does not expand OpenClaw's {baseDir}; relative paths work in both hosts once the base is stated.
+    expect(skill).not.toContain('{baseDir}/');
+    expect(skill).toContain('relative to this skill\'s directory');
+    expect(skill).toContain('`~/.claude/skills/verdict` after `install.sh`');
+    expect(skill).toContain('`skills/verdict` in the clone');
+    expect(skill).toContain('OpenClaw calls that folder `{baseDir}`');
+    const refs = new Set([...skill.matchAll(/`((?:references|scripts)\/[\w-]+\.(?:md|sh))`/g)].map((m) => must(m[1], 'relative path')));
     expect(refs.size).toBeGreaterThan(8);
     for (const rel of refs) expect(existsSync(path(`${SKILL_DIR}${rel}`)), rel).toBe(true);
   });
@@ -244,9 +250,70 @@ describe('one confirmation protocol, one boundary and one signer rule, stated id
   });
 });
 
+describe('key placement: one sentence, stated identically wherever HL_AGENT_PRIVATE_KEY is explained', () => {
+  // Saying "export it in the shell session" without naming the shell invites exporting it in the shell the agent
+  // drives, where every command the agent runs inherits it. The sentence names the shell and rules out the rest.
+  const KEY_PLACEMENT =
+    'Export `HL_AGENT_PRIVATE_KEY` only in the shell that runs the signing step, a shell no agent drives: never in the environment of an agent, its exec tool or an MCP server (every command they run inherits it), never on a hosted server, and never written to a file.';
+  const setup = read(`${SKILL_DIR}references/setup.md`);
+  const signAndSubmit = read(`${SKILL_DIR}references/sign-and-submit.md`);
+  it('appears in the credentials table, the banned behaviours, setup.md and the key-handling section', () => {
+    const credentials = must(/## Credentials and configuration\n([\s\S]*?)\n## /.exec(skill)?.[1], 'credentials section');
+    const banned = must(/## Banned behaviours\n([\s\S]*?)\n## /.exec(skill)?.[1], 'banned section');
+    const keyHandling = must(/## Key handling\n([\s\S]*)$/.exec(signAndSubmit)?.[1], 'key handling section');
+    for (const doc of [credentials, banned, setup, keyHandling]) expect(doc).toContain(KEY_PLACEMENT);
+  });
+  it('never says "in the shell session" without naming the shell', () => {
+    for (const doc of skillDocs) expect(doc).not.toMatch(/in the shell session/);
+  });
+  it('describes the expiresAfter suffix with its 0x00 marker byte', () => {
+    expect(signAndSubmit).toContain('a `0x00` byte followed by `expiresAfter` as 8 bytes big-endian');
+    expect(signAndSubmit).not.toMatch(/it is appended as 8 bytes big-endian/);
+  });
+});
+
+describe('reference samples are dated and print floats as the CLI does', () => {
+  for (const f of referenceFiles) {
+    const doc = read(`${SKILL_DIR}references/${f}`);
+    if (!doc.includes('```json') || f === 'sign-and-submit.md') continue;
+    it(`${f} says its values were recorded on a date and may differ`, () => {
+      expect(doc).toMatch(/as recorded on \d{4}-\d{2}-\d{2} and may differ/);
+    });
+  }
+  it('shows the float artefacts the CLI prints instead of tidied numbers, and never a shortened settlement rule', () => {
+    const quote = read(`${SKILL_DIR}references/quote.md`);
+    const buildOrder = read(`${SKILL_DIR}references/build-order.md`);
+    expect(quote).toContain('"notional": 0.23800000000000002');
+    expect(quote).not.toContain('"notional": 0.238,');
+    expect(buildOrder).toContain('"builderFeeEstimate": 0.00045000000000000004');
+    expect(buildOrder).not.toContain('"builderFeeEstimate": 0.00045\n');
+    expect(buildOrder).not.toMatch(/"Settles: [^"]*\.\.\."/);
+  });
+});
+
 describe('installer scripts', () => {
   const install = read(`${SKILL_DIR}scripts/install.sh`);
   const uninstall = read(`${SKILL_DIR}scripts/uninstall.sh`);
+  it('say exactly what is fetched and from where, nowhere claiming to download nothing', () => {
+    const setup = read(`${SKILL_DIR}references/setup.md`);
+    const readme = read('README.md');
+    for (const doc of [install, uninstall, setup, readme, skill]) expect(doc).not.toMatch(/downloads? nothing/i);
+    for (const doc of [install, setup, readme]) {
+      expect(doc).toContain('lockfile-pinned npm dependencies');
+      expect(doc).toContain('npm registry');
+      expect(doc).toContain('pnpm-lock.yaml');
+      expect(doc).toContain('pipes nothing from the network into a shell');
+    }
+    expect(skill).toContain('fetches the repository\'s lockfile-pinned npm dependencies from the npm registry');
+  });
+  it('share one launcher marker and treat .repo-dir as the skill-copy marker on both sides', () => {
+    const marker = must(/^MARKER="([^"]+)"$/m.exec(install)?.[1], 'install.sh MARKER');
+    expect(must(/^MARKER="([^"]+)"$/m.exec(uninstall)?.[1], 'uninstall.sh MARKER')).toBe(marker);
+    expect(install).toContain('# $MARKER');
+    expect(install).toContain('! -f "$SKILL_DST/.repo-dir"');
+    expect(uninstall).toContain('-f "$SKILL_DST/.repo-dir"');
+    expect(uninstall).toContain('grep -q "$MARKER"');
+  });
   it('fail closed and never pipe the network into a shell', () => {
     for (const script of [install, uninstall]) {
       expect(script.startsWith('#!/usr/bin/env bash\n')).toBe(true);
@@ -281,7 +348,7 @@ describe('installer scripts', () => {
       expect(doc).not.toMatch(/tell the user what (you are about to add|will be added)/);
     }
     const row = must(skill.split('\n').find((line) => line.startsWith('|') && line.includes('scripts/install.sh')), 'install row');
-    expect(row).toContain('VERDICT_REPO_DIR=<clone> bash {baseDir}/scripts/install.sh');
+    expect(row).toContain('bash <clone>/skills/verdict/scripts/install.sh');
     expect(row).toContain('wait for a yes');
     expect(skill).toMatch(/Never run `install\.sh`/);
     expect(setup).toContain('.repo-dir');
@@ -307,13 +374,20 @@ describe('uninstall.sh against a scratch CLAUDE_HOME', () => {
   /** install.sh appends "\n" + block + "\n" to a non-empty file. */
   const installed = (original: string): string => `${original}\n${block}\n`;
 
-  function run(claudeMd: string | null): { status: number | null; stdout: string; stderr: string; after: string | null } {
+  const MARKER = must(/^MARKER="([^"]+)"$/m.exec(read(`${SKILL_DIR}scripts/install.sh`))?.[1], 'install.sh MARKER');
+  /** Seed files under the scratch home before the run; `survivors` lists the relative paths that still exist afterwards. */
+  function run(claudeMd: string | null, seed: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string; after: string | null; survivors: string[] } {
     const home = mkdtempSync(join(tmpdir(), 'verdict-skill-uninstall-'));
     try {
       if (claudeMd !== null) writeFileSync(join(home, 'CLAUDE.md'), claudeMd);
+      for (const [rel, text] of Object.entries(seed)) {
+        mkdirSync(join(home, rel, '..'), { recursive: true });
+        writeFileSync(join(home, rel), text);
+      }
       const r = spawnSync('bash', [script], { encoding: 'utf8', env: { ...process.env, CLAUDE_HOME: home, VERDICT_BIN_DIR: join(home, 'bin') } });
       const file = join(home, 'CLAUDE.md');
-      return { status: r.status, stdout: r.stdout, stderr: r.stderr, after: existsSync(file) ? readFileSync(file, 'utf8') : null };
+      const survivors = Object.keys(seed).filter((rel) => existsSync(join(home, rel)));
+      return { status: r.status, stdout: r.stdout, stderr: r.stderr, after: existsSync(file) ? readFileSync(file, 'utf8') : null, survivors };
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -353,6 +427,31 @@ describe('uninstall.sh against a scratch CLAUDE_HOME', () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.after).toBeNull();
   });
+  it('removes the skill copy only when it carries .repo-dir, and leaves a user-authored skill directory with exit 1', () => {
+    const ours = run(null, { 'skills/verdict/SKILL.md': '---\nname: verdict\n---\n', 'skills/verdict/.repo-dir': '/some/clone\n' });
+    expect(ours.status, ours.stderr).toBe(0);
+    expect(ours.stdout).toContain('removed (it carried .repo-dir');
+    expect(ours.survivors).toEqual([]);
+    const theirs = run(null, { 'skills/verdict/SKILL.md': '---\nname: verdict\n---\nmy own skill\n', 'skills/verdict/references/mine.md': '# mine\n' });
+    expect(theirs.status).toBe(1);
+    expect(theirs.stdout).toContain('was not written by install.sh (no .repo-dir file); left in place');
+    expect(theirs.survivors).toEqual(['skills/verdict/SKILL.md', 'skills/verdict/references/mine.md']);
+  });
+  it('removes only launchers that carry the marker and leaves a user-owned verdict binary with exit 1', () => {
+    const r = run(null, { 'bin/verdict': '#!/usr/bin/env bash\necho mine\n', 'bin/verdict-mcp': `#!/usr/bin/env bash\n# ${MARKER}\nexec node /x/bin.js "$@"\n` });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('bin/verdict was not written by install.sh (no marker comment); left in place');
+    expect(r.stdout).toContain('removed');
+    expect(r.survivors).toEqual(['bin/verdict']);
+  });
+  it('after install.sh terminated a file that had no final newline, leaves exactly that newline behind and nothing else', () => {
+    // install.sh appends "\n" to such a file first, then "\n" + block + "\n"; awk cannot know the newline was absent,
+    // so the restore is the original plus one byte. uninstall.sh and setup.md say so.
+    const noNewline = '# Mine\n\nlast line without a newline';
+    const r = run(`${noNewline}\n\n${block}\n`);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.after).toBe(`${noNewline}\n`);
+  });
 });
 
 describe('install.sh repository lookup from an installed copy (fails before any build)', () => {
@@ -381,6 +480,109 @@ describe('install.sh repository lookup from an installed copy (fails before any 
     expect(r.stderr).toContain('is not the verdict-skills repository');
     expect(r.stderr).toContain('VERDICT_REPO_DIR=<clone>');
   });
+});
+
+describe('install.sh refuses to replace what it did not write (fails before any build)', () => {
+  const script = path(`${SKILL_DIR}scripts/install.sh`);
+  const MARKER = must(/^MARKER="([^"]+)"$/m.exec(read(`${SKILL_DIR}scripts/install.sh`))?.[1], 'install.sh MARKER');
+  function runFromClone(args: readonly string[], seed: Record<string, string>): { status: number | null; stdout: string; stderr: string; survivors: Record<string, string> } {
+    const home = mkdtempSync(join(tmpdir(), 'verdict-skill-install-refuse-'));
+    try {
+      for (const [rel, text] of Object.entries(seed)) {
+        mkdirSync(join(home, rel, '..'), { recursive: true });
+        writeFileSync(join(home, rel), text);
+        if (rel.startsWith('bin/')) chmodSync(join(home, rel), 0o755);
+      }
+      const r = spawnSync('bash', [script, ...args], { encoding: 'utf8', env: { ...envWithout('VERDICT_REPO_DIR'), CLAUDE_HOME: home, VERDICT_BIN_DIR: join(home, 'bin') } });
+      const survivors: Record<string, string> = {};
+      for (const rel of Object.keys(seed)) if (existsSync(join(home, rel))) survivors[rel] = readFileSync(join(home, rel), 'utf8');
+      return { status: r.status, stdout: r.stdout, stderr: r.stderr, survivors };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+  it('leaves a user-owned verdict launcher untouched, names it, and stops before step 1', () => {
+    const mine = '#!/usr/bin/env bash\necho "my own verdict tool"\n';
+    const r = runFromClone([], { 'bin/verdict': mine });
+    expect(r.status).toBe(1);
+    expect(r.stdout).not.toContain('[1/4]');
+    expect(r.stderr).toContain('bin/verdict exists and was not written by install.sh (no marker comment)');
+    expect(r.stderr).toContain('First line: #!/usr/bin/env bash');
+    expect(r.stderr).toContain('VERDICT_BIN_DIR');
+    expect(r.survivors).toEqual({ 'bin/verdict': mine });
+  });
+  it('leaves a user-authored ~/.claude/skills/verdict untouched and points at --skip-skill', () => {
+    const r = runFromClone([], { 'skills/verdict/SKILL.md': '---\nname: verdict\n---\nmine\n' });
+    expect(r.status).toBe(1);
+    expect(r.stdout).not.toContain('[1/4]');
+    expect(r.stderr).toContain('was not written by install.sh (no .repo-dir file)');
+    expect(r.stderr).toContain('--skip-skill');
+    expect(r.survivors).toEqual({ 'skills/verdict/SKILL.md': '---\nname: verdict\n---\nmine\n' });
+  });
+  it('accepts its own marker launcher and its own .repo-dir copy as things it may replace', () => {
+    // Passing both pre-checks, the script reaches step 1 (the build); stop it there by pointing pnpm at a stub.
+    const stub = mkdtempSync(join(tmpdir(), 'verdict-skill-pnpm-stub-'));
+    try {
+      writeFileSync(join(stub, 'pnpm'), '#!/usr/bin/env bash\necho "stub pnpm $*" >&2\nexit 7\n');
+      chmodSync(join(stub, 'pnpm'), 0o755);
+      const home = mkdtempSync(join(tmpdir(), 'verdict-skill-install-ok-'));
+      try {
+        mkdirSync(join(home, 'bin'));
+        writeFileSync(join(home, 'bin', 'verdict'), `#!/usr/bin/env bash\n# ${MARKER}\nexec node /old/bin.js "$@"\n`);
+        mkdirSync(join(home, 'skills', 'verdict'), { recursive: true });
+        writeFileSync(join(home, 'skills', 'verdict', '.repo-dir'), '/old/clone\n');
+        const r = spawnSync('bash', [script], { encoding: 'utf8', env: { ...envWithout('VERDICT_REPO_DIR'), PATH: `${stub}:${process.env.PATH ?? ''}`, CLAUDE_HOME: home, VERDICT_BIN_DIR: join(home, 'bin') } });
+        expect(r.status).toBe(7);
+        expect(r.stdout).toContain('[1/4]');
+        expect(r.stderr).toContain('stub pnpm');
+        expect(r.stderr).not.toContain('was not written by install.sh');
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(stub, { recursive: true, force: true });
+    }
+  });
+});
+
+// Opt in with VERDICT_E2E_INSTALL=1: runs pnpm install and build in this clone (idempotent), then install.sh twice and
+// uninstall.sh once against scratch directories; nothing under the real ~/.local/bin or ~/.claude is touched.
+describe.skipIf(!process.env.VERDICT_E2E_INSTALL)('install.sh end to end against scratch directories (VERDICT_E2E_INSTALL=1)', () => {
+  const install = path(`${SKILL_DIR}scripts/install.sh`);
+  const uninstall = path(`${SKILL_DIR}scripts/uninstall.sh`);
+  const block = heredocBlock(read(`${SKILL_DIR}scripts/install.sh`), 'install.sh block');
+  it('appends the block once across two runs, terminates a missing final newline, writes marker launchers that run, and uninstalls to the original plus that newline', () => {
+    const home = mkdtempSync(join(tmpdir(), 'verdict-skill-e2e-'));
+    const bin = join(home, 'bin');
+    const env = { ...envWithout('VERDICT_REPO_DIR'), CLAUDE_HOME: home, VERDICT_BIN_DIR: bin };
+    try {
+      const original = '# Mine\n\nlast line without a newline';
+      writeFileSync(join(home, 'CLAUDE.md'), original);
+      for (let i = 0; i < 2; i++) {
+        const r = spawnSync('bash', [install, '--claude-md'], { encoding: 'utf8', env });
+        expect(r.status, r.stderr).toBe(0);
+      }
+      const claudeMd = readFileSync(join(home, 'CLAUDE.md'), 'utf8');
+      expect(claudeMd).toBe(`${original}\n\n${block}\n`);
+      expect(claudeMd.split('\n## Verdict\n').length).toBe(2);
+      for (const name of ['verdict', 'verdict-mcp']) {
+        const launcher = readFileSync(join(bin, name), 'utf8');
+        expect(launcher).toContain('verdict-skills launcher, written by skills/verdict/scripts/install.sh');
+        const r = spawnSync(join(bin, name), ['--help'], { encoding: 'utf8', env });
+        expect(r.status, r.stderr).toBe(0);
+      }
+      expect(readFileSync(join(home, 'skills', 'verdict', '.repo-dir'), 'utf8').trim()).toBe(path('').replace(/\/$/, ''));
+      expect(existsSync(join(home, 'skills', 'verdict', 'SKILL.md'))).toBe(true);
+      const u = spawnSync('bash', [uninstall], { encoding: 'utf8', env });
+      expect(u.status, u.stderr).toBe(0);
+      expect(readFileSync(join(home, 'CLAUDE.md'), 'utf8')).toBe(`${original}\n`);
+      expect(existsSync(join(bin, 'verdict'))).toBe(false);
+      expect(existsSync(join(bin, 'verdict-mcp'))).toBe(false);
+      expect(existsSync(join(home, 'skills', 'verdict'))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 300_000);
 });
 
 describe('README agent section', () => {

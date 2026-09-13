@@ -11,7 +11,7 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict positions <address>
   verdict builder-status <address>
   verdict approve-builder-fee-payload
-  verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo]
+  verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo] [--cloid 0x<32 hex>]
 
 Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP.
 Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
@@ -54,6 +54,14 @@ function action(v: string | undefined): 'buy' | 'sell' {
   return a;
 }
 
+/** Client order id: 16 bytes as 0x + 32 hex characters, the same rule the MCP face applies. Checked here so a bad id fails before the user signs, not after. */
+const CLOID = /^0x[0-9a-fA-F]{32}$/;
+function cloidArg(v: string | undefined): `0x${string}` | undefined {
+  if (v === undefined) return undefined;
+  if (!CLOID.test(v)) throw new ToolError(`--cloid must be 0x followed by 32 hex characters (16 bytes), got ${JSON.stringify(v)}`, 'bad_input');
+  return v as `0x${string}`;
+}
+
 export async function runCli(argv: readonly string[], config: KitConfig = configFromEnv(), tools: Tools = createTools(config)): Promise<CliResult> {
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
   try {
@@ -93,7 +101,7 @@ export async function runCli(argv: readonly string[], config: KitConfig = config
           price: need(values.price, 'price'),
           size: need(values.size, 'size'),
           tif,
-          cloid: values.cloid as `0x${string}` | undefined,
+          cloid: cloidArg(values.cloid),
         });
         return { exitCode: 0, stdout: emit(built), stderr: '' };
       }

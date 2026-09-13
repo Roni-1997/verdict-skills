@@ -18,7 +18,7 @@ No other input. The builder address and rate come from `VERDICT_BUILDER_ADDRESS`
 
 ## Output
 
-Recorded on 2026-09-13 with `VERDICT_NETWORK=mainnet`. On testnet `hyperliquidChain` is `"Testnet"`, `signatureChainId` is `"0x66eee"` and `typedData.domain.chainId` is `421614`.
+Recorded on 2026-09-13 with `VERDICT_NETWORK=mainnet`. On testnet `hyperliquidChain` is `"Testnet"`, `signatureChainId` is `"0x66eee"` and `typedData.domain.chainId` is `421614`. Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them. The `nonce` is the run's clock and differs every time.
 
 ```json
 {

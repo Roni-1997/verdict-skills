@@ -25,7 +25,7 @@ Price and size are strings on purpose: they enter the signed payload verbatim, t
 
 ## Output
 
-Recorded on 2026-09-13 from the mainnet fixtures with builder `0x...b1` at 10 tenths of a basis point.
+Recorded on 2026-09-13 from the mainnet fixtures with builder `0x...b1` at 10 tenths of a basis point. Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them, so `builderFeeEstimate` shows the float `4.5 * 10 / 100000` comes out as, not a rounded `0.00045`.
 
 ```json
 {
@@ -51,11 +51,11 @@ Recorded on 2026-09-13 from the mainnet fixtures with builder `0x...b1` at 10 te
     "maxLossIfWrong": 4.5,
     "payoutIfRight": 250,
     "builderFeeCentsPer1000": 10,
-    "builderFeeEstimate": 0.00045
+    "builderFeeEstimate": 0.00045000000000000004
   },
   "confirmation": [
     "BUY 250 template:Yes on BTC above 100000 at 20261001-0000? at 0.018",
-    "Settles: The market resolves to Yes if the BTC price is above 100000 at 20261001-0000, and otherwise resolves to No. ...",
+    "Settles: The market resolves to Yes if the BTC price is above 100000 at 20261001-0000, and otherwise resolves to No. Settlement is according to the 1-second TWAP of BTC-USDC mark price ending at 20261001-0000. If BTC is delisted before this market settles, settlement is instead according to the BTC settlement price at delisting.",
     "Notional 4.50 USDC; builder fee 10 cents per $1,000 to 0x00000000000000000000000000000000000000b1",
     "This payload is unsigned. Sign it with your own key and submit it yourself. Confirm before signing."
   ]
@@ -115,7 +115,7 @@ Message 2, only after the user replies in a new message:
 
 | Exit | stderr | Meaning | Do |
 |---|---|---|---|
-| 1 | `{"error":"bad_input",...}` | Price not strictly between 0 and 1 or more than 5 decimals; fractional or nonpositive size; missing flag; `--tif` not Gtc, Ioc or Alo; unknown side. | Fix the flags from the table. Do not guess a different market. |
+| 1 | `{"error":"bad_input",...}` | Price not strictly between 0 and 1 or more than 5 decimals; fractional or nonpositive size; missing flag; `--tif` not Gtc, Ioc or Alo; `--cloid` not `0x` followed by 32 hex characters; unknown side. | Fix the flags from the table. Do not guess a different market. |
 | 2 | `{"error":"not_found",...}` | No such market on this network. | Run `verdict markets`; check `VERDICT_NETWORK`. |
 | 3 | `{"error":"upstream",...}` | Market lookup failed. | Retry once, then report the JSON. |
 | 4 | `{"error":"not_configured",...}` | No builder code configured. The kit does not build orders without one. | Do not retry. Tell the user to set `VERDICT_BUILDER_ADDRESS`. |

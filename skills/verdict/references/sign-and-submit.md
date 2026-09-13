@@ -26,7 +26,7 @@ Use the network the payload was built for. The chain fields inside an approval p
 Prerequisites: an agent key approved for the user's account (the `approveAgent` action, done once in the Verdict app or any Hyperliquid front end), the account has approved the builder fee (`verdict builder-status` shows `approved: true`), spot USDC for a buy or the outcome tokens for a sell.
 
 1. Take `action` from `build-order` exactly as returned. Do not reorder keys, do not add or remove fields, do not reformat the price string. msgpack encodes map keys in insertion order and the hash depends on it.
-2. Compute the action hash: `keccak256( msgpack(action) || nonce as 8 bytes big-endian || 0x00 )`. The trailing byte `0x00` means no vault address. (If you ever set `expiresAfter`, it is appended as 8 bytes big-endian after that byte; the kit does not use it.)
+2. Compute the action hash: `keccak256( msgpack(action) || nonce as 8 bytes big-endian || 0x00 )`. The trailing byte `0x00` means no vault address. (If you ever set `expiresAfter`, a `0x00` byte followed by `expiresAfter` as 8 bytes big-endian is appended after that byte; the kit does not use it.)
 3. Sign this EIP-712 message with the agent private key:
 
 | Part | Value |
@@ -77,7 +77,7 @@ Do not write ad-hoc signing code and do not install packages at trade time. Hand
 
 ## Key handling
 
-- Export `HL_AGENT_PRIVATE_KEY` in the shell session that runs your signing step. Do not put it in a `.env` inside the repository, do not paste it into a chat, do not commit it, never set it on a hosted server.
+- Export `HL_AGENT_PRIVATE_KEY` only in the shell that runs the signing step, a shell no agent drives: never in the environment of an agent, its exec tool or an MCP server (every command they run inherits it), never on a hosted server, and never written to a file. Do not put it in a `.env` inside the repository, do not paste it into a chat, do not commit it. If it is exported in the shell an agent runs commands in, the agent and everything it launches can read it.
 - Use an agent key for orders, not the main wallet's key. An agent can trade; it cannot withdraw or transfer funds.
 - Rotate by approving a new agent; the old one stops working.
 - Never log or store a signed payload. A signed order is a spendable instruction until its nonce expires.
