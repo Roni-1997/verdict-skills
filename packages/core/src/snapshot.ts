@@ -4,7 +4,7 @@
 // the same object from InfoClient calls, using the app's own shape helpers (hl-shape.ts, also
 // pinned in packages/engine) so descriptions parse and mids resolve exactly as they do on
 // hyperverdict.xyz. Read only; nothing here needs an account.
-import { type AssetCtx, bookTopBidAsk, ctxOutcomeMid, parseDescription as parseHlDescription, robustOutcomeMid } from '@verdict/engine';
+import { type AssetCtx, bookTopBidAsk, ctxOutcomeMid, parseDescription as parseHlDescription, robustOutcomeMid, type TopOfBook } from '@verdict/engine';
 import { z } from 'zod';
 import type { InfoClient } from './hl/client.js';
 import type { L2Book, OutcomeMetaQuestion, SpotAssetCtx } from './hl/schemas.js';
@@ -14,6 +14,15 @@ import { type Catalog, type Market, parseDescription, splitTemplateDescription, 
 export const HEDGE_SYMBOLS = ['BTC', 'ETH', 'HYPE', 'SOL'] as const;
 
 const Num = z.number().finite();
+
+/**
+ * Why a market carries no price. `never_traded_*`: the coin has zero 24h notional and Hyperliquid's asset context
+ * holds the 0.5 placeholder mark, which is not a price; with the book read, it is empty or holds only parked walls
+ * (a bid within 5c of 0, an ask within 5c of 1), or the book was not read and the context's midPx is the same
+ * placeholder. `no_price_data`: neither a book mid nor a mark exists for the coin.
+ */
+export const UnpricedReason = z.enum(['never_traded_wall_book', 'never_traded_no_book', 'no_price_data']);
+export type UnpricedReason = z.infer<typeof UnpricedReason>;
 
 export const EngineTopOfBook = z.object({ bid: Num.nullable(), bidSz: Num.nullable(), ask: Num.nullable(), askSz: Num.nullable() });
 
@@ -48,9 +57,11 @@ export const EngineOutcome = z.object({
   yesAssetId: z.number().int(),
   noAssetId: z.number().int(),
   books: z.object({ yes: EngineTopOfBook.nullable(), no: EngineTopOfBook.nullable() }),
-  /** YES probability the app would display: robust book mid, falling back to the asset-context mark. */
+  /** YES probability the app would display: robust book mid, falling back to the asset-context mark; null when nothing prices the market. */
   mid: Num.nullable(),
   midSource: z.enum(['book', 'ctx']).nullable(),
+  /** Why mid is null, when it is; always null when mid is a number. */
+  unpriced: UnpricedReason.nullable(),
   bucketLabel: z.string().optional(),
   bucketIdx: z.number().int().optional(),
   bucketLo: Num.nullable().optional(),
@@ -131,16 +142,54 @@ function toHlCtx(ctx: SpotAssetCtx): AssetCtx & { coin: string } {
   };
 }
 
-/** Top of book plus the mid the app would show for this coin: robust book mid, else the asset-context mark. */
-export function priceFromBook(book: L2Book | null, ctx: SpotAssetCtx | undefined): { top: z.infer<typeof EngineTopOfBook> | null; mid: number | null; source: 'book' | 'ctx' | null } {
+/** Hyperliquid's context for a coin that has never traded: zero 24h notional and the 0.5 placeholder mark, which is not a price. */
+export function isPlaceholderCtx(ctx: SpotAssetCtx | undefined): boolean {
+  return ctx !== undefined && Number(ctx.dayNtlVlm) === 0 && Number(ctx.markPx) === 0.5;
+}
+
+/** hl-shape OUTCOME_WALL_BAND: on an outcome book a quote within 5c of 0 or 1 is a parked wall, not interest. */
+const WALL_BAND = 0.05;
+function hasRealQuote(top: TopOfBook): boolean {
+  return (top.bid !== null && top.bid > WALL_BAND) || (top.ask !== null && top.ask < 1 - WALL_BAND);
+}
+
+export interface PriceFromBook {
+  top: z.infer<typeof EngineTopOfBook> | null;
+  mid: number | null;
+  source: 'book' | 'ctx' | null;
+  /** Set exactly when mid is null. */
+  unpriced: UnpricedReason | null;
+}
+
+/**
+ * Top of book plus the mid the app would show for this coin: robust book mid, else the asset-context mark.
+ * A never-traded coin is the exception: its context carries Hyperliquid's 0.5 placeholder as both markPx and, on a
+ * wall-only book, midPx, and hl-shape cannot tell that from a real 50% (ctxOutcomeMid returns the midPx and
+ * robustOutcomeMid anchors a wide book to it). Most deployer markets sit in that state, so when the coin has never
+ * traded and no real quote exists, the result is unpriced rather than 0.5.
+ */
+export function priceFromBook(book: L2Book | null, ctx: SpotAssetCtx | undefined): PriceFromBook {
   const mark = ctx ? ctxOutcomeMid(toHlCtx(ctx)) : null;
-  if (!book) return { top: null, mid: mark, source: mark == null ? null : 'ctx' };
+  const placeholder = isPlaceholderCtx(ctx);
+  if (!book) {
+    // Without the book, a never-traded coin's midPx is the only quote-derived value: none or exactly 0.5 is the
+    // placeholder pattern; anything else reflects a real two-sided book.
+    if (placeholder && (mark === null || mark === 0.5)) return { top: null, mid: null, source: null, unpriced: 'never_traded_no_book' };
+    return mark === null ? { top: null, mid: null, source: null, unpriced: 'no_price_data' } : { top: null, mid: mark, source: 'ctx', unpriced: null };
+  }
   const top = bookTopBidAsk(book);
+  if (placeholder) {
+    // The context of a never-traded coin carries no mark (markPx is the placeholder) and a midPx that is the raw book
+    // average, a phantom on a wall book; price off the book alone, and only off a real quote.
+    if (!hasRealQuote(top)) return { top, mid: null, source: null, unpriced: 'never_traded_wall_book' };
+    const fromQuotes = robustOutcomeMid(top, null);
+    return fromQuotes == null ? { top, mid: null, source: null, unpriced: 'never_traded_wall_book' } : { top, mid: fromQuotes, source: 'book', unpriced: null };
+  }
   const mid = robustOutcomeMid(top, mark);
-  if (mid == null) return { top, mid: mark, source: mark == null ? null : 'ctx' };
+  if (mid == null) return mark === null ? { top, mid: null, source: null, unpriced: 'no_price_data' } : { top, mid: mark, source: 'ctx', unpriced: null };
   const tightTwoSided = top.bid != null && top.ask != null && top.ask - top.bid <= 0.1;
   const fromBook = tightTwoSided || mid !== mark;
-  return { top, mid, source: fromBook ? 'book' : 'ctx' };
+  return { top, mid, source: fromBook ? 'book' : 'ctx', unpriced: null };
 }
 
 function questionDisplay(q: OutcomeMetaQuestion, catalog: Catalog): { name: string; description: string } {
@@ -221,6 +270,7 @@ export async function buildSnapshot(client: InfoClient, catalog: Catalog, market
       books: { yes: yes.top, no: no.top },
       mid: yes.mid,
       midSource: yes.source,
+      unpriced: yes.unpriced,
       templateId: m.templateId,
       expiresAt: m.expiresAt,
       settlementRule: m.settlementRule,

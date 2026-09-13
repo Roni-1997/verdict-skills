@@ -8,19 +8,25 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ENGINE_UPSTREAM, normalizeVerdictSnapshot } from '@verdict/engine';
+import { ENGINE_UPSTREAM, type MaturityAdjustResult, buildMaturityAdjustedCard, normalizeVerdictSnapshot } from '@verdict/engine';
 import {
   Comparator,
   CompareMarketResult,
   FairValueResult,
   FindHedgesResult,
+  HL_MARK_TAG,
   InfoClient,
   type KitConfig,
   OpportunitiesResult,
+  UNPRICED_TAG_PREFIX,
+  VOL_FLIP_TAG,
   buildSnapshot,
+  comparatorFromEngineCard,
   createTools,
+  hlSchemas,
   loadCatalog,
   marketFromCatalog,
+  priceFromBook,
   strikeOffsetCaveat,
 } from '../packages/core/src/index.js';
 import { runCli } from '../packages/cli/src/index.js';
@@ -36,6 +42,19 @@ function must<T>(value: T | undefined | null, what: string): T {
 
 const log: string[] = [];
 const fetchAll = fixtureFetch({ log });
+
+/** The recorded fixtures with the asset contexts of some coins overwritten, e.g. to make a never-traded coin look traded. */
+function patchedCtxFetch(coins: readonly string[], patch: Record<string, string>): typeof fetch {
+  const inner = fixtureFetch();
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const res = await inner(input, init);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { type?: string };
+    if (body.type !== 'spotMetaAndAssetCtxs') return res;
+    const [meta, ctxs] = (await res.json()) as [unknown, { coin: string }[]];
+    const patched = ctxs.map((c) => (coins.includes(c.coin) ? { ...c, ...patch } : c));
+    return new Response(JSON.stringify([meta, patched]), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+}
 const client = new InfoClient({ network: 'mainnet', fetch: fetchAll });
 const config: KitConfig = { network: 'mainnet', venue: 'out', builder: null };
 const tools = createTools(config, client, { engine: { timeoutMs: 5_000 } });
@@ -120,14 +139,47 @@ describe('snapshot adapter', () => {
     expect(titles.some((t) => t.includes('Premier League') && t.endsWith('Arsenal'))).toBe(true);
     expect(titles.some((t) => t.endsWith('Other / field'))).toBe(true);
   });
-  it('a wall-only book yields no book mid, so the price comes from the asset context', async () => {
+  it('2899, never traded on a wall-only book: the book top is kept but nothing prices the market, least of all the 0.5 placeholder', async () => {
     const catalog = await loadCatalog(client);
     const m = must(marketFromCatalog(catalog, 2899), 'market 2899');
     const snap = await buildSnapshot(client, catalog, [m]);
     const o = must(snap.outcomes[0], 'outcome');
-    expect(must(o.books.yes, 'book').ask).toBeGreaterThan(0.99);
-    expect(o.midSource).toBe('ctx');
-    expect(o.mid).not.toBeNull();
+    const ctx = must(snap.assetCtxByCoin[o.yesCoin], 'ctx');
+    expect(Number(ctx.dayNtlVlm)).toBe(0);
+    expect(ctx.markPx).toBe('0.5');
+    expect(must(o.books.yes, 'book').bid).toBeLessThan(0.05);
+    expect(must(o.books.yes, 'book').ask).toBeGreaterThan(0.95);
+    expect(o.mid).toBeNull();
+    expect(o.midSource).toBeNull();
+    expect(o.unpriced).toBe('never_traded_wall_book');
+  });
+  it('priceFromBook: a traded coin on a wide book prices off the mark; a never-traded coin only off a real quote', () => {
+    const book = (bid: string | null, ask: string | null) =>
+      hlSchemas.L2Book.parse({ coin: '#1', time: 0, levels: [bid ? [{ px: bid, sz: '100', n: 1 }] : [], ask ? [{ px: ask, sz: '100', n: 1 }] : []] });
+    const ctx = (dayNtlVlm: string, markPx: string, midPx: string | null) => hlSchemas.SpotAssetCtx.parse({ coin: '#1', dayNtlVlm, markPx, midPx });
+    const walls = book('0.00001', '0.99999');
+    // Traded today: markPx is a real trade/EMA mark, so a wall book anchors to it (the ctx fallback path).
+    const traded = priceFromBook(walls, ctx('512.5', '0.31', '0.5'));
+    expect(traded.mid).toBeCloseTo(0.31, 9);
+    expect(traded.source).toBe('ctx');
+    expect(traded.unpriced).toBeNull();
+    expect(must(traded.top, 'top').ask).toBeCloseTo(0.99999, 9);
+    // Never traded: markPx 0.5 is Hyperliquid's placeholder, so walls or an empty book price nothing.
+    const placeholder = ctx('0.0', '0.5', '0.5');
+    expect(priceFromBook(walls, placeholder)).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_wall_book' });
+    expect(priceFromBook(book(null, '0.99999'), placeholder)).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_wall_book' });
+    expect(priceFromBook(book(null, null), ctx('0.0', '0.5', null))).toMatchObject({ mid: null, source: null, unpriced: 'never_traded_wall_book' });
+    expect(priceFromBook(null, placeholder)).toMatchObject({ top: null, mid: null, source: null, unpriced: 'never_traded_no_book' });
+    expect(priceFromBook(null, ctx('0.0', '0.5', null))).toMatchObject({ mid: null, unpriced: 'never_traded_no_book' });
+    // A real quote on a never-traded coin is a price: the non-wall side, a tight book's mid, or the midPx of an unread two-sided book.
+    expect(priceFromBook(book('0.3', '0.99999'), ctx('0.0', '0.5', '0.649995'))).toMatchObject({ mid: 0.3, source: 'book', unpriced: null });
+    const tight = priceFromBook(book('0.56', '0.58'), ctx('0.0', '0.5', '0.57'));
+    expect(tight.mid).toBeCloseTo(0.57, 9);
+    expect(tight).toMatchObject({ source: 'book', unpriced: null });
+    expect(priceFromBook(null, ctx('0.0', '0.5', '0.57'))).toMatchObject({ mid: 0.57, source: 'ctx', unpriced: null });
+    // No context and nothing on the book: no price data at all.
+    expect(priceFromBook(book(null, null), undefined)).toMatchObject({ mid: null, unpriced: 'no_price_data' });
+    expect(priceFromBook(null, undefined)).toMatchObject({ mid: null, unpriced: 'no_price_data' });
   });
   it('maxBooks reads books for the most-traded markets only; the rest price off asset contexts', async () => {
     const catalog = await loadCatalog(client);
@@ -185,19 +237,30 @@ describe('compare_market', () => {
     expect(r.engine.commit).toBe(ENGINE_UPSTREAM.commit);
     expect(['ok', 'partial', 'unavailable']).toContain(r.dataStatus.kalshi);
   });
-  it('2899: the Kalshi ladder brackets the strike, so the engine returns a model-based medium-confidence comparator', async () => {
+  it('2899, never traded on a wall-only book: the Kalshi ladder prices the Verdict contract, but no gap is reported against the 0.5 placeholder', async () => {
     const r = await tools.compare_market({ outcome: 2899 });
+    expect(CompareMarketResult.safeParse(r).success).toBe(true);
+    expect(r.verdict.yesMid).toBeNull();
+    expect(r.verdict.priceSource).toBeNull();
+    expect(r.verdict.unpriced).toBe('never_traded_wall_book');
+    expect(must(r.verdict.yesAsk, 'yes ask')).toBeGreaterThan(0.95);
     const k = must(r.comparators.kalshi, 'kalshi comparator');
     expect(['ladder_interpolation', 'maturity_adjusted_digital']).toContain(k.method);
     expect(k.confidence).toBe('medium');
     expect(k.reasons).toContain('same_underlying');
     expect(k.reasons.some((x) => x.startsWith('title_similarity_'))).toBe(true);
-    expect(k.caveats.length).toBeGreaterThan(0);
-    expect(k.caveat).toContain('Model-based');
     expect(must(k.fairProb, 'fair prob')).toBeGreaterThan(0.4);
     expect(must(k.fairProb, 'fair prob')).toBeLessThan(0.6);
-    expect(k.gap).not.toBeNull();
-    expect(k.spreadAdjustedGap).not.toBeNull();
+    expect(k.gap).toBeNull();
+    expect(k.spreadAdjustedGap).toBeNull();
+    expect(k.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
+    expect(k.caveats).toContain('verdict_book_thin');
+    expect(k.caveat).toContain('Verdict has no tradable price (never traded, wall-only book)');
+    expect(k.caveat).toContain('Model-based');
+    expect(k.line).toContain('at the Verdict contract (medium confidence');
+    expect(k.line).toContain(`; ${k.method}). Verdict has no tradable price (never traded, wall-only book); comparator shown for reference.`);
+    expect(k.line).not.toMatch(/gap [+-]?\d/);
+    expect(k.line).not.toMatch(/50\.0%/);
     expect(k.mismatchNote).toBeTruthy();
     if (k.method === 'ladder_interpolation') {
       expect(k.legs).toHaveLength(2);
@@ -205,15 +268,131 @@ describe('compare_market', () => {
     } else {
       expect(must(k.expiryAdjusted, 'expiry adjusted').offsetHours).toBeGreaterThan(0);
     }
-    expect(k.line).toContain('(medium confidence');
-    expect(k.line).toContain(`; ${k.method})`);
-    expect(r.verdict.priceSource).toBe('ctx');
+    for (const c of [r.comparators.polymarket, r.comparators.kalshi]) {
+      if (!c) continue;
+      expect(c.gap).toBeNull();
+      expect(c.spreadAdjustedGap).toBeNull();
+      expect(c.line).not.toMatch(/gap [+-]?\d/);
+    }
+    expect(r.summary).toContain('Verdict has no tradable price (never traded, wall-only book)');
+    expect(r.summary).not.toContain('Verdict YES');
+    const fv = await tools.fair_value({ outcome: 2899 });
+    if (fv.available) {
+      expect(fv.marketProb).toBeNull();
+      expect(fv.gap).toBeNull();
+      expect(fv.caveats).toContain(`${UNPRICED_TAG_PREFIX}never_traded_wall_book`);
+    }
   });
-  it('a low-confidence comparator cannot carry a gap (schema invariant)', () => {
-    const base = { venue: 'kalshi', method: 'reference', confidence: 'low', reasons: ['strike_mismatch'], caveats: [], caveat: 'x', title: 't', url: null, fairProb: 0.5, yesBid: null, yesAsk: null, spread: null, depthUsd: null, volumeUsd: null, expiry: null, spreadAdjustedGap: null, expiryAdjusted: null, mismatchNote: null, tradeCall: null, legs: [{ id: 'a', title: 't', url: null, yesMid: 0.5, strike: null, expiry: null }], line: 'l' };
+  it('2899 with a traded context: the Verdict price is the HL mark and the line, caveat and summary say so; the low-rated edge has no after-spreads gap', async () => {
+    const traded = createTools(config, new InfoClient({ network: 'mainnet', fetch: patchedCtxFetch(['#28990', '#28991'], { dayNtlVlm: '512.5' }) }), { engine: { timeoutMs: 5_000 } });
+    const r = await traded.compare_market({ outcome: 2899 });
+    expect(CompareMarketResult.safeParse(r).success).toBe(true);
+    expect(r.verdict.yesMid).toBeCloseTo(0.5, 9);
+    expect(r.verdict.priceSource).toBe('ctx');
+    expect(r.verdict.unpriced).toBeNull();
+    const k = must(r.comparators.kalshi, 'kalshi comparator');
+    expect(k.confidence).toBe('medium');
+    expect(k.edgeConfidence).toBe('low');
+    expect(must(k.gap, 'gap')).toBeCloseTo(must(r.verdict.yesMid, 'verdict mid') - must(k.fairProb, 'fair prob'), 9);
+    expect(k.spreadAdjustedGap).toBeNull();
+    expect(k.caveats).toContain(HL_MARK_TAG);
+    expect(k.caveat).toContain('Verdict price is the HL mark; no two-sided book');
+    expect(k.caveat).toContain('rates this edge low-confidence');
+    expect(k.line).toContain('vs Verdict 50.0% (Verdict price is the HL mark; no two-sided book), gap ');
+    expect(k.line).toContain(', no edge after spreads (the engine rates the edge low-confidence) (medium confidence');
+    expect(k.line).not.toMatch(/pp after spreads/);
+    expect(r.summary).toContain('Verdict YES 50.0% (Verdict price is the HL mark; no two-sided book)');
+  });
+  it('a low-confidence comparator cannot carry a gap; a low-rated edge cannot carry an after-spreads gap (schema invariants)', () => {
+    const base = { venue: 'kalshi', method: 'reference', confidence: 'low', edgeConfidence: null, reasons: ['strike_mismatch'], caveats: [], caveat: 'x', title: 't', url: null, fairProb: 0.5, yesBid: null, yesAsk: null, spread: null, depthUsd: null, volumeUsd: null, expiry: null, spreadAdjustedGap: null, expiryAdjusted: null, mismatchNote: null, tradeCall: null, legs: [{ id: 'a', title: 't', url: null, yesMid: 0.5, strike: null, expiry: null }], line: 'l' };
     expect(Comparator.safeParse({ ...base, gap: null }).success).toBe(true);
     expect(Comparator.safeParse({ ...base, gap: 0.1 }).success).toBe(false);
     expect(Comparator.safeParse({ ...base, caveat: null, gap: null }).success).toBe(false);
+    const medium = { ...base, confidence: 'medium', method: 'maturity_adjusted_digital', gap: 0.1 };
+    expect(Comparator.safeParse({ ...medium, edgeConfidence: 'medium', spreadAdjustedGap: 0.04 }).success).toBe(true);
+    expect(Comparator.safeParse({ ...medium, edgeConfidence: 'low', spreadAdjustedGap: 0.04 }).success).toBe(false);
+    expect(Comparator.safeParse({ ...medium, edgeConfidence: 'low', spreadAdjustedGap: null }).success).toBe(true);
+    expect(Comparator.safeParse({ ...medium, edgeConfidence: 'medium', caveats: [VOL_FLIP_TAG], spreadAdjustedGap: 0.04 }).success).toBe(false);
+    expect(Comparator.safeParse({ ...medium, edgeConfidence: 'medium', caveats: [`${UNPRICED_TAG_PREFIX}never_traded_wall_book`], spreadAdjustedGap: null }).success).toBe(false);
+    expect(Comparator.safeParse({ ...medium, edgeConfidence: 'medium', caveats: [`${UNPRICED_TAG_PREFIX}never_traded_wall_book`], gap: null, spreadAdjustedGap: null }).success).toBe(true);
+  });
+});
+
+describe('edge confidence read from the engine card, not from the hardcoded equivalence confidence', () => {
+  const base = {
+    id: 'verdict:1',
+    venue: 'verdict',
+    rawId: 1,
+    title: 'BTC above $77,250 on Sep 18',
+    yesMid: 0.52,
+    yesBid: 0.51,
+    yesAsk: 0.53,
+    spread: 0.02,
+    depthUsd: 500,
+    volumeUsd: 1000,
+    expiry: '2026-09-18T06:00:00.000Z',
+    underlying: 'BTC',
+    direction: 'above',
+    strike: 77250,
+    category: 'crypto',
+    derivativeKind: 'settlement',
+    rulesText: 'Settles on the Pyth BTC/USD price at 06:00 UTC.',
+  };
+  const comp = { ...base, id: 'kalshi:KXBTCD-26SEP1817-T77250', venue: 'kalshi', rawId: 'KXBTCD-26SEP1817-T77250', yesMid: 0.5, yesBid: 0.49, yesAsk: 0.51, expiry: '2026-09-18T17:00:00.000Z', url: null };
+  const adj = (rawLo: number, rawHi: number): MaturityAdjustResult => ({
+    pComp: 0.5,
+    pAdj: 0.53,
+    pAdjLo: rawLo,
+    pAdjHi: rawHi,
+    rawAdj: 0.53,
+    rawLo,
+    rawHi,
+    volSensitivity: 0.03,
+    shift: 0.03,
+    sigma: 0.45,
+    spot: 77000,
+    strike: 77250,
+    strikeOffsetPct: 0,
+    tteBaseDays: 4.35,
+    tteCompDays: 4.8,
+    offsetHours: 11,
+  });
+  const verdict = { yesMid: 0.52, priceSource: 'book' as const, unpriced: null };
+  it('a maturity bridge whose edge flips under the vol stress reports the gap but never an after-spreads number', () => {
+    const card = buildMaturityAdjustedCard(base, comp, adj(0.5, 0.56));
+    expect(card.caveats).toContain(VOL_FLIP_TAG);
+    expect(card.confidence).toBe('low');
+    expect(card.equivalenceConfidence).toBe('medium');
+    const c = comparatorFromEngineCard(card, 'kalshi', verdict);
+    expect(c.method).toBe('maturity_adjusted_digital');
+    expect(c.confidence).toBe('medium');
+    expect(c.edgeConfidence).toBe('low');
+    expect(must(c.gap, 'gap')).toBeCloseTo(-0.01, 9);
+    expect(c.spreadAdjustedGap).toBeNull();
+    expect(c.caveats).toContain(VOL_FLIP_TAG);
+    expect(c.caveat).toContain('Model edge flips sign under a +/-20% vol stress; the engine treats this as no edge');
+    expect(c.line).toContain('gap -1.0pp, no edge after spreads (flips under vol stress) (medium confidence');
+    expect(c.line).not.toMatch(/pp after spreads/);
+    expect(must(c.expiryAdjusted, 'expiry adjusted').offsetHours).toBe(11);
+  });
+  it('a sign-stable bridge whose gap clears the spreads and the model band keeps its after-spreads number', () => {
+    const card = buildMaturityAdjustedCard({ ...base, yesMid: 0.65, yesBid: 0.64, yesAsk: 0.66 }, comp, adj(0.5, 0.56));
+    expect(card.caveats).not.toContain(VOL_FLIP_TAG);
+    expect(card.confidence).toBe('medium');
+    const c = comparatorFromEngineCard(card, 'kalshi', { ...verdict, yesMid: 0.65 });
+    expect(c.edgeConfidence).toBe('medium');
+    expect(must(c.gap, 'gap')).toBeCloseTo(0.12, 9);
+    expect(must(c.spreadAdjustedGap, 'after spreads')).toBeCloseTo(0.06, 9);
+    expect(c.line).toContain('gap +12.0pp, +6.0pp after spreads (medium confidence');
+    expect(c.caveat).not.toContain('no edge');
+    expect(c.caveat).toContain('Model-based comparator');
+  });
+  it('a Verdict price from the HL mark is labelled on the line and in the caveats even when the edge holds', () => {
+    const card = buildMaturityAdjustedCard({ ...base, yesMid: 0.65, yesBid: 0.64, yesAsk: 0.66 }, comp, adj(0.5, 0.56));
+    const c = comparatorFromEngineCard(card, 'kalshi', { yesMid: 0.65, priceSource: 'ctx', unpriced: null });
+    expect(c.caveats).toContain(HL_MARK_TAG);
+    expect(c.line).toContain('vs Verdict 65.0% (Verdict price is the HL mark; no two-sided book), gap +12.0pp, +6.0pp after spreads');
+    expect(c.caveat).toContain('Verdict price is the HL mark; no two-sided book');
   });
 });
 

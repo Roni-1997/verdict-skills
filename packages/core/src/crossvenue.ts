@@ -15,7 +15,7 @@ import {
 import { z } from 'zod';
 import type { InfoClient } from './hl/client.js';
 import { type Catalog, type Market, marketsFromCatalog } from './markets.js';
-import { buildSnapshot, type EngineSnapshot } from './snapshot.js';
+import { buildSnapshot, type EngineSnapshot, UnpricedReason } from './snapshot.js';
 import { MarketSummary, summarize } from './summary.js';
 
 export interface EngineOptions {
@@ -28,6 +28,15 @@ export interface EngineOptions {
 const Prob = z.number().finite();
 const Confidence = z.enum(['low', 'medium', 'high']);
 const RawRecord = z.record(z.string(), z.unknown());
+
+// Caveat tags the kit adds next to the engine's own (Comparator.caveats).
+/** Prefix of the tag set when Verdict has no tradable price; the suffix is the UnpricedReason. */
+export const UNPRICED_TAG_PREFIX = 'verdict_unpriced_';
+/** Set when the Verdict price is Hyperliquid's mark on a wide or one-sided book, not a two-sided book mid. */
+export const HL_MARK_TAG = 'verdict_price_is_hl_mark';
+/** The engine's own tag on a maturity-adjusted card whose edge changes sign under a +/-20% vol stress. */
+export const VOL_FLIP_TAG = 'edge_flips_under_vol_stress';
+const HL_MARK_NOTE = 'Verdict price is the HL mark; no two-sided book';
 
 // What the engine returns: read leniently (passthrough) and only the fields the tools use.
 const ExternalRef = z
@@ -66,7 +75,10 @@ const MispricingCard = z
     fairProb: Prob.nullable(),
     normalizedDelta: z.number().nullable(),
     adjustedDelta: z.number().nullable(),
+    /** Resolution equivalence of the pair; the engine hardcodes 'medium' on every model-based card. */
     equivalenceConfidence: Confidence,
+    /** The engine's confidence in the edge itself: 'low' when the gap sits inside its model band or flips under vol stress. */
+    confidence: Confidence,
     caveats: z.array(z.string()),
     evidence: z.array(z.string()),
     /** Present on exact-twin cards only; model-based cards are reviews, never tickets. */
@@ -115,6 +127,7 @@ const ResearchResult = z
 const NormalizedBase = z
   .object({
     id: z.string(),
+    rawId: z.number().int(),
     title: z.string(),
     yesMid: Prob.nullable(),
     yesBid: Prob.nullable(),
@@ -141,12 +154,18 @@ export const Comparator = z
     venue: z.enum(['polymarket', 'kalshi']),
     /** exact_twin: same contract, gap is comparable. ladder_interpolation / maturity_adjusted_digital: model-based. reference: closest market, not comparable. */
     method: z.enum(['exact_twin', 'ladder_interpolation', 'maturity_adjusted_digital', 'reference']),
-    /** The engine's resolution-equivalence confidence. */
+    /** The engine's resolution-equivalence confidence: whether the two contracts settle the same question. */
     confidence: Confidence,
+    /**
+     * The engine's confidence in the edge itself, from its card; null for a reference comparator. 'low' means the gap
+     * sits inside the model band or flips sign under a +/-20% vol stress: no edge, so spreadAdjustedGap is null.
+     */
+    edgeConfidence: Confidence.nullable(),
     /** The engine's resolution-equivalence reasons (scoreResolutionEquivalence) for the comparator market. */
     reasons: z.array(z.string()).min(1),
+    /** The engine's card caveats plus the kit's tags (strike_offset_*, verdict_unpriced_*, verdict_price_is_hl_mark). */
     caveats: z.array(z.string()),
-    /** Always set when confidence is low; explains why the gap is not reported. */
+    /** Always set when confidence is low, when Verdict has no tradable price, or when the engine rates the edge low; says what is not reported and why. */
     caveat: z.string().nullable(),
     title: z.string(),
     url: z.string().nullable(),
@@ -158,9 +177,9 @@ export const Comparator = z
     depthUsd: z.number().nullable(),
     volumeUsd: z.number().nullable(),
     expiry: z.string().nullable(),
-    /** Verdict YES minus comparator YES, only when the engine deems the pair comparable; null otherwise. */
+    /** Verdict YES minus comparator YES, only when the engine deems the pair comparable and Verdict has a price; null otherwise. */
     gap: z.number().nullable(),
-    /** Gap net of both spreads (and the model band for model-based methods), where the engine provides it. */
+    /** Gap net of both spreads (and the model band for model-based methods), where the engine provides it and rates the edge above low. */
     spreadAdjustedGap: z.number().nullable(),
     /** Present for the maturity-adjusted method: the comparator repriced from its settlement time to Verdict's. */
     expiryAdjusted: z.object({ rawProb: Prob, adjustedProb: Prob, shift: z.number(), offsetHours: z.number(), iv: z.number(), spot: z.number(), compExpiry: z.string().nullable() }).nullable(),
@@ -174,18 +193,33 @@ export const Comparator = z
     if (c.confidence === 'low' && (c.caveat === null || c.gap !== null || c.spreadAdjustedGap !== null)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a low-confidence comparator must carry a caveat and no price gap' });
     }
+    if (c.caveats.some((t) => t.startsWith(UNPRICED_TAG_PREFIX)) && (c.caveat === null || c.gap !== null || c.spreadAdjustedGap !== null)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a comparator against an unpriced Verdict market must carry a caveat and no price gap' });
+    }
+    if ((c.edgeConfidence === 'low' || c.caveats.includes(VOL_FLIP_TAG)) && (c.caveat === null || c.spreadAdjustedGap !== null)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'a low-confidence or vol-fragile edge must carry a caveat and no after-spreads gap' });
+    }
   });
 export type Comparator = z.infer<typeof Comparator>;
 
-export const VerdictSide = z.object({
-  title: z.string(),
+/** The Verdict price the kit reports and compares against; the snapshot decides whether a price exists (see verdictPrice). */
+export const VerdictPrice = z.object({
+  /** YES probability; null when Verdict has no tradable price (see unpriced), never Hyperliquid's placeholder. */
   yesMid: Prob.nullable(),
+  /** 'book': robust mid of a two-sided book. 'ctx': Hyperliquid's mark because the book is wide or one-sided; not an executable price. */
+  priceSource: z.enum(['book', 'ctx']).nullable(),
+  /** Why yesMid is null: a never-traded market carries Hyperliquid's 0.5 placeholder mark and a wall-only (or unread) book, which is not a price. */
+  unpriced: UnpricedReason.nullable(),
+});
+export type VerdictPrice = z.infer<typeof VerdictPrice>;
+
+export const VerdictSide = VerdictPrice.extend({
+  title: z.string(),
   yesBid: Prob.nullable(),
   yesAsk: Prob.nullable(),
   spread: Prob.nullable(),
   depthUsd: z.number().nullable(),
   volumeUsd: z.number().nullable(),
-  priceSource: z.enum(['book', 'ctx']).nullable(),
   underlying: z.string().nullable(),
   direction: z.enum(['above', 'below', 'range']).nullable(),
   strike: z.number().nullable(),
@@ -356,21 +390,76 @@ export function strikeOffsetCaveat(baseStrike: number | null, compStrike: number
   return { tag, note: null };
 }
 
-function comparatorLine(venue: 'polymarket' | 'kalshi', c: Omit<Comparator, 'line'>, verdictProb: number | null): string {
+const UNPRICED_NOTE: Record<UnpricedReason, string> = {
+  never_traded_wall_book: 'never traded, wall-only book',
+  never_traded_no_book: 'never traded, book not read',
+  no_price_data: 'no book mid and no mark',
+};
+/** Why Verdict has no price to compare against, or null when it has one. */
+function unpricedNote(vp: VerdictPrice): string | null {
+  if (vp.yesMid !== null) return null;
+  return vp.unpriced === null ? 'no Verdict price in this scan' : UNPRICED_NOTE[vp.unpriced];
+}
+function unpricedCaveat(note: string): string {
+  return `Verdict has no tradable price (${note}); no gap is reported. The comparator's price at the Verdict contract is shown for reference.`;
+}
+function markCaveat(): string {
+  return `${HL_MARK_NOTE}: the gap is measured against Hyperliquid's mark, not against a price that can be traded on Verdict.`;
+}
+function unpricedTag(vp: VerdictPrice): string {
+  return `${UNPRICED_TAG_PREFIX}${vp.unpriced ?? 'no_price_data'}`;
+}
+
+/**
+ * The engine's verdict on the edge itself, read from its card rather than from the resolution-equivalence confidence
+ * it hardcodes to 'medium' on model-based cards: an edge that flips sign under a +/-20% vol stress, or one the card
+ * rates low, is no edge, so the after-spreads gap is not reported.
+ */
+function edgeNote(card: MispricingCard, method: Comparator['method']): string | null {
+  if (card.caveats.includes(VOL_FLIP_TAG)) return 'Model edge flips sign under a +/-20% vol stress; the engine treats this as no edge, so no after-spreads gap is reported.';
+  if (card.confidence !== 'low') return null;
+  const why =
+    method === 'ladder_interpolation'
+      ? 'the gap sits inside the ladder-interpolation band'
+      : method === 'maturity_adjusted_digital'
+        ? 'the gap does not clear the spreads and the model band'
+        : 'the match is not exact enough to trade';
+  return `The engine rates this edge low-confidence (${why}) and treats it as no edge, so no after-spreads gap is reported.`;
+}
+
+function comparatorLine(venue: 'polymarket' | 'kalshi', c: Omit<Comparator, 'line'>, vp: VerdictPrice): string {
   const label = venueLabel(venue);
+  const eq = `${c.confidence} confidence: ${c.reasons.join(', ')}`;
   if (c.confidence === 'low') return `${label}: low-confidence match (${c.reasons.join(', ')}); no comparable price gap. Closest market: "${c.title}".`;
-  if (c.gap !== null) {
-    const adj = c.spreadAdjustedGap !== null ? `, ${pp(c.spreadAdjustedGap)} after spreads` : '';
-    return `${label}: ${pct(c.fairProb)} vs Verdict ${pct(verdictProb)}, gap ${pp(c.gap)}${adj} (${c.confidence} confidence: ${c.reasons.join(', ')}; ${c.method}).`;
+  const missing = unpricedNote(vp);
+  if (missing !== null) {
+    const tail = ` Verdict has no tradable price (${missing}); comparator shown for reference.`;
+    if (c.method === 'reference') return `${label}: reference "${c.title}" at ${pct(c.fairProb)} (${eq}).${tail}`;
+    return `${label}: ${pct(c.fairProb)} at the Verdict contract (${eq}; ${c.method}).${tail}`;
   }
-  return `${label}: reference "${c.title}" at ${pct(c.fairProb)} (${c.confidence} confidence: ${c.reasons.join(', ')})${c.caveat ? `. ${c.caveat}` : '.'}`;
+  if (c.gap !== null) {
+    const mark = vp.priceSource === 'ctx' ? ` (${HL_MARK_NOTE})` : '';
+    const after =
+      c.spreadAdjustedGap !== null
+        ? `, ${pp(c.spreadAdjustedGap)} after spreads`
+        : c.method === 'reference'
+          ? ''
+          : `, no edge after spreads (${c.caveats.includes(VOL_FLIP_TAG) ? 'flips under vol stress' : 'the engine rates the edge low-confidence'})`;
+    return `${label}: ${pct(c.fairProb)} vs Verdict ${pct(vp.yesMid)}${mark}, gap ${pp(c.gap)}${after} (${eq}; ${c.method}).`;
+  }
+  return `${label}: reference "${c.title}" at ${pct(c.fairProb)} (${eq})${c.caveat ? `. ${c.caveat}` : '.'}`;
 }
 
 function legOf(m: Record<string, unknown>): z.infer<typeof ComparatorLeg> {
   return { id: str(m.id) ?? String(m.rawId ?? ''), title: str(m.title) ?? '', url: str(m.url), yesMid: num(m.yesMid), strike: num(m.strike), expiry: str(m.expiry) };
 }
 
-function comparatorFromCard(card: MispricingCard, venue: 'polymarket' | 'kalshi', verdictProb: number | null): Comparator {
+function joinNotes(notes: readonly (string | null)[]): string | null {
+  const kept = notes.filter((n): n is string => n !== null);
+  return kept.length ? kept.join(' ') : null;
+}
+
+function comparatorFromCard(card: MispricingCard, venue: 'polymarket' | 'kalshi', vp: VerdictPrice): Comparator {
   const comps = card.comps.filter((c) => c.venue === venue);
   const baseStrike = num(card.baseMarket.strike);
   const primary =
@@ -390,14 +479,23 @@ function comparatorFromCard(card: MispricingCard, venue: 'polymarket' | 'kalshi'
     mismatchNote = `same strike, settles ${Math.round(Math.abs(m.offsetHours))}h ${m.offsetHours > 0 ? 'later' : 'earlier'} than Verdict; repriced with a Black-Scholes digital at iv ${m.iv.toFixed(1)}%`;
   }
   const low = confidence === 'low';
+  const missing = unpricedNote(vp);
+  const edge = edgeNote(card, method);
+  const fromMark = vp.priceSource === 'ctx';
   const offset = method === 'exact_twin' ? strikeOffsetCaveat(baseStrike, num(primary.strike), str(card.baseMarket.expiry), Date.now()) : { tag: null, note: null };
-  const caveat = low ? lowCaveat(reasons, mismatchNote) : method !== 'exact_twin' ? `Model-based comparator (${method}): a relative-value read, not a locked arbitrage; it carries vol and settlement risk.` : offset.note;
+  const methodNote = method !== 'exact_twin' ? `Model-based comparator (${method}): a relative-value read, not a locked arbitrage; it carries vol and settlement risk.` : offset.note;
+  const caveat = low ? lowCaveat(reasons, mismatchNote) : joinNotes([missing !== null ? unpricedCaveat(missing) : edge, fromMark ? markCaveat() : null, methodNote]);
+  const caveats = [...card.caveats];
+  if (offset.tag) caveats.push(offset.tag);
+  if (missing !== null) caveats.push(unpricedTag(vp));
+  if (fromMark) caveats.push(HL_MARK_TAG);
   const body: Omit<Comparator, 'line'> = {
     venue,
     method,
     confidence,
+    edgeConfidence: card.confidence,
     reasons,
-    caveats: offset.tag ? [...card.caveats, offset.tag] : card.caveats,
+    caveats,
     caveat,
     title: str(primary.title) ?? '',
     url: str(primary.url),
@@ -408,8 +506,8 @@ function comparatorFromCard(card: MispricingCard, venue: 'polymarket' | 'kalshi'
     depthUsd: num(primary.depthUsd),
     volumeUsd: num(primary.volumeUsd),
     expiry: str(primary.expiry),
-    gap: low ? null : card.normalizedDelta,
-    spreadAdjustedGap: low ? null : card.adjustedDelta,
+    gap: low || missing !== null ? null : card.normalizedDelta,
+    spreadAdjustedGap: low || missing !== null || edge !== null ? null : card.adjustedDelta,
     expiryAdjusted: card.maturityAdjusted
       ? { rawProb: card.maturityAdjusted.rawPrice, adjustedProb: card.maturityAdjusted.adjustedPrice, shift: card.maturityAdjusted.shift, offsetHours: card.maturityAdjusted.offsetHours, iv: card.maturityAdjusted.iv, spot: card.maturityAdjusted.spot, compExpiry: card.maturityAdjusted.compExpiry }
       : null,
@@ -417,25 +515,33 @@ function comparatorFromCard(card: MispricingCard, venue: 'polymarket' | 'kalshi'
     tradeCall: card.tradeCall ?? null,
     legs: comps.map(legOf),
   };
-  return Comparator.parse({ ...body, line: comparatorLine(venue, body, verdictProb) });
+  return Comparator.parse({ ...body, line: comparatorLine(venue, body, vp) });
 }
 
-function comparatorFromReference(ref: ExternalRef, venue: 'polymarket' | 'kalshi', verdictProb: number | null): Comparator {
+/** A Comparator from one of the engine's mispricing cards, validated first. Exported so the edge and price rules can be tested on constructed cards. */
+export function comparatorFromEngineCard(card: unknown, venue: 'polymarket' | 'kalshi', verdict: VerdictPrice): Comparator {
+  return comparatorFromCard(MispricingCard.parse(card), venue, VerdictPrice.parse(verdict));
+}
+
+function comparatorFromReference(ref: ExternalRef, venue: 'polymarket' | 'kalshi', vp: VerdictPrice): Comparator {
   const hint = Confidence.safeParse(ref.equivalenceHint);
   const confidence = hint.success ? hint.data : 'low';
   const reasons = ref.equivalenceReasons.length ? ref.equivalenceReasons : ['unscored'];
   const low = confidence === 'low';
-  const caveat = low
-    ? lowCaveat(reasons, ref.mismatchNote)
-    : confidence === 'medium'
-      ? `Reference only${ref.mismatchNote ? ` (${ref.mismatchNote})` : ''}: the closest listed market, not the same contract; its price is context, not a comparable gap.`
-      : null;
+  const missing = unpricedNote(vp);
+  const fromMark = vp.priceSource === 'ctx';
+  const referenceNote = confidence === 'medium' ? `Reference only${ref.mismatchNote ? ` (${ref.mismatchNote})` : ''}: the closest listed market, not the same contract; its price is context, not a comparable gap.` : null;
+  const caveat = low ? lowCaveat(reasons, ref.mismatchNote) : joinNotes([missing !== null ? unpricedCaveat(missing) : null, fromMark ? markCaveat() : null, referenceNote]);
+  const caveats = ref.mismatchNote ? ['reference_not_tradable_twin', ref.mismatchNote] : ['reference_not_tradable_twin'];
+  if (missing !== null) caveats.push(unpricedTag(vp));
+  if (fromMark) caveats.push(HL_MARK_TAG);
   const body: Omit<Comparator, 'line'> = {
     venue,
     method: 'reference',
     confidence,
+    edgeConfidence: null,
     reasons,
-    caveats: ref.mismatchNote ? ['reference_not_tradable_twin', ref.mismatchNote] : ['reference_not_tradable_twin'],
+    caveats,
     caveat,
     title: ref.title,
     url: ref.url,
@@ -446,14 +552,14 @@ function comparatorFromReference(ref: ExternalRef, venue: 'polymarket' | 'kalshi
     depthUsd: ref.depthUsd,
     volumeUsd: ref.volumeUsd,
     expiry: ref.expiry,
-    gap: low ? null : ref.normalizedDelta,
+    gap: low || missing !== null ? null : ref.normalizedDelta,
     spreadAdjustedGap: null,
     expiryAdjusted: null,
     mismatchNote: ref.mismatchNote,
     tradeCall: null,
     legs: [legOf(ref as Record<string, unknown>)],
   };
-  return Comparator.parse({ ...body, line: comparatorLine(venue, body, verdictProb) });
+  return Comparator.parse({ ...body, line: comparatorLine(venue, body, vp) });
 }
 
 /** Engine output is upstream data: a mispricing card that no longer matches the expected shape is an error, never a silent drop. */
@@ -468,11 +574,11 @@ function mispricingCards(cards: readonly unknown[]): MispricingCard[] {
   return out;
 }
 
-function bestComparator(venue: 'polymarket' | 'kalshi', cards: readonly MispricingCard[], refs: readonly ExternalRef[], verdictProb: number | null): Comparator | null {
+function bestComparator(venue: 'polymarket' | 'kalshi', cards: readonly MispricingCard[], refs: readonly ExternalRef[], vp: VerdictPrice): Comparator | null {
   const card = cards.find((c) => c.comps[0]?.venue === venue);
-  if (card) return comparatorFromCard(card, venue, verdictProb);
+  if (card) return comparatorFromCard(card, venue, vp);
   const ref = refs.find((r) => r.venue === venue);
-  return ref ? comparatorFromReference(ref, venue, verdictProb) : null;
+  return ref ? comparatorFromReference(ref, venue, vp) : null;
 }
 
 function normalizedBase(snap: EngineSnapshot, outcome: number): NormalizedBase {
@@ -481,17 +587,29 @@ function normalizedBase(snap: EngineSnapshot, outcome: number): NormalizedBase {
   return NormalizedBase.parse(found);
 }
 
-function verdictSide(base: NormalizedBase, snap: EngineSnapshot): z.infer<typeof VerdictSide> {
+const NO_VERDICT_PRICE: VerdictPrice = { yesMid: null, priceSource: null, unpriced: null };
+
+/**
+ * The snapshot decides whether Verdict has a price. The engine's normalizeVerdictOutcome averages the top of book
+ * when the snapshot carries no mid, which on a never-traded wall book (0.00001 / 0.99999) prints the same phantom
+ * 0.5 as Hyperliquid's placeholder; its yesMid is therefore only trusted when the snapshot priced the market.
+ */
+function verdictPrice(base: NormalizedBase, snap: EngineSnapshot): VerdictPrice {
   const o = snap.outcomes.find((x) => x.outcome === base.rawId);
+  if (!o) return NO_VERDICT_PRICE;
+  if (o.mid === null) return { yesMid: null, priceSource: null, unpriced: o.unpriced ?? 'no_price_data' };
+  return { yesMid: base.yesMid, priceSource: o.midSource, unpriced: null };
+}
+
+function verdictSide(base: NormalizedBase, snap: EngineSnapshot): z.infer<typeof VerdictSide> {
   return {
+    ...verdictPrice(base, snap),
     title: base.title,
-    yesMid: base.yesMid,
     yesBid: base.yesBid,
     yesAsk: base.yesAsk,
     spread: base.spread,
     depthUsd: base.depthUsd,
     volumeUsd: base.volumeUsd,
-    priceSource: o?.midSource ?? null,
     underlying: base.underlying,
     direction: base.direction,
     strike: base.strike,
@@ -511,9 +629,10 @@ export async function compareMarket(client: InfoClient, catalog: Catalog, market
   const raw = await runResearch({ query, mode: 'cross_venue_scanner', snap, activeMarketId: base.id, deadlineAt: deadline(opts) });
   const res = ResearchResult.parse(raw);
   const cards = mispricingCards(res.cards);
+  const vp = verdictPrice(base, snap);
   const comparators = {
-    polymarket: bestComparator('polymarket', cards, res.externalMarkets, base.yesMid),
-    kalshi: bestComparator('kalshi', cards, res.externalMarkets, base.yesMid),
+    polymarket: bestComparator('polymarket', cards, res.externalMarkets, vp),
+    kalshi: bestComparator('kalshi', cards, res.externalMarkets, vp),
   };
   const lines = [
     comparators.polymarket?.line ?? 'Polymarket: no comparable market found.',
@@ -525,6 +644,8 @@ export async function compareMarket(client: InfoClient, catalog: Catalog, market
   }
   const errors: Record<string, string> = {};
   for (const [k, v] of Object.entries(res.errors)) errors[k] = typeof v === 'string' ? v : JSON.stringify(v);
+  const missing = unpricedNote(vp);
+  const head = missing !== null ? `Verdict has no tradable price (${missing})` : `Verdict YES ${pct(vp.yesMid)}${vp.priceSource === 'ctx' ? ` (${HL_MARK_NOTE})` : ''}`;
   return CompareMarketResult.parse({
     market: summarize(market),
     verdict: verdictSide(base, snap),
@@ -532,7 +653,7 @@ export async function compareMarket(client: InfoClient, catalog: Catalog, market
     optionsImplied: res.optionsImplied ?? null,
     dataStatus: { polymarket: res.dataStatus.polymarket ?? 'unavailable', kalshi: res.dataStatus.kalshi ?? 'unavailable' },
     errors,
-    summary: `${market.displayName}: Verdict YES ${pct(base.yesMid)}. ${lines.join(' ')}`,
+    summary: `${market.displayName}: ${head}. ${lines.join(' ')}`,
     lines,
     evidence: res.evidence,
     engine: engineInfo(res.route, res.generatedAt),
@@ -561,7 +682,8 @@ export async function fairValue(client: InfoClient, catalog: Catalog, market: Ma
   if (!ref || ref.prob === null) {
     return unavailable('no_options_chain_near_expiry', `Deribit has no ${underlying.data} option expiry within 3 days of ${base.expiry}, or no priced calls on the nearest chain.`);
   }
-  const gap = base.yesMid === null ? null : base.yesMid - ref.prob;
+  const vp = verdictPrice(base, snap);
+  const gap = vp.yesMid === null ? null : vp.yesMid - ref.prob;
   return FairValueResult.parse({
     available: true,
     market: summary,
@@ -571,7 +693,7 @@ export async function fairValue(client: InfoClient, catalog: Catalog, market: Ma
     direction: base.direction,
     strike: base.strike,
     expiry: base.expiry,
-    marketProb: base.yesMid,
+    marketProb: vp.yesMid,
     impliedProb: ref.prob,
     gap,
     iv: ref.iv,
@@ -583,8 +705,9 @@ export async function fairValue(client: InfoClient, catalog: Catalog, market: Ma
       'deribit_options_settle_0800_utc',
       `nearest_options_expiry_${ref.offsetHours >= 0 ? '+' : ''}${ref.offsetHours}h_from_market_settle`,
       ...(Math.abs(ref.strikeUsed - base.strike) / base.strike > 0.005 ? [`nearest_listed_strike_${Math.round(ref.strikeUsed)}_not_${Math.round(base.strike)}`] : []),
+      ...(vp.yesMid === null ? [unpricedTag(vp)] : vp.priceSource === 'ctx' ? [HL_MARK_TAG] : []),
     ],
-    evidence: `Options-implied reference (${underlying.data} options chain): P(${underlying.data} ${base.direction} $${Math.round(base.strike).toLocaleString()} at settle) = ${pct(ref.prob)} (iv ${ref.iv.toFixed(1)}%, nearest options expiry ${ref.offsetHours >= 0 ? '+' : ''}${ref.offsetHours}h vs market settle${base.yesMid !== null ? `; market YES ${pct(base.yesMid)}` : ''}). Derivatives reference only, not a tradable comparator.`,
+    evidence: `Options-implied reference (${underlying.data} options chain): P(${underlying.data} ${base.direction} $${Math.round(base.strike).toLocaleString()} at settle) = ${pct(ref.prob)} (iv ${ref.iv.toFixed(1)}%, nearest options expiry ${ref.offsetHours >= 0 ? '+' : ''}${ref.offsetHours}h vs market settle${vp.yesMid !== null ? `; market YES ${pct(vp.yesMid)}${vp.priceSource === 'ctx' ? ` (${HL_MARK_NOTE})` : ''}` : `; Verdict has no tradable price (${unpricedNote(vp) ?? ''})`}). Derivatives reference only, not a tradable comparator.`,
     engine: engineInfo(null, generatedAt),
   });
 }
@@ -635,7 +758,8 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
       venue: m.venue,
       displayName: m.displayName,
       expiresAt: m.expiresAt,
-      yesMid: leg.mid,
+      // The engine averages a wall-only book to 0.5 when the snapshot carries no mid; the snapshot's verdict wins.
+      yesMid: snapOutcome && snapOutcome.mid === null ? null : leg.mid,
       spread: leg.spread,
       depthUsd: leg.depthUsd,
       volumeUsd: leg.volumeUsd,
@@ -650,7 +774,7 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
   const comparators = res.externalMarkets.flatMap((ref) => {
     if (!isVenue(ref.venue)) return [];
     const base = bases.find((b) => b.title === ref.matchedBaseTitle);
-    return [comparatorFromReference(ref, ref.venue, base?.yesMid ?? null)];
+    return [comparatorFromReference(ref, ref.venue, base ? verdictPrice(base, snap) : NO_VERDICT_PRICE)];
   });
   return OpportunitiesResult.parse({
     network: client.config.network,

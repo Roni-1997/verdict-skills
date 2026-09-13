@@ -1,5 +1,6 @@
-// The only file in this package written for the kit. Everything else in src/ is the Verdict
-// app's engine at the commit pinned in UPSTREAM.json (verified by scripts/check-engine-drift.mjs).
+// The only file in this package written for the kit. Everything else in src/ is a verified copy of
+// the Verdict app's engine at the commit pinned in UPSTREAM.json (scripts/check-engine-drift.mjs),
+// not an import; README.md, "The engine", records that as an open owner decision against GOAL.md.
 // Explicit re-exports: research-core and playbooks both export ROUTES and getPlaybook.
 export {
   VENUES,
