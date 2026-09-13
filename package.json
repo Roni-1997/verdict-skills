@@ -1,0 +1,22 @@
+{
+  "name": "verdict-skills",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Verdict agent kit: one typed tool module over the cross-venue engine, shipped as a CLI, a skill file and an MCP server, with builder-code order routing",
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": { "node": "22.x" },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "check:types": "tsc -b",
+    "check:lint": "biome lint .",
+    "check": "pnpm run check:types && pnpm run check:lint && pnpm run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.8",
+    "@types/node": "22.15.3",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}
