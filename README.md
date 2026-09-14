@@ -25,10 +25,10 @@ Read tools, no account needed:
 - `get_market`: one market in full: sides, coins, asset ids, settlement rule, expiry, fee scale.
 - `orderbook`: the YES and NO books for a market.
 - `quote`: the executable price for a side and a size, walked from the book, with slippage.
-- `compare_market`: the same market on Polymarket and Kalshi, the price gap, and the resolution-equivalence confidence and reasons.
-- `fair_value`: the option-implied probability from Deribit for price markets on BTC, ETH and SOL.
-- `find_hedges`: hedge legs for a market.
-- `opportunities`: ranked cross-venue gaps across the live board.
+- `compare_market`: the best Polymarket and Kalshi comparator for a market, with the price gap when the contracts match (exact twin, ladder interpolation to the Verdict strike, or a Black-Scholes reprice to the Verdict settlement time) and always the engine's resolution-equivalence confidence and reasons. A low-confidence match carries a caveat and no gap. A market with no trades in the last 24h and no real quote on its book (never traded, so Hyperliquid's mark is the 0.5 placeholder; or traded on an earlier day, so the mark is stale) has no Verdict price and no gap, and the Deribit reference and evidence say so instead of printing the 0.5 book average; a Verdict price taken from the Hyperliquid mark is labelled as such; an edge the engine rates low or that flips under a vol stress carries no after-spreads gap.
+- `fair_value`: the Deribit option-implied probability for BTC, ETH and SOL price markets, or a typed not-available result with the reason.
+- `find_hedges`: Hyperliquid perp and spot hedge candidates for the market underlying, with the hedge direction for YES.
+- `opportunities`: the configured venue's live markets ranked by tradeable quality (spread, depth, live odds), with trade call, hedge leg and any cross-venue gap. At most 8 per scan; books are read for the 40 most-traded live markets, the rest price off asset contexts. A market with no Verdict price is carried as `priced: false` with a null probability, the reason, and a `why` that starts with `unpriced`; it ranks after every priced market, and the engine never sees its book (so nothing averages a wall-only book to 50%). Cross-venue references and the Deribit line are tied to the ranked market by outcome id, not by the engine's title (same-strike dailies share one).
 - `positions`: outcome-token balances for an address, read only.
 - `builder_status`: whether an address has approved Verdict's builder fee, and up to what rate.
 
@@ -122,18 +122,65 @@ The hosted server holds no keys and signs nothing. It serves the read tools and 
 ## Layout
 
 ```
-packages/core   the tool module: Hyperliquid client, schemas, tools, engine adapter
+packages/engine the Verdict app's cross-venue engine, byte for byte at a pinned commit (UPSTREAM.json)
+packages/core   the tool module: Hyperliquid client, schemas, tools, engine snapshot adapter, venue payload schemas
 packages/cli    the verdict CLI, JSON by default and --pretty to indent, no prompts
 packages/mcp    the MCP server, stdio and streamable HTTP, thin over core
 skills/verdict  SKILL.md, references per command and for setup and signing, install and uninstall scripts
 bench           Crypto Skill Bench: how to run it against the skill, the score to beat, dated reports
-scripts         bench.sh runs the benchmark; skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
-docs            design notes and the builder program
-tests           fixtures recorded from testnet and mainnet, tool tests
+scripts         sync-engine, check-engine-drift and build-engine for the pinned engine; bench.sh runs the benchmark and skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
+tests           fixtures recorded from testnet, mainnet and the venues, tool tests, skill and bench tests
 ```
+
+## The engine
+
+`packages/engine/src` holds `research-core.ts`, `playbooks.ts` and `hl-shape.ts` from `Roni-1997/verdict`
+byte for byte at the commit recorded in `packages/engine/UPSTREAM.json`. Nothing in them is edited and no
+engine code is written in the kit: `scripts/sync-engine.mjs` copies them from the GitHub contents API and
+records a sha256 per file, `scripts/check-engine-drift.mjs` (`pnpm run check:engine`, part of
+`pnpm run check`) recomputes the hashes and compares every file with the copy GitHub serves at the pinned
+commit (`gh api`), failing on any difference. It fails closed: a GitHub comparison that cannot run is a
+failure, unless `CHECK_ENGINE_OFFLINE=1` is set, which skips only the "gh not installed, not authenticated or
+offline" class and prints the skip; a 404 (wrong commit or path) or a hash mismatch fails whatever the flag
+says. The engine compiles under its own tsconfig (DOM lib and bundler resolution, as in the app); the build
+script rewrites its one extensionless relative import in the emitted JavaScript so Node can load it. To move
+the pin: `pnpm run sync:engine -- --commit <sha>`, then `pnpm run check`.
+
+GOAL.md's success criterion reads "imported from the Verdict app, never copied" and states that a byte-for-byte
+copy pinned to a Verdict commit and verified by `check:engine` counts as imported while a hand-edited copy does
+not. The drift check is what makes this copy count: the engine is never forked or edited in the kit, and every
+engine change is an explicit pin move.
+
+`packages/core/src/snapshot.ts` builds the live-state snapshot the engine reads (outcomes, questions,
+books, asset contexts, reference mids) from Hyperliquid info calls, using the app's own shape helpers for
+descriptions and books. `InfoClient` retries a request once, after a backoff (the `Retry-After` header when
+present, else 1 s), when Hyperliquid answers HTTP 429; its limit is 1,200 request weight per minute per IP.
+The snapshot's mid rule is stricter than the app's: a coin with no trades in the last 24h (zero `dayNtlVlm`)
+is priced only off a real quote on a book the kit read, never off the asset context's `midPx` (a raw book
+average that prints 0.5 over a wall-only book) or a stale `markPx`; otherwise the market is unpriced with the
+reason recorded (`never_traded_*` for the 0.5 placeholder mark, `stale_*` for a mark from an earlier day).
+The engine's own market probability for the Deribit reference (`optionsImplied.marketProb` and the
+"Options-implied reference" evidence line) is replaced by that price in every tool result. For the
+`opportunities` scan the engine is handed the snapshot without the books of unpriced markets
+(`withoutUnpricedBooks`), since it averages any top of book it is given when the mid is null.
+
+The engine fetches Polymarket, Kalshi and Deribit itself with the global `fetch` and reads the bodies as
+untyped records. Optionally, `ODDPOOL_API_KEY` routes its Polymarket and Kalshi reads through OddPool: the
+engine reads the key from the environment at call time and sends it to `api.oddpool.com` on every
+`compare_market` and `opportunities` call, so it must never be set on a hosted server; the path is not covered
+by the recorded fixtures. The kit runs every engine call under
+a validating fetch (`packages/core/src/venues.ts`, `withValidatedVenueFetch`): for `gamma-api.polymarket.com`,
+`external-api.kalshi.com`, `www.deribit.com` and `api.oddpool.com` the body is Zod-parsed leniently (every
+field the engine reads is typed, unknown fields pass through) before the engine sees it, and a body that does
+not match is rejected as an `UpstreamError` of kind `schema`; the engine then reports that venue as
+unavailable or partial rather than pricing off it. The wrapper is installed on the global for the duration of
+the call only (reference counted across concurrent calls) and restored afterwards. Hyperliquid responses are
+validated by `InfoClient` and pass through untouched. Tests replay recorded venue payloads from
+`tests/fixtures/engine` with the clock frozen at the recording time (`tests/fixtures/record_engine.py`).
 
 ## Toolchain
 
 Node 22, pnpm 10.34.5, strict TypeScript (same flags as the Verdict app), Zod on every input,
-output and upstream response, Vitest, Biome lint. `pnpm run check` must be green before any
-commit that changes code.
+output and upstream response, Vitest, Biome lint. `pnpm run check` (engine drift, types, lint,
+tests) must be green before any commit that changes code. Live checks against Hyperliquid, the
+venues and GitHub run with `VERDICT_LIVE=1 pnpm vitest run tests/live.test.ts`.

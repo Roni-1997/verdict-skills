@@ -39,6 +39,8 @@ Measured from Hyperliquid's daily builder-fills files, by client, on testnet fir
   the cryptoskill.org registry (63, failing safety, on 2026-09-13).
 - Every tool is deterministic and schema-typed on input, output and every upstream response.
 - The engine is imported from the Verdict app, never copied; its tests keep passing there.
+  A byte-for-byte copy pinned to a Verdict commit and verified by check:engine counts as imported; a
+  hand-edited copy does not.
 - At least one external operator routes a testnet order through the kit.
 
 ## Hard rules

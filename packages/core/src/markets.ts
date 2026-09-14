@@ -2,7 +2,7 @@
 // substituted from the template each market was deployed from.
 import type { InfoClient } from './hl/client.js';
 import { outcomeAssetId, outcomeCoin, outcomeTokenName } from './hl/encoding.js';
-import type { OutcomeMetaOutcome, OutcomeTemplate } from './hl/schemas.js';
+import type { OutcomeMeta, OutcomeMetaOutcome, OutcomeTemplate } from './hl/schemas.js';
 
 export interface MarketSide {
   readonly index: 0 | 1;
@@ -59,7 +59,8 @@ export function parseHlDateTime(value: string | undefined): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
-function substitute(text: string, values: Record<string, string>): string {
+/** Replace `{keyword}` placeholders with the values a market was deployed with; unknown keywords stay verbatim. */
+export function substituteKeywords(text: string, values: Record<string, string>): string {
   return text.replace(/\{([a-zA-Z0-9_]+)\}/g, (whole, key: string) => values[key] ?? whole);
 }
 
@@ -85,9 +86,9 @@ export function buildMarket(o: OutcomeMetaOutcome, templates: ReadonlyMap<string
   let displayName = o.name;
   if (template) {
     const { rule, metadata } = splitTemplateDescription(template.description);
-    settlementRule = substitute(rule, keywords);
+    settlementRule = substituteKeywords(rule, keywords);
     semanticRestriction = metadata.semanticRestriction ?? null;
-    displayName = substitute(template.name, keywords);
+    displayName = substituteKeywords(template.name, keywords);
   }
   const sides = [0, 1].map((i) => {
     const side = i as 0 | 1;
@@ -128,19 +129,34 @@ export interface ListMarketsOptions {
   readonly excludeFallbacks?: boolean;
 }
 
-export async function listMarkets(client: InfoClient, opts: ListMarketsOptions = {}): Promise<Market[]> {
+/** The two info responses every market view is built from, fetched once and shared. */
+export interface Catalog {
+  readonly meta: OutcomeMeta;
+  readonly templates: ReadonlyMap<string, OutcomeTemplate>;
+}
+
+export async function loadCatalog(client: InfoClient): Promise<Catalog> {
   const [meta, templates] = await Promise.all([client.outcomeMeta(), client.outcomeTemplates()]);
-  const byId = new Map(templates.map((t) => [t.id, t] as const));
+  return { meta, templates: new Map(templates.map((t) => [t.id, t] as const)) };
+}
+
+export function marketsFromCatalog(catalog: Catalog, opts: ListMarketsOptions = {}): Market[] {
   const excludeFallbacks = opts.excludeFallbacks ?? true;
-  return meta.outcomes
+  return catalog.meta.outcomes
     .filter((o) => (opts.venue ? o.venue === opts.venue : true))
     .filter((o) => (excludeFallbacks ? o.name !== 'template fallback' : true))
-    .map((o) => buildMarket(o, byId));
+    .map((o) => buildMarket(o, catalog.templates));
+}
+
+export function marketFromCatalog(catalog: Catalog, outcome: number): Market | null {
+  const o = catalog.meta.outcomes.find((x) => x.outcome === outcome);
+  return o ? buildMarket(o, catalog.templates) : null;
+}
+
+export async function listMarkets(client: InfoClient, opts: ListMarketsOptions = {}): Promise<Market[]> {
+  return marketsFromCatalog(await loadCatalog(client), opts);
 }
 
 export async function getMarket(client: InfoClient, outcome: number): Promise<Market | null> {
-  const [meta, templates] = await Promise.all([client.outcomeMeta(), client.outcomeTemplates()]);
-  const o = meta.outcomes.find((x) => x.outcome === outcome);
-  if (!o) return null;
-  return buildMarket(o, new Map(templates.map((t) => [t.id, t] as const)));
+  return marketFromCatalog(await loadCatalog(client), outcome);
 }

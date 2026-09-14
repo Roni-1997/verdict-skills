@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": [],
+    "composite": false,
+    "incremental": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "// why": "The upstream engine compiles in the Verdict app under lib DOM + bundler resolution (tsconfig.app.json there). Mirroring those two settings here lets the byte-for-byte copies type-check unchanged; scripts/build-engine.mjs fixes the one extensionless relative import in the emitted output so Node ESM can load it.",
+  "include": ["src/**/*.ts"]
+}

@@ -27,6 +27,8 @@ if (values.help) {
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
       'Environment: VERDICT_NETWORK (testnet|mainnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP',
+      "Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare_market",
+      '          and opportunities call, so never set it on a hosted (--http) server.',
       '',
     ].join('\n'),
   );

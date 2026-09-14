@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@verdict/core': fileURLToPath(new URL('./packages/core/src/index.ts', import.meta.url)),
+      '@verdict/engine': fileURLToPath(new URL('./packages/engine/src/index.ts', import.meta.url)),
     },
   },
   test: {

@@ -8,13 +8,20 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict market <outcome>
   verdict book <outcome>
   verdict quote <outcome> --side yes|no --action buy|sell --size <tokens>
+  verdict compare <outcome>
+  verdict fair-value <outcome>
+  verdict hedges <outcome>
+  verdict opportunities [--limit <1..8>]
   verdict positions <address>
   verdict builder-status <address>
   verdict approve-builder-fee-payload
   verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo] [--cloid 0x<32 hex>]
 
 Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP.
+Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare and opportunities call, so never set it on a hosted server.
 Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
+compare, fair-value, hedges and opportunities run the Verdict app's cross-venue engine (Polymarket, Kalshi, Deribit are read, never traded).
+A low-confidence match is reported with its caveat and reasons; the price gap is omitted, never printed as a bare number.
 approve-builder-fee-payload and build-order print UNSIGNED payloads. Show the confirmation lines and wait for an explicit yes before signing.
 `;
 
@@ -33,6 +40,7 @@ const OPTIONS = {
   price: { type: 'string' },
   tif: { type: 'string' },
   cloid: { type: 'string' },
+  limit: { type: 'string' },
   pretty: { type: 'boolean', default: false },
   help: { type: 'boolean', default: false },
 } as const;
@@ -84,6 +92,17 @@ export async function runCli(argv: readonly string[], config: KitConfig = config
       case 'quote': {
         const size = Number(need(values.size, 'size'));
         return { exitCode: 0, stdout: emit(await tools.quote({ outcome: outcomeArg(arg), side: need(values.side, 'side'), action: action(values.action), size })), stderr: '' };
+      }
+      case 'compare':
+        return { exitCode: 0, stdout: emit(await tools.compare_market({ outcome: outcomeArg(arg) })), stderr: '' };
+      case 'fair-value':
+        return { exitCode: 0, stdout: emit(await tools.fair_value({ outcome: outcomeArg(arg) })), stderr: '' };
+      case 'hedges':
+        return { exitCode: 0, stdout: emit(await tools.find_hedges({ outcome: outcomeArg(arg) })), stderr: '' };
+      case 'opportunities': {
+        const limit = values.limit === undefined ? undefined : Number(values.limit);
+        if (limit !== undefined && !Number.isInteger(limit)) throw new ToolError(`--limit must be an integer, got ${JSON.stringify(values.limit)}`, 'bad_input');
+        return { exitCode: 0, stdout: emit(await tools.opportunities({ limit })), stderr: '' };
       }
       case 'positions':
         return { exitCode: 0, stdout: emit(await tools.positions({ address: need(arg, 'address') })), stderr: '' };

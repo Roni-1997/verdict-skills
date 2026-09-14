@@ -31,16 +31,29 @@ export const OutcomeMetaDeployer = z
   .passthrough()
   .nullable();
 
+/** A multi-outcome question: named children plus an optional fallback ("none of the above") outcome. */
+export const OutcomeMetaQuestion = z
+  .object({
+    question: z.number().int().nonnegative(),
+    name: z.string(),
+    description: z.string().default(''),
+    namedOutcomes: z.array(z.number().int().nonnegative()),
+    fallbackOutcome: z.number().int().nonnegative().nullable().optional(),
+    settledNamedOutcomes: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
 export const OutcomeMeta = z
   .object({
     outcomes: z.array(OutcomeMetaOutcome),
-    questions: z.array(z.unknown()),
+    questions: z.array(OutcomeMetaQuestion),
     deployers: z.array(OutcomeMetaDeployer),
     feeScale: z.unknown().optional(),
   })
   .passthrough();
 export type OutcomeMeta = z.infer<typeof OutcomeMeta>;
 export type OutcomeMetaOutcome = z.infer<typeof OutcomeMetaOutcome>;
+export type OutcomeMetaQuestion = z.infer<typeof OutcomeMetaQuestion>;
 
 export const OutcomeTemplate = z
   .object({
@@ -78,3 +91,25 @@ export const SpotBalance = z
   .passthrough();
 export const SpotClearinghouseState = z.object({ balances: z.array(SpotBalance) }).passthrough();
 export type SpotClearinghouseState = z.infer<typeof SpotClearinghouseState>;
+
+/**
+ * `spotMetaAndAssetCtxs` returns `[spotMeta, ctxs]`. Outcome coins appear in ctxs as `#<encoding>`;
+ * `markPx` is Hyperliquid's robust fair value once the coin has traded today, `midPx` the raw
+ * book midpoint (null on an empty book), `dayNtlVlm` the 24h notional volume.
+ */
+export const SpotAssetCtx = z
+  .object({
+    coin: z.string(),
+    dayNtlVlm: DecimalString,
+    markPx: DecimalString.optional(),
+    midPx: DecimalString.nullable().optional(),
+    prevDayPx: DecimalString.optional(),
+  })
+  .passthrough();
+export const SpotMetaAndAssetCtxs = z.tuple([z.object({ universe: z.array(z.unknown()), tokens: z.array(z.unknown()) }).passthrough(), z.array(SpotAssetCtx)]);
+export type SpotAssetCtx = z.infer<typeof SpotAssetCtx>;
+export type SpotMetaAndAssetCtxs = z.infer<typeof SpotMetaAndAssetCtxs>;
+
+/** `allMids`: coin name to mid price for every perp and spot coin, including outcome coins. */
+export const AllMids = z.record(z.string(), DecimalString);
+export type AllMids = z.infer<typeof AllMids>;
