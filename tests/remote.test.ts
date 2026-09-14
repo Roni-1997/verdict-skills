@@ -14,6 +14,7 @@ import {
   CompareMarketResult,
   FairValueResult,
   FindHedgesResult,
+  HIDDEN,
   InfoClient,
   type KitConfig,
   LOCAL_TOOLS,
@@ -34,6 +35,7 @@ import {
   createTools,
   normalizeVenue,
   parseApiUrl,
+  retryAfterSeconds,
   toolsFromConfig,
   toolsMode,
 } from '../packages/core/src/index.js';
@@ -120,8 +122,12 @@ function recordedApi(url: URL): Response {
       const markets = all.markets.filter((m) => m.venue === venue);
       return json({ ...all, venue, count: markets.length, markets });
     }
-    case '/opportunities':
-      return json({ ...(recordedFor(route, net) as object), venue: venue === 'all' ? null : venue });
+    case '/opportunities': {
+      const all = recordedFor(route, net) as { items: { priced: boolean }[] };
+      const limit = Number(url.searchParams.get('limit') ?? 8);
+      const items = all.items.slice(0, limit);
+      return json({ ...all, venue: venue === 'all' ? null : venue, limit, count: items.length, items, unpricedCount: items.filter((i) => !i.priced).length });
+    }
     case '/market':
     case '/compare':
     case '/fair-value':
@@ -345,6 +351,35 @@ describe('hosted tools: a body that passes the schema but answers another networ
       expect(ok.outcome ?? ok.market?.outcome, tool).toBe(BTC_OUTCOME);
     }
   });
+  it('with a venue configured, a body about a market of another venue is refused on all four outcome routes; a mainnet body never reaches a testnet caller that way', async () => {
+    // The per-outcome bodies carry no network field, so the recorded mainnet bodies (a venue out market) fed to a testnet
+    // caller configured for venue at pass the outcome check; the venue is what gives them away.
+    const mainnetMarket = must(okFiles('/market').find((f) => f.query.net === 'mainnet'), 'a recorded mainnet market');
+    const OUT_OUTCOME = Number(mainnetMarket.query.outcome);
+    for (const [tool, route] of [
+      ['get_market', '/market'],
+      ['compare_market', '/compare'],
+      ['fair_value', '/fair-value'],
+      ['find_hedges', '/hedges'],
+    ] as const) {
+      const body = recordedFor(route, 'mainnet', String(OUT_OUTCOME)) as { venue?: string; market?: { venue: string } };
+      const bodyVenue = must(body.venue ?? body.market?.venue, `${route} venue`);
+      expect(bodyVenue, route).not.toBe(testnetAt.venue);
+      const call = (tools: Tools) => (tools[tool] as (i: { outcome: number }) => Promise<unknown>)({ outcome: OUT_OUTCOME });
+      const e = await call(hosted([], () => json(body), testnetAt)).catch((x: unknown) => x);
+      expect(e, tool).toBeInstanceOf(UpstreamError);
+      expect((e as UpstreamError).kind, tool).toBe('schema');
+      expect((e as UpstreamError).message, tool).toContain(`api ${route.slice(1)} answered about a market of venue ${JSON.stringify(bodyVenue)}, not the configured venue "at"`);
+      expect((e as UpstreamError).message, tool).toContain('did not honour the request');
+      expect((e as UpstreamError).message, tool).toContain('unset VERDICT_VENUE or set it to all');
+      expect((e as UpstreamError).message, tool).toContain(API);
+      expect((e as UpstreamError).detail, tool).toEqual({ what: 'venue', expected: 'at', got: bodyVenue });
+      // A caller configured for that venue, or one with no venue configured, gets the body (embedded mode reads any
+      // deployer's market by outcome; hosted mode does so with the venue unset).
+      await expect(call(hosted([], () => json(body), { ...testnetAt, network: 'mainnet', venue: bodyVenue })), tool).resolves.toBeTruthy();
+      await expect(call(hosted([], () => json(body), { ...testnetAt, venue: null })), tool).resolves.toBeTruthy();
+    }
+  });
   it('the matching bodies pass: the recorded production bodies answer the network, venue and outcome they were recorded for', async () => {
     for (const f of recorded.files.filter((x) => x.status === 200)) {
       const config: KitConfig = { ...testnetAt, network: f.query.net as KitConfig['network'], venue: f.query.venue === undefined || f.query.venue === 'all' ? null : f.query.venue };
@@ -359,6 +394,104 @@ describe('hosted tools: a body that passes the schema but answers another networ
         '/hedges': () => tools.find_hedges({ outcome: must(outcome, 'outcome') }),
       };
       await expect(must(call[f.route], f.route)(), f.file).resolves.toBeTruthy();
+    }
+  });
+});
+
+describe('hosted tools: a body that breaks what its route documents is refused', () => {
+  interface Opps {
+    limit: number;
+    count: number;
+    unpricedCount: number;
+    items: { rank: number; priced: boolean }[];
+  }
+  const opps = (): Opps => structuredClone(recordedFor('/opportunities', 'testnet')) as Opps;
+  const serve = (body: unknown, config: KitConfig = testnetAt) => hosted([], () => json(body), config);
+  const refusedWith = async (p: Promise<unknown>, why: string): Promise<UpstreamError> => {
+    const e = await p.catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(UpstreamError);
+    expect((e as UpstreamError).kind).toBe('schema');
+    expect((e as UpstreamError).message).toContain(why);
+    expect((e as UpstreamError).message).toContain('did not serve the documented contract');
+    expect((e as UpstreamError).message).toContain(API);
+    return e as UpstreamError;
+  };
+  it('the recorded opportunities body: limit 8, 5 items, one priced then four unpriced, ranks 1 to 5', () => {
+    const body = opps();
+    expect(body.limit).toBe(8);
+    expect(body.count).toBe(5);
+    expect(body.items.map((i) => i.rank)).toEqual([1, 2, 3, 4, 5]);
+    expect(body.items.map((i) => i.priced)).toEqual([true, false, false, false, false]);
+    expect(body.unpricedCount).toBe(4);
+  });
+  it('opportunities: more items than the limit sent, or a body that reports another limit than the one sent', async () => {
+    // The recorded body unchanged (limit 8, five items) served to a limit 2 call.
+    const e = await refusedWith(serve(opps()).opportunities({ limit: 2 }), '5 items for the limit 2 the kit sent');
+    expect(e.detail).toEqual({ limit: 2, items: 5 });
+    // Cut to two items but still reporting limit 8.
+    const body = opps();
+    body.items = body.items.slice(0, 2);
+    body.count = 2;
+    body.unpricedCount = 1;
+    const e2 = await refusedWith(serve(body).opportunities({ limit: 2 }), 'limit 8, not the limit 2 the kit sent');
+    expect(e2.detail).toEqual({ limit: 2, got: 8 });
+    body.limit = 2;
+    await expect(serve(body).opportunities({ limit: 2 })).resolves.toMatchObject({ limit: 2, count: 2 });
+  });
+  it('opportunities: a count that is not the number of items', async () => {
+    const body = opps();
+    body.count += 5;
+    const e = await refusedWith(serve(body).opportunities({}), 'count 10 for 5 items');
+    expect(e.detail).toEqual({ count: 10, items: 5 });
+  });
+  it('opportunities: ranks that are not 1 to n in order', async () => {
+    const reversed = opps();
+    reversed.items = reversed.items.map((item, i, all) => ({ ...item, rank: all.length - i }));
+    const e = await refusedWith(serve(reversed).opportunities({}), 'ranks [5,4,3,2,1], not 1 to 5 in order');
+    expect(e.detail).toEqual({ ranks: [5, 4, 3, 2, 1] });
+    const gapped = opps();
+    must(gapped.items[1], 'second item').rank = 3;
+    await refusedWith(serve(gapped).opportunities({}), 'ranks [1,3,3,4,5], not 1 to 5 in order');
+  });
+  it('opportunities: an unpriced market before a priced one, ranks in order', async () => {
+    const body = opps();
+    const [priced, ...unpriced] = body.items;
+    body.items = [...unpriced, must(priced, 'priced item')].map((item, i) => ({ ...item, rank: i + 1 }));
+    const e = await refusedWith(serve(body).opportunities({}), 'a priced market at rank 5 after an unpriced one');
+    expect(e.detail).toEqual({ rank: 5, firstUnpricedRank: 1 });
+  });
+  it('opportunities: an unpricedCount that is not the number of unpriced items', async () => {
+    const body = opps();
+    body.unpricedCount = 0;
+    const e = await refusedWith(serve(body).opportunities({}), 'unpricedCount 0 for 4 unpriced items');
+    expect(e.detail).toEqual({ unpricedCount: 0, unpriced: 4 });
+  });
+  it('list_markets: a count that is not the number of markets, or a market of another venue in a filtered list', async () => {
+    const markets = structuredClone(recordedFor('/markets', 'testnet')) as { venue: string | null; count: number; markets: { venue: string; outcome: number }[] };
+    const e = await refusedWith(serve({ ...markets, count: markets.count + 5 }).list_markets({}), `count ${markets.count + 5} for ${markets.count} markets`);
+    expect(e.detail).toEqual({ count: markets.count + 5, markets: markets.count });
+    const stray = structuredClone(markets);
+    const third = must(stray.markets[2], 'third market');
+    third.venue = 'skew';
+    const e2 = await refusedWith(serve(stray).list_markets({}), `a market of venue "skew" (outcome ${third.outcome}) in the list for venue "at"`);
+    expect(e2.detail).toEqual({ venue: 'at', got: 'skew', outcome: third.outcome });
+    // A list for every deployer is not held to one venue.
+    await expect(serve({ ...stray, venue: null }, { ...testnetAt, venue: null }).list_markets({})).resolves.toMatchObject({ venue: null, count: markets.count });
+  });
+  it('the untouched recorded bodies pass every invariant, for every limit, on both networks', async () => {
+    for (const [config, expected] of [
+      [testnetAt, 5],
+      [{ ...testnetAt, network: 'mainnet', venue: null } as KitConfig, 8],
+    ] as const) {
+      const tools = hosted([], recordedApi, config);
+      for (const limit of [1, 2, 5, 8]) {
+        const r = await tools.opportunities({ limit });
+        expect(r.limit, `${config.network} limit ${limit}`).toBe(limit);
+        expect(r.count, `${config.network} limit ${limit}`).toBe(Math.min(limit, expected));
+        expect(r.items.length).toBe(r.count);
+      }
+      const list = await tools.list_markets({});
+      expect(list.count).toBe(list.markets.length);
     }
   });
 });
@@ -464,8 +597,20 @@ describe('venue: one meaning in both modes', () => {
     expect(configFromEnv({ VERDICT_VENUE: '' }).venue).toBeNull();
     expect(configFromEnv({}).venue).toBeNull();
     expect(configFromEnv({ VERDICT_VENUE: ' at ' }).venue).toBe('at');
-    expect(() => configFromEnv({ VERDICT_VENUE: 'bad venue' })).toThrow(/^VERDICT_VENUE venue must be 1 to 32 letters, digits, _ or -, got "bad venue"$/);
+    expect(() => configFromEnv({ VERDICT_VENUE: 'bad venue' })).toThrow(/^VERDICT_VENUE venue must be 1 to 32 letters, digits, _ or -, got \[value hidden\]$/);
     expect(() => configFromEnv({ VERDICT_VENUE: 'x'.repeat(33) })).toThrow(/VERDICT_VENUE/);
+    // A token pasted into the variable is a malformed venue name; the message names the variable and never the value.
+    const pasted = 'sk_live_SECRETvenue.9';
+    let message = '';
+    try {
+      configFromEnv({ VERDICT_VENUE: pasted });
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain('VERDICT_VENUE venue must be');
+    expect(message).toContain(HIDDEN);
+    expect(message).not.toContain('sk_live');
+    expect(message).not.toContain('SECRET');
   });
   it('CLI: --venue all and --venue "" list every deployer, a malformed --venue is exit 1, a malformed VERDICT_VENUE is exit 4', async () => {
     const tools = embedded();
@@ -480,12 +625,14 @@ describe('venue: one meaning in both modes', () => {
     expect(bad.exitCode).toBe(1);
     expect(JSON.parse(bad.stderr)).toEqual({ error: 'bad_input', message: VENUE_MESSAGE });
     const saved = process.env.VERDICT_VENUE;
-    process.env.VERDICT_VENUE = 'bad venue';
+    process.env.VERDICT_VENUE = 'sk_live_SECRETvenue.9';
     try {
       const env = await runCli(['markets']);
       expect(env.exitCode).toBe(4);
       expect(JSON.parse(env.stderr)).toMatchObject({ error: 'not_configured' });
       expect((JSON.parse(env.stderr) as { message: string }).message).toContain('VERDICT_VENUE');
+      expect(env.stderr).toContain(HIDDEN);
+      expect(env.stderr).not.toContain('sk_live');
     } finally {
       if (saved === undefined) delete process.env.VERDICT_VENUE;
       else process.env.VERDICT_VENUE = saved;
@@ -534,6 +681,41 @@ describe('hosted tools: error mapping', () => {
     expect((e as UpstreamError).message).toContain('HTTP 429');
     expect((e as UpstreamError).message).toContain('retry after 7 s');
     expect((e as UpstreamError).detail).toEqual({ status: 429, retryAfter: '7' });
+    // Retry-After may also be an HTTP date: the message carries the seconds from now, never the date; an unreadable
+    // value, or no header, carries no wait.
+    const messageFor = async (headers: Record<string, string>): Promise<string> => {
+      const err = await only(429, { error: 'rate_limited' }, headers).opportunities({}).catch((x: unknown) => x);
+      expect(err).toBeInstanceOf(UpstreamError);
+      expect((err as UpstreamError).kind).toBe('http');
+      return (err as UpstreamError).message;
+    };
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('Wed, 21 Oct 2026 07:28:00 GMT'));
+    try {
+      const dated = await messageFor({ 'retry-after': 'Wed, 21 Oct 2026 07:29:30 GMT' });
+      expect(dated).toBe('api opportunities rate limited (HTTP 429); retry after 90 s');
+      expect(dated).not.toContain('GMT');
+      expect(await messageFor({ 'retry-after': 'Wed, 21 Oct 2026 07:27:00 GMT' })).toBe('api opportunities rate limited (HTTP 429); retry after 1 s');
+      expect(await messageFor({ 'retry-after': 'soon' })).toBe('api opportunities rate limited (HTTP 429)');
+      expect(await messageFor({})).toBe('api opportunities rate limited (HTTP 429)');
+      expect(await messageFor({ 'retry-after': ' 12 ' })).toBe('api opportunities rate limited (HTTP 429); retry after 12 s');
+    } finally {
+      now.mockRestore();
+    }
+  });
+  it('retryAfterSeconds: integer seconds as written, an HTTP date as seconds from now rounded up and at least 1, anything else null', () => {
+    const now = Date.parse('2026-10-21T07:28:00Z');
+    expect(retryAfterSeconds(null, now)).toBeNull();
+    expect(retryAfterSeconds('0', now)).toBe(0);
+    expect(retryAfterSeconds('7', now)).toBe(7);
+    expect(retryAfterSeconds('Wed, 21 Oct 2026 07:28:00 GMT', now)).toBe(1);
+    expect(retryAfterSeconds('Wed, 21 Oct 2026 07:28:01 GMT', now)).toBe(1);
+    expect(retryAfterSeconds('Wed, 21 Oct 2026 07:30:00 GMT', now)).toBe(120);
+    expect(retryAfterSeconds('Wed, 21 Oct 2026 07:00:00 GMT', now)).toBe(1);
+    expect(retryAfterSeconds('2026-10-21T07:28:30.500Z', now)).toBe(31);
+    expect(retryAfterSeconds('soon', now)).toBeNull();
+    expect(retryAfterSeconds('-5', now)).toBeNull();
+    expect(retryAfterSeconds('7.5', now)).toBeNull();
+    expect(retryAfterSeconds('', now)).toBeNull();
   });
   it('502 upstream and other 5xx are UpstreamError http with the API slug and kind in the message', async () => {
     const e = await only(502, { error: 'upstream', kind: 'schema' }).compare_market({ outcome: 1 }).catch((x: unknown) => x);
@@ -702,7 +884,7 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       expect(() => configFromEnv({ VERDICT_API_URL: bad }), bad).toThrow(/VERDICT_API_URL/);
     }
     expect(() => parseApiUrl('nope', '--api')).toThrow(/^--api must be/);
-    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1/')).toThrow(/trailing slash, got https:\/\/hyperverdict\.xyz\/\[path not shown\]$/);
+    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1/')).toThrow(/trailing slash, got \[value hidden\]$/);
     // A URL that carries credentials is refused without echoing them.
     const withSecret = (() => {
       try {
@@ -715,7 +897,7 @@ describe('configuration: VERDICT_API_URL and --api', () => {
     expect(withSecret).toContain('credentials in the URL');
     expect(withSecret).not.toContain('s3cretvalue');
     expect(withSecret).not.toContain('operator');
-    expect(withSecret).toContain('got https://hyperverdict.xyz/[path not shown]');
+    expect(withSecret).toContain('got [value hidden]');
     expect(() => parseApiUrl('https://x/')).toThrow(/trailing slash/);
     expect(() => parseApiUrl('https://x?y')).toThrow(/query string/);
   });
@@ -760,6 +942,10 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       ['https://hyperverdict.xyz/api/v1/tok_SECRETPATH5%2F', 'percent-encoding', 'tok_SECRETPATH5'],
       ['https://hyperverdict.xyz/api/v1/tok_SECRETPATH6/..', 'not in normal form', 'tok_SECRETPATH6'],
       ['https://user:pw@hyperverdict.xyz/tok_SECRETPATH7', 'credentials in the URL', 'tok_SECRETPATH7'],
+      // KEY:SECRET pasted whole: it parses as a URL whose scheme is the key, so the scheme must not be shown either.
+      ['abc123:secret', 'scheme not allowed', 'abc123'],
+      ['abc123:secret', 'scheme not allowed', 'secret'],
+      ['ftp://x', 'scheme not allowed', 'ftp'],
     ];
     for (const [value, why, secret] of cases) {
       const message = messageFor(value, '--api');
@@ -768,14 +954,18 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       expect(message, value).not.toContain(secret);
       expect(message, value).not.toContain('apikey');
     }
-    // What is shown once the value parses is scheme and host only; a value that is not a URL is not shown at all.
-    expect(messageFor('https://hyperverdict.xyz/api/v1?apikey=SECRET123')).toContain('got https://hyperverdict.xyz/[path not shown]');
-    expect(messageFor('https://hyperverdict.xyz/api/v1/tok_SECRETPATH/')).toMatch(/got https:\/\/hyperverdict\.xyz\/\[path not shown\]$/);
-    expect(messageFor('http://127.0.0.1:8787/api/v1/')).toContain('got http://127.0.0.1:8787/[path not shown]');
-    expect(messageFor('hyperverdict.xyz/api/v1')).toMatch(/got \[not shown: not a URL\]$/);
-    expect(messageFor('sk_live_abcdef0123456789')).toMatch(/not a URL, got \[not shown: not a URL\]$/);
-    expect(messageFor('hyperverdict.xyz/api/v1?apikey=SECRETdef')).toContain('got [not shown: not a URL]');
-    expect(messageFor('operator:SECRETghi@hyperverdict.xyz/api/v1')).toContain('got [not shown: scheme operator, not http(s)]');
+    // Whatever the rule that refused it, the value is shown as one constant marker: not its path, not its host or port,
+    // not its scheme. The setting's name and the rule are the diagnosis.
+    expect(HIDDEN).toBe('[value hidden]');
+    for (const [value] of cases) {
+      expect(messageFor(value), value).toMatch(/, got \[value hidden\]$/);
+      expect(messageFor(value, 'VERDICT_API_URL'), value).toMatch(/^VERDICT_API_URL must be an https:\/\/ URL/);
+    }
+    expect(messageFor('http://127.0.0.1:8787/api/v1/')).not.toContain('8787');
+    expect(messageFor('https://other-host.example/api/v1/')).not.toContain('other-host');
+    expect(messageFor('operator:SECRETghi@hyperverdict.xyz/api/v1')).not.toContain('operator');
+    expect(messageFor('abc123:secret', '--api')).toBe(`--api must be an https:// URL without a trailing slash, query or fragment (http:// only on localhost, 127.0.0.1 or [::1]), e.g. https://hyperverdict.xyz/api/v1; scheme not allowed, got ${HIDDEN}`);
+    expect(messageFor('ftp://x')).not.toMatch(/ftp|scheme x/);
     // Through the faces: the CLI's stderr JSON and the configuration error carry the same redaction.
     return (async () => {
       const cli = await runCli(['markets', '--api', 'https://hyperverdict.xyz/api/v1?apikey=SECRET123'], { network: 'testnet', venue: 'at', builder: null, apiUrl: null });
@@ -947,6 +1137,28 @@ describe('faces: --api and VERDICT_API_URL', () => {
     const r = await runCli(['markets', '--api', base], { ...embeddedConfig, apiUrl: 'https://unreachable.example/api/v1' });
     expect(r.exitCode, r.stderr).toBe(0);
     expect(served).toHaveLength(1);
+    // The flag also wins over a VERDICT_API_URL the kit would refuse: with --api present the variable is not read at
+    // all, so the command reaches the flag's host, and a malformed flag is still exit 1 naming the flag, not exit 4.
+    served.length = 0;
+    const saved = process.env.VERDICT_API_URL;
+    process.env.VERDICT_API_URL = 'https://x/';
+    try {
+      expect(() => configFromEnv()).toThrow(/VERDICT_API_URL/);
+      const overEnv = await runCli(['markets', '--api', base]);
+      expect(overEnv.exitCode, overEnv.stderr).toBe(0);
+      expect(served.map((u) => u.pathname)).toEqual(['/api/v1/markets']);
+      expect((JSON.parse(overEnv.stdout) as { network: string }).network).toBe('testnet');
+      const badFlag = await runCli(['markets', '--api', 'nope']);
+      expect(badFlag.exitCode).toBe(1);
+      const err = JSON.parse(badFlag.stderr) as { error: string; message: string };
+      expect(err.error).toBe('bad_input');
+      expect(err.message).toMatch(/^--api must be an https:\/\/ URL/);
+      expect(err.message).not.toContain('VERDICT_API_URL');
+      expect(served).toHaveLength(1);
+    } finally {
+      if (saved === undefined) delete process.env.VERDICT_API_URL;
+      else process.env.VERDICT_API_URL = saved;
+    }
   });
   it('CLI --api "" is bad_input with exit 1 and runs nothing: a flag without a URL never silently falls back to the embedded engine', async () => {
     served.length = 0;

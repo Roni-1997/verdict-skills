@@ -39,7 +39,9 @@ export function normalizeVenue(value: string | null | undefined): string | null 
 export function configFromEnv(env: Record<string, string | undefined> = process.env): KitConfig {
   const network = parseNetwork(env.VERDICT_NETWORK);
   const venue = normalizeVenue(env.VERDICT_VENUE);
-  if (venue !== null && !VENUE_NAME.test(venue)) throw new Error(`VERDICT_VENUE ${VENUE_MESSAGE}, got ${JSON.stringify(venue)}`);
+  // The value is not repeated: the message reaches stderr and hosted deployment logs, and a token pasted into the
+  // wrong variable is exactly what a malformed venue name looks like.
+  if (venue !== null && !VENUE_NAME.test(venue)) throw new Error(`VERDICT_VENUE ${VENUE_MESSAGE}, got ${HIDDEN}`);
   const address = env.VERDICT_BUILDER_ADDRESS?.trim();
   // The fee is validated whenever it is set, not only once an address is configured, so a bad value is
   // reported the moment an operator writes it rather than later when the address arrives.
@@ -59,6 +61,9 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
 /** Hosts that may be reached over plain http: a test server on the loopback interface (localhost, 127.0.0.1, [::1]), nothing else. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/** Stands in for a rejected setting value in every configuration error message; no part of the value is ever repeated. */
+export const HIDDEN = '[value hidden]';
+
 /**
  * Validate a hosted API base URL: https only (or http on the loopback interface, for tests), written in its normal
  * form (lowercase scheme and host, no default port, no `.` or `..` segments, no backslash, no percent-encoding), with
@@ -66,19 +71,17 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
  * unset or blank (embedded mode). `name` is the setting being parsed, for the error message: the environment variable
  * or the CLI flag.
  *
- * The error message reaches stderr and hosted deployment logs, so it never repeats a part of the value that could
- * carry a pasted secret: an http(s) value shows its scheme and host only (never the path, which is where a URL of
- * another service keeps a token, and never the userinfo, the query or the fragment); a value with another scheme shows
- * only that scheme (its path is opaque and may hold anything); a value that is not a URL at all, which is what an API
- * key pasted into the wrong variable looks like, is not shown.
+ * The error message reaches stderr and hosted deployment logs, so it names the setting and the rule that failed and
+ * repeats no part of the value: not the path (where a URL of another service keeps a token), not the userinfo, query
+ * or fragment, not the host, and not the scheme either, since a KEY:SECRET paste parses as a URL whose scheme is the
+ * key. The value is shown as HIDDEN whatever the rule that refused it.
  */
 export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL'): string | null {
   if (value === undefined) return null;
   const raw = value.trim();
   if (raw === '') return null;
-  let shown = '[not shown: not a URL]';
   const fail = (why: string): never => {
-    throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only on localhost, 127.0.0.1 or [::1]), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${shown}`);
+    throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only on localhost, 127.0.0.1 or [::1]), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${HIDDEN}`);
   };
   let url: URL;
   try {
@@ -86,7 +89,6 @@ export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL')
   } catch {
     return fail('not a URL');
   }
-  shown = url.protocol === 'https:' || url.protocol === 'http:' ? `${url.protocol}//${url.host}/[path not shown]` : `[not shown: scheme ${url.protocol.replace(/:$/, '')}, not http(s)]`;
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))) return fail('scheme not allowed');
   if (url.username !== '' || url.password !== '') return fail('credentials in the URL');
   if (url.search !== '' || raw.includes('?')) return fail('query string');

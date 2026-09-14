@@ -85,7 +85,9 @@ function errorResult(code: ToolError['code'], message: string): CliResult {
  * JSON error with exit 4, never as a stack trace, and `--help` works whatever the environment holds. `--api <url>`
  * overrides the configuration's API URL (hosted mode); a malformed or blank value is bad_input with exit 1 (a blank
  * VERDICT_API_URL means embedded mode, but a flag given without a URL is a mistake, most often an unset shell
- * variable, and must not silently run the engine in process). An injected `tools` wins over both, for tests.
+ * variable, and must not silently run the engine in process). With the flag present VERDICT_API_URL is not read at
+ * all, so a malformed variable cannot stop a command that names its own host. An injected `tools` wins over both,
+ * for tests.
  */
 export async function runCli(argv: readonly string[], config?: KitConfig, tools?: Tools): Promise<CliResult> {
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
@@ -109,7 +111,9 @@ export async function runCli(argv: readonly string[], config?: KitConfig, tools?
   }
   let resolved: Tools;
   try {
-    const base = config ?? configFromEnv();
+    // --api replaces VERDICT_API_URL rather than layering over it: the variable is dropped from the environment before
+    // it is parsed, so the flag wins even when the variable holds a value the kit would refuse.
+    const base = config ?? configFromEnv(apiOverride === undefined ? process.env : { ...process.env, VERDICT_API_URL: undefined });
     resolved = tools ?? toolsFromConfig(apiOverride === undefined ? base : { ...base, apiUrl: apiOverride });
   } catch (e) {
     return errorResult('not_configured', e instanceof Error ? e.message : String(e));

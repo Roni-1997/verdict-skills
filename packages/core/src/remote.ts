@@ -11,8 +11,12 @@
 // REMOTE_MAX_BODY_BYTES is refused (unread when the server declares its length, otherwise the read stops at the
 // limit), and the API holds no keys and this module sends none. A body that passes its schema is also checked against
 // the request it answers: a /markets or /opportunities body must name the network and venue that were sent, and a body
-// addressed by outcome must be about that outcome, so a host that does not honour `net` (a proxy that drops the query
-// string, a copy of the app with other defaults) cannot hand a testnet caller mainnet data as if it were the kit's own.
+// from /market, /compare, /fair-value or /hedges must be about the outcome that was sent and, when a venue is
+// configured, about a market of that venue. The per-outcome bodies carry no network field in the pinned contract, so
+// on those four routes a host that ignores `net` could still answer from the other network when the venue happens to
+// match; pin VERDICT_API_URL to Verdict's own host. A body is also held to the documented invariants of its route
+// (counts, ranks, the limit, priced before unpriced, one venue in a filtered list); a body that breaks one is an
+// UpstreamError of kind schema, never the kit's own result.
 import { z } from 'zod';
 import type { KitConfig } from './config.js';
 import { CompareMarketResult, type EngineOptions, FairValueResult, FindHedgesResult, OpportunitiesResult } from './crossvenue.js';
@@ -86,7 +90,22 @@ interface Addressed {
   readonly network?: unknown;
   readonly venue?: unknown;
   readonly outcome?: unknown;
-  readonly market?: { readonly outcome?: unknown };
+  readonly market?: { readonly outcome?: unknown; readonly venue?: unknown };
+}
+
+/**
+ * Seconds to wait from a Retry-After header: an integer is taken as seconds; an HTTP-date is turned into the seconds
+ * from now, at least 1; anything else (or no header) is null and the message carries no wait. Only a value with a
+ * month name (every HTTP-date has one) is read as a date: Date.parse turns a bare "-5" or "7.5" into a year.
+ */
+export function retryAfterSeconds(header: string | null, now: number = Date.now()): number | null {
+  if (header === null) return null;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) return Number(value);
+  if (!/[A-Za-z]/.test(value)) return null;
+  const at = Date.parse(value);
+  if (Number.isNaN(at)) return null;
+  return Math.max(1, Math.ceil((at - now) / 1000));
 }
 
 export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): Tools {
@@ -100,9 +119,11 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
    * /opportunities; the routes addressed by outcome declare no venue parameter and the kit sends none): the production
    * host defaults to mainnet and to every deployer, so the kit's own network and venue are always spelled out ('all' is
    * the API's word for every deployer). Redirects are not followed: the kit talks to the configured host only. A body
-   * that passes the schema must then be about what was asked: the network on every body that names one, the venue
-   * that was sent (null for 'all') on every body that names one, and the outcome that was sent on every body about a
-   * market; a body about something else is an UpstreamError schema, never returned as the kit's own result.
+   * that passes the schema must then be about what was asked: the network on every body that names one (/markets and
+   * /opportunities; the per-outcome bodies carry none), the venue that was sent (null for 'all') on every body that
+   * names one, and on the four routes addressed by outcome the outcome that was sent and, when the kit is configured
+   * for one venue, a market of that venue; a body about something else is an UpstreamError schema, never returned as
+   * the kit's own result. The route's own invariants are checked by the tool that called (see refuse).
    */
   async function get<S extends z.ZodTypeAny>(route: string, params: Readonly<Record<string, string | undefined>>, schema: S): Promise<z.output<S>> {
     const url = new URL(`${base}/${route}`);
@@ -161,6 +182,15 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
       if (params.outcome !== undefined) {
         const got = 'outcome' in data ? data.outcome : data.market?.outcome;
         if (got !== Number(params.outcome)) mismatch('outcome', Number(params.outcome), got);
+        // The per-outcome routes take no venue parameter, so the configured venue is the only one to hold the body to.
+        // Embedded mode reads any deployer's market by outcome; here a market of another venue is refused, because it
+        // is also what the other network's market of the same index looks like from a host that ignored `net`.
+        if (config.venue !== null) {
+          const gotVenue = 'venue' in data ? data.venue : data.market?.venue;
+          if (gotVenue !== config.venue) {
+            throw new UpstreamError(`api ${route} answered about a market of venue ${JSON.stringify(gotVenue)}, not the configured venue ${JSON.stringify(config.venue)}; either the host at ${JSON.stringify(base)} did not honour the request (check the API base URL) or the market belongs to another deployer (unset VERDICT_VENUE or set it to all to read every deployer)`, 'schema', { what: 'venue', expected: config.venue, got: gotVenue });
+          }
+        }
       }
       return parsed.data as z.output<S>;
     }
@@ -172,17 +202,32 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
     if (status === 400 && slug === 'bad_input') throw new ToolError(message ?? `api ${route} rejected the request`, 'bad_input');
     if (status === 404 && slug === 'not_found') throw new ToolError(message ?? `api ${route}: not found on ${config.network}`, 'not_found');
     const labelled = slug === null ? '' : ` (${slug}${err.success && err.data.kind ? `: ${err.data.kind}` : ''})`;
-    if (status === 429) throw new UpstreamError(`api ${route} rate limited (HTTP 429)${retryAfter ? `; retry after ${retryAfter} s` : ''}`, 'http', { status, retryAfter });
+    if (status === 429) {
+      const wait = retryAfterSeconds(retryAfter);
+      throw new UpstreamError(`api ${route} rate limited (HTTP 429)${wait === null ? '' : `; retry after ${wait} s`}`, 'http', { status, retryAfter });
+    }
     if (status === 404) throw new UpstreamError(`api ${route} returned HTTP 404 without the API's not_found body; check the API base URL ${JSON.stringify(base)}`, 'http', { status, body });
     throw new UpstreamError(`api ${route} returned HTTP ${status}${labelled}`, 'http', { status, body });
   }
+
+  /** A body that passed its schema and is about the right network, venue and outcome, but breaks an invariant its route documents. */
+  const refuse = (route: string, why: string, detail: unknown): never => {
+    throw new UpstreamError(`api ${route} answered with ${why}; the host at ${JSON.stringify(base)} did not serve the documented contract. Check the API base URL`, 'schema', detail);
+  };
 
   return {
     ...local,
 
     async list_markets(input) {
       const venue = checkVenue(input.venue ?? config.venue) ?? 'all';
-      return get(REMOTE_ROUTES.list_markets, { venue, includeExpired: input.includeExpired ? 'true' : undefined }, ListMarketsResult);
+      const route = REMOTE_ROUTES.list_markets;
+      const body = await get(route, { venue, includeExpired: input.includeExpired ? 'true' : undefined }, ListMarketsResult);
+      if (body.count !== body.markets.length) refuse(route, `count ${body.count} for ${body.markets.length} markets`, { count: body.count, markets: body.markets.length });
+      if (venue !== 'all') {
+        const stray = body.markets.find((m) => m.venue !== venue);
+        if (stray) refuse(route, `a market of venue ${JSON.stringify(stray.venue)} (outcome ${stray.outcome}) in the list for venue ${JSON.stringify(venue)}`, { venue, got: stray.venue, outcome: stray.outcome });
+      }
+      return body;
     },
 
     async get_market(input) {
@@ -208,7 +253,20 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
     async opportunities(input) {
       const limit = checkLimit(input.limit);
       const venue = checkVenue(config.venue) ?? 'all';
-      return get(REMOTE_ROUTES.opportunities, { venue, limit: String(limit) }, OpportunitiesResult);
+      const route = REMOTE_ROUTES.opportunities;
+      const body = await get(route, { venue, limit: String(limit) }, OpportunitiesResult);
+      const n = body.items.length;
+      if (n > limit) refuse(route, `${n} items for the limit ${limit} the kit sent`, { limit, items: n });
+      if (body.limit !== limit) refuse(route, `limit ${body.limit}, not the limit ${limit} the kit sent`, { limit, got: body.limit });
+      if (body.count !== n) refuse(route, `count ${body.count} for ${n} items`, { count: body.count, items: n });
+      const ranks = body.items.map((item) => item.rank);
+      if (ranks.some((rank, i) => rank !== i + 1)) refuse(route, `ranks ${JSON.stringify(ranks)}, not 1 to ${n} in order`, { ranks });
+      const firstUnpriced = body.items.findIndex((item) => !item.priced);
+      const late = firstUnpriced === -1 ? undefined : body.items.slice(firstUnpriced).find((item) => item.priced);
+      if (late) refuse(route, `a priced market at rank ${late.rank} after an unpriced one; the contract ranks every priced market before every unpriced one`, { rank: late.rank, firstUnpricedRank: firstUnpriced + 1 });
+      const unpriced = body.items.filter((item) => !item.priced).length;
+      if (body.unpricedCount !== unpriced) refuse(route, `unpricedCount ${body.unpricedCount} for ${unpriced} unpriced items`, { unpricedCount: body.unpricedCount, unpriced });
+      return body;
     },
   };
 }
