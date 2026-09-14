@@ -3,7 +3,7 @@
 // skills/verdict; scripts/bench.sh must refuse to run without an OpenRouter key, say so clearly, and
 // never touch the network or print a key on that path.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -239,9 +239,12 @@ describe('scripts/bench.sh', () => {
     const r = spawnSync('bash', [BENCH_SH, ...args], { encoding: 'utf8', env, cwd: home });
     return { status: r.status, stdout: r.stdout, stderr: r.stderr };
   }
-  it('parses, is executable and prints usage', () => {
+  it('parses, is committed and checked out with the executable bit, and prints usage', () => {
     expect(spawnSync('bash', ['-n', BENCH_SH], { encoding: 'utf8' }).status).toBe(0);
-    chmodSync(BENCH_SH, statSync(BENCH_SH).mode | 0o111);
+    // The mode as stored in git (100755) and as checked out; nothing here changes the tree.
+    const indexed = spawnSync('git', ['ls-files', '-s', '--', 'scripts/bench.sh'], { cwd: ROOT, encoding: 'utf8' });
+    expect(indexed.status, indexed.stderr).toBe(0);
+    expect(indexed.stdout.startsWith('100755 '), `git mode: ${indexed.stdout.trim()}`).toBe(true);
     expect(statSync(BENCH_SH).mode & 0o111).not.toBe(0);
     const r = spawnSync('bash', [BENCH_SH, '--help'], { encoding: 'utf8' });
     expect(r.status).toBe(0);

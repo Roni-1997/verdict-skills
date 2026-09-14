@@ -1,7 +1,7 @@
 ---
 name: verdict
 version: "0.1.0"
-description: "Verdict's HIP-4 outcome markets on Hyperliquid through the verdict CLI: list markets with their settlement rules, read a market, its order book and an executable quote for a size, compare a market with Polymarket and Kalshi (with the resolution-equivalence confidence and reasons), read the Deribit option-implied fair value, find Hyperliquid hedges, scan the venue for tradeable markets, read positions and builder-fee approval, and build unsigned orders that carry Verdict's builder code. Use when the user mentions: (1) Verdict, hyperverdict, the Verdict venue or its markets, (2) HIP-4, outcome market, Hyperliquid prediction market, YES or NO tokens on Hyperliquid, (3) a settlement rule, expiry, book, quote or position on such a market, (4) 'compare to Polymarket' or 'compare to Kalshi', fair value, a hedge or an opportunity scan for a market that exists on Verdict, (5) Verdict's builder code, builder fee or builder approval on Hyperliquid."
+description: "Verdict's HIP-4 outcome markets on Hyperliquid through the verdict CLI: list markets with their settlement rules, read a market, its order book and an executable quote for a size, compare a market with Polymarket and Kalshi (with the resolution-equivalence confidence and reasons), read the Deribit option-implied fair value, find Hyperliquid hedges, scan the venue for tradeable markets, read positions and builder-fee approval, and build unsigned orders that carry Verdict's builder code. Use when the user mentions: (1) Verdict, hyperverdict, the Verdict venue or its markets, (2) HIP-4, outcome market, Hyperliquid prediction market, YES or NO tokens on Hyperliquid, (3) a settlement rule, expiry, book, quote or position on such a market, (4) 'compare to Polymarket' or 'compare to Kalshi', fair value, a hedge or an opportunity scan for a market that exists on Verdict, (5) Verdict's builder code, builder fee or builder approval."
 homepage: https://hyperverdict.xyz
 metadata: { "openclaw": { "always": false, "requires": { "bins": ["verdict"] }, "homepage": "https://hyperverdict.xyz" }, "version": "0.1.0" }
 ---
@@ -18,13 +18,14 @@ Do not activate for:
 
 - general blockchain or Hyperliquid education ("how does HIP-4 work", "what is a perp", "explain EIP-712");
 - Hyperliquid perps or spot trading, which are not Verdict markets;
+- another Hyperliquid builder's code, fee or approval: the kit knows Verdict's only;
 - trading on Polymarket, Kalshi or Deribit themselves: the kit compares, it never builds orders for them;
 - deposits, withdrawals, transfers or wallet management: the kit has none.
 
 ## Preamble
 
-- The CLI is `verdict`. Every command prints one JSON document on stdout, errors as one JSON object on stderr, and never prompts. Nothing is interactive; no pty is needed and nothing has to be bypassed.
-- Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
+- The CLI is `verdict`. Every command prints one JSON document on stdout, errors as one JSON object on stderr (an unknown flag or command is the exception: exit 1 with plain usage text), and never prompts. Nothing is interactive; no pty is needed and nothing has to be bypassed.
+- Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured (no builder code, or an invalid `VERDICT_NETWORK` or `VERDICT_BUILDER_FEE_TENTHS_BP` value).
 - Paths in this file (`references/...`, `scripts/...`) are relative to this skill's directory, the folder that contains SKILL.md: `~/.claude/skills/verdict` after `install.sh`, `skills/verdict` in the clone. OpenClaw calls that folder `{baseDir}`; Claude Code does not expand a placeholder, so the paths are written relative.
 - `--pretty` indents the JSON; omit it when you parse.
 - `compare`, `fair-value`, `hedges` and `opportunities` run the Verdict app's cross-venue engine: Polymarket, Kalshi and Deribit are read, never traded, and the kit builds no order for them. They need no key and can take up to about 30 seconds (the engine's venue fetch budget is 20 s); that is fetching, not a prompt.

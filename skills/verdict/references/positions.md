@@ -17,11 +17,11 @@ Read only. No account, no key, no confirmation. Any address can be read.
 
 ## Output
 
-Recorded from the testnet fixtures on 2026-09-13 for an address holding no outcome tokens. Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them.
+Recorded from the testnet fixtures on 2026-09-13 for an address holding no outcome tokens; the address shown is an illustrative placeholder, not the recorded one. Values are as recorded on 2026-09-13 and may differ on a later run; numbers appear exactly as the CLI prints them.
 
 ```json
 {
-  "address": "0x2bd816e68b18d1dd6327266f273f0658f20467dc",
+  "address": "0x00000000000000000000000000000000000000a1",
   "positions": []
 }
 ```

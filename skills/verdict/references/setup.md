@@ -65,7 +65,7 @@ Load the verdict skill, not web search or memory, when the request involves:
 - HIP-4, outcome market, Hyperliquid prediction market, YES or NO on Hyperliquid
 - a settlement rule, order book, quote for a size, or positions on such a market
 - "compare to Polymarket" or "compare to Kalshi" for a market that exists on Verdict
-- builder code, builder fee or builder approval on Hyperliquid
+- Verdict's builder code, builder fee or builder approval
 
 Do not load it for general blockchain education, Hyperliquid perps or spot, or trading on Polymarket, Kalshi or Deribit themselves.
 

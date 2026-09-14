@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Verify that the engine copies in packages/engine/src are byte for byte the files recorded in
-// packages/engine/UPSTREAM.json. Three legs, and every one must pass:
+// packages/engine/UPSTREAM.json. Four legs, and every one must pass:
+//   0. UPSTREAM.json covers packages/engine/src: every source file other than the kit's own index.ts and the
+//      generated upstream.ts is recorded (and the recorded list is the one sync-engine.mjs syncs), so a file
+//      cannot escape the check by being dropped from, or never added to, the pin record;
 //   1. the sha256 (and git blob sha1) of each local copy against the recorded hashes;
 //   2. packages/engine/src/upstream.ts carries the same pin and hashes;
 //   3. each local copy against the file GitHub serves at the pinned commit (`gh api`).
@@ -11,10 +14,10 @@
 //
 //   node scripts/check-engine-drift.mjs [--root <dir>]
 //   CHECK_ENGINE_OFFLINE=1 node scripts/check-engine-drift.mjs
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GithubFetchError, fetchGithubFile, gitBlobSha1, sha256 } from './sync-engine.mjs';
+import { DEFAULTS, GithubFetchError, fetchGithubFile, gitBlobSha1, sha256 } from './sync-engine.mjs';
 
 function argValue(flag) {
   const i = process.argv.indexOf(flag);
@@ -36,7 +39,30 @@ function fail(msg) {
   process.stdout.write(`FAIL  ${msg}\n`);
 }
 
+// Leg 0: coverage. The pin record must name every engine source file, and only the files sync-engine.mjs syncs.
+const ENGINE_SRC = 'packages/engine/src';
+/** Kit-owned files under packages/engine/src: the package entry and the provenance module sync-engine.mjs generates. */
+const KIT_OWNED = new Set([`${ENGINE_SRC}/index.ts`, `${ENGINE_SRC}/upstream.ts`]);
+const recorded = new Set(upstream.files.map((f) => f.local));
+if (recorded.size === 0) fail(`${ENGINE_SRC}: UPSTREAM.json records no files; nothing would be verified`);
+const present = readdirSync(resolve(root, ENGINE_SRC), { recursive: true, withFileTypes: true })
+  .filter((d) => d.isFile() && /\.(ts|js|mjs|cjs|mts|cts|json)$/.test(d.name))
+  .map((d) => relative(root, resolve(d.parentPath ?? d.path, d.name)).split('\\').join('/'))
+  .filter((p) => !KIT_OWNED.has(p))
+  .sort();
+for (const p of present) {
+  if (!recorded.has(p)) fail(`${p}: present in ${ENGINE_SRC} but not recorded in UPSTREAM.json, so nothing verifies it against ${upstream.repo}. Re-run scripts/sync-engine.mjs (and add the file to its DEFAULTS) or remove the file.`);
+}
+for (const p of recorded) {
+  if (!present.includes(p)) fail(`${p}: recorded in UPSTREAM.json but missing from ${ENGINE_SRC}`);
+}
+const expected = new Set(DEFAULTS.files.map((f) => f.local));
+for (const p of expected) if (!recorded.has(p)) fail(`${p}: synced by scripts/sync-engine.mjs but not recorded in UPSTREAM.json; the pin record was shrunk`);
+for (const p of recorded) if (!expected.has(p)) fail(`${p}: recorded in UPSTREAM.json but not in scripts/sync-engine.mjs DEFAULTS; add it there so a pin move syncs it`);
+if (!failures) process.stdout.write(`ok    ${ENGINE_SRC}: ${recorded.size} engine file(s) recorded, every source file covered\n`);
+
 for (const f of upstream.files) {
+  if (!present.includes(f.local)) continue;
   const bytes = readFileSync(resolve(root, f.local));
   const localSha = sha256(bytes);
   if (localSha !== f.sha256) fail(`${f.local}: local sha256 ${localSha} != recorded ${f.sha256}`);

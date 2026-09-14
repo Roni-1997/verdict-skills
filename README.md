@@ -28,7 +28,7 @@ Read tools, no account needed:
 - `compare_market`: the best Polymarket and Kalshi comparator for a market, with the price gap when the contracts match (exact twin, ladder interpolation to the Verdict strike, or a Black-Scholes reprice to the Verdict settlement time) and always the engine's resolution-equivalence confidence and reasons. A low-confidence match carries a caveat and no gap. A market with no trades in the last 24h and no real quote on its book (never traded, so Hyperliquid's mark is the 0.5 placeholder; or traded on an earlier day, so the mark is stale) has no Verdict price and no gap, and the Deribit reference and evidence say so instead of printing the 0.5 book average; a Verdict price taken from the Hyperliquid mark is labelled as such; an edge the engine rates low or that flips under a vol stress carries no after-spreads gap.
 - `fair_value`: the Deribit option-implied probability for BTC, ETH and SOL price markets, or a typed not-available result with the reason.
 - `find_hedges`: Hyperliquid perp and spot hedge candidates for the market underlying, with the hedge direction for YES.
-- `opportunities`: the configured venue's live markets ranked by tradeable quality (spread, depth, live odds), with trade call, hedge leg and any cross-venue gap. At most 8 per scan; books are read for the 40 most-traded live markets, the rest price off asset contexts. A market with no Verdict price is carried as `priced: false` with a null probability, the reason, and a `why` that starts with `unpriced`; it ranks after every priced market, and the engine never sees its book (so nothing averages a wall-only book to 50%). Cross-venue references and the Deribit line are tied to the ranked market by outcome id, not by the engine's title (same-strike dailies share one).
+- `opportunities`: the configured venue's live markets ranked by tradeable quality (spread, depth, live odds), with trade call, hedge leg and any cross-venue gap. At most 8 per scan; books are read for the 40 most-traded live markets, the rest price off asset contexts. A market with no Verdict price is carried as `priced: false` with a null probability, the reason, and a `why` that starts with `unpriced`; it ranks after every priced market (the engine is handed every priced market and only as many unpriced ones as its 8 slots leave free, so its own selection can never drop a priced market for an unpriced one), and the engine never sees its book (so nothing averages a wall-only book to 50%). Cross-venue references and the Deribit line are tied to the ranked market by outcome id, not by the engine's title (same-strike dailies share one).
 - `positions`: outcome-token balances for an address, read only.
 - `builder_status`: whether an address has approved Verdict's builder fee, and up to what rate.
 
@@ -139,7 +139,10 @@ byte for byte at the commit recorded in `packages/engine/UPSTREAM.json`. Nothing
 engine code is written in the kit: `scripts/sync-engine.mjs` copies them from the GitHub contents API and
 records a sha256 per file, `scripts/check-engine-drift.mjs` (`pnpm run check:engine`, part of
 `pnpm run check`) recomputes the hashes and compares every file with the copy GitHub serves at the pinned
-commit (`gh api`), failing on any difference. It fails closed: a GitHub comparison that cannot run is a
+commit (`gh api`), failing on any difference; it also fails when a source file under `packages/engine/src`
+(other than the kit's `index.ts` and the generated `upstream.ts`) is not recorded in `UPSTREAM.json`, or when the
+record does not list exactly the files `sync-engine.mjs` syncs, so the pin record cannot be shrunk to hide a
+file. It fails closed: a GitHub comparison that cannot run is a
 failure, unless `CHECK_ENGINE_OFFLINE=1` is set, which skips only the "gh not installed, not authenticated or
 offline" class and prints the skip; a 404 (wrong commit or path) or a hash mismatch fails whatever the flag
 says. The engine compiles under its own tsconfig (DOM lib and bundler resolution, as in the app); the build
@@ -162,7 +165,11 @@ reason recorded (`never_traded_*` for the 0.5 placeholder mark, `stale_*` for a 
 The engine's own market probability for the Deribit reference (`optionsImplied.marketProb` and the
 "Options-implied reference" evidence line) is replaced by that price in every tool result. For the
 `opportunities` scan the engine is handed the snapshot without the books of unpriced markets
-(`withoutUnpricedBooks`), since it averages any top of book it is given when the mid is null.
+(`withoutUnpricedBooks`), since it averages any top of book it is given when the mid is null, and with the
+unpriced markets cut to the slots left after the priced ones (`opportunitiesEngineInput`): the engine scores a
+bookless market at a flat floor but a thin priced market far outside its 5-95% band lower still, so over the
+whole snapshot it would drop the priced market first. The scan's `summary` and "markets scanned" evidence line
+carry the kit's count of live markets, not the engine's count of what it was handed.
 
 The engine fetches Polymarket, Kalshi and Deribit itself with the global `fetch` and reads the bodies as
 untyped records. Optionally, `ODDPOOL_API_KEY` routes its Polymarket and Kalshi reads through OddPool: the

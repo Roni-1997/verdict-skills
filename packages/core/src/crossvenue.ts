@@ -18,7 +18,7 @@ import {
 import { z } from 'zod';
 import type { InfoClient } from './hl/client.js';
 import { type Catalog, type Market, marketsFromCatalog } from './markets.js';
-import { buildSnapshot, type EngineSnapshot, UnpricedReason, withoutUnpricedBooks } from './snapshot.js';
+import { buildSnapshot, type EngineSnapshot, UnpricedReason, restrictSnapshot, withoutUnpricedBooks } from './snapshot.js';
 import { MarketSummary, summarize } from './summary.js';
 import { withValidatedVenueFetch } from './venues.js';
 
@@ -372,6 +372,25 @@ export const OPPORTUNITIES_ENGINE_MAX = 8;
 /** Books read per scan by default: 80 l2Book requests, well inside Hyperliquid's 1,200 weight per minute. */
 export const OPPORTUNITIES_DEFAULT_BOOKS = 40;
 
+/**
+ * What the engine is handed for a scan: every priced market, and only as many unpriced ones as its selection has
+ * slots left (`slots` is its per-scan maximum). The engine's selectOpportunityMarkets scores a bookless, unpriced
+ * market at a flat floor, but a thin priced market far outside its 5-95% band scores lower still, so over the whole
+ * snapshot it can drop a priced market for an unpriced one before the kit sees a card for either. Capping the unpriced
+ * input at the free slots is what makes "an unpriced market ranks after every priced market" hold at the selection
+ * stage, not only in the kit's reordering of the engine's output. Unpriced fill is taken by 24h notional then snapshot
+ * order, the engine's own tie order for markets it cannot price. Books of unpriced markets are already blanked.
+ */
+export function opportunitiesEngineInput(snap: EngineSnapshot, slots: number): EngineSnapshot {
+  const volume = (o: EngineSnapshot['outcomes'][number]) => Number(snap.assetCtxByCoin[o.yesCoin]?.dayNtlVlm ?? 0) + Number(snap.assetCtxByCoin[o.noCoin]?.dayNtlVlm ?? 0);
+  const priced = snap.outcomes.filter((o) => o.mid !== null);
+  const unpriced = snap.outcomes
+    .filter((o) => o.mid === null)
+    .sort((a, b) => volume(b) - volume(a))
+    .slice(0, Math.max(0, slots - priced.length));
+  return restrictSnapshot(snap, new Set([...priced, ...unpriced].map((o) => o.outcome)));
+}
+
 // Helpers.
 function num(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v !== '' ? Number(v) : NaN;
@@ -639,6 +658,8 @@ function verdictPrice(base: NormalizedBase, snap: EngineSnapshot): VerdictPrice 
 }
 
 const OPTIONS_EVIDENCE_PREFIX = 'Options-implied reference';
+/** The engine's evidence line that counts the markets it was handed; opportunities restates it with the kit's scan count. */
+const SCANNED_EVIDENCE_PREFIX = 'Verdict/HL markets scanned: ';
 
 /** The options-implied evidence line, with the kit's Verdict price (or its absence) in place of the engine's. */
 function optionsEvidence(underlying: string, direction: string, strike: number, ref: { prob: number; iv: number; offsetHours: number }, vp: VerdictPrice): string {
@@ -866,8 +887,10 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
   const markets = marketsFromCatalog(catalog, venue ? { venue } : {}).filter((m) => !isExpired(m, now));
   const snap = await buildSnapshot(client, catalog, markets, { coinMids: true, onBookError: 'skip', maxBooks: opts.maxBooks ?? OPPORTUNITIES_DEFAULT_BOOKS });
   // The engine averages any top of book it is given when the mid is null, so it never sees the book of an unpriced
-  // market: with neither a book nor a mid it scores the market at its floor and prints no probability for it.
-  const engineSnap = withoutUnpricedBooks(snap);
+  // market: with neither a book nor a mid it scores the market at its floor and prints no probability for it. And it
+  // is handed no more unpriced markets than it has slots left after the priced ones (opportunitiesEngineInput), so
+  // its selection can never drop a priced market for an unpriced one.
+  const engineSnap = opportunitiesEngineInput(withoutUnpricedBooks(snap), OPPORTUNITIES_ENGINE_MAX);
   const raw = await withValidatedVenueFetch(() => runOpportunity({ query: '', snap: engineSnap, deadlineAt: deadline(opts) }));
   const res = ResearchResult.parse(raw);
   const cards = res.cards.map((c) => StrategyCard.safeParse(c)).flatMap((p) => (p.success ? [p.data] : []));
@@ -886,8 +909,9 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
   const bases = ranked.map((r) => r.base);
   const optionsBase = res.optionsImplied ? resolveOptionsBase(bases, res.optionsImplied.baseTitle) : null;
   const options = kitOptionsImplied(res, optionsBase ?? undefined, optionsBase ? verdictPrice(optionsBase, snap) : NO_VERDICT_PRICE);
-  // Priced markets first, the engine's order within each group. A market without a book scores at the engine's floor,
-  // so this decides an exact tie at most; it is what makes "an unpriced market never ranks above a priced one" a rule.
+  // Priced markets first, the engine's order within each group. The engine received every priced market, so together
+  // with the input cap above this makes "an unpriced market ranks after every priced market" hold end to end: a thin
+  // far-out-of-band priced market that the engine scored below the bookless floor still comes before every unpriced one.
   const ordered = [...ranked.filter((r) => r.vp.yesMid !== null), ...ranked.filter((r) => r.vp.yesMid === null)];
   const items = ordered.slice(0, limit).map((r, i) => {
     const priced = r.vp.yesMid !== null;
@@ -921,10 +945,15 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
     return [comparatorFromReference(ref, ref.venue, base ? verdictPrice(base, snap) : NO_VERDICT_PRICE)];
   });
   const unpricedCount = items.filter((item) => !item.priced).length;
+  // The engine's sentence and evidence count the markets it was handed; the scan's count is every live market the
+  // snapshot was built for (`scanned`), so the two are restated with that number, in the engine's own words.
+  const scannedLine = `Scanned ${markets.length} live Verdict markets and ranked the ${ranked.length} most tradeable by spread, depth, and live odds.`;
+  const engineSummary = ranked.length > 0 ? scannedLine : res.summary;
   const summary =
     unpricedCount === 0
-      ? res.summary
-      : `${res.summary} ${unpricedCount} of the ${items.length} shown ${unpricedCount === 1 ? 'has' : 'have'} no Verdict price (unpriced) and ${unpricedCount === 1 ? 'ranks' : 'rank'} last.`;
+      ? engineSummary
+      : `${engineSummary} ${unpricedCount} of the ${items.length} shown ${unpricedCount === 1 ? 'has' : 'have'} no Verdict price (unpriced) and ${unpricedCount === 1 ? 'ranks' : 'rank'} last.`;
+  const evidence = options.evidence.map((e) => (e.startsWith(SCANNED_EVIDENCE_PREFIX) ? `${SCANNED_EVIDENCE_PREFIX}${markets.length}` : e));
   return OpportunitiesResult.parse({
     network: client.config.network,
     venue,
@@ -939,7 +968,7 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
     dataStatus: { polymarket: res.dataStatus.polymarket ?? 'unavailable', kalshi: res.dataStatus.kalshi ?? 'unavailable' },
     bookErrors: snap.bookErrors,
     summary,
-    evidence: options.evidence,
+    evidence,
     engine: engineInfo(res.route, res.generatedAt),
   });
 }

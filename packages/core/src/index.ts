@@ -15,7 +15,7 @@ export { positions } from './positions.js';
 export type { OutcomePosition } from './positions.js';
 export { BUILDER_UNSET_MESSAGE, configFromEnv } from './config.js';
 export type { KitConfig } from './config.js';
-export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, OUTCOME_WALL_BAND, UnpricedReason, buildSnapshot, isPlaceholderCtx, isStaleCtx, priceFromBook, tradedToday, withoutUnpricedBooks } from './snapshot.js';
+export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, OUTCOME_WALL_BAND, UnpricedReason, buildSnapshot, isPlaceholderCtx, isStaleCtx, priceFromBook, restrictSnapshot, tradedToday, withoutUnpricedBooks } from './snapshot.js';
 export type { PriceFromBook, SnapshotOptions } from './snapshot.js';
 export {
   Comparator,
@@ -28,6 +28,7 @@ export {
   HedgeCandidateResult,
   OPPORTUNITIES_DEFAULT_BOOKS,
   OPPORTUNITIES_ENGINE_MAX,
+  opportunitiesEngineInput,
   OpportunitiesResult,
   OpportunityItem,
   UNPRICED_TAG_PREFIX,
