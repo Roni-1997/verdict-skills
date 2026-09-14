@@ -1,14 +1,14 @@
 {
   "repo": "Roni-1997/verdict",
-  "commit": "79f3ed255dbd9a628b01d9a38eb149f2116cbffb",
-  "syncedAt": "2026-09-13T21:24:59.986Z",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "syncedAt": "2026-09-14T17:40:12.252Z",
   "files": [
     {
       "local": "packages/engine/src/research-core.ts",
       "upstream": "src/research/research-core.ts",
-      "bytes": 153162,
-      "gitBlobSha1": "fc7c9d5672c38c96315e6243072a37a65b98fb26",
-      "sha256": "13ad72d878b58791fbe4a7cf1fe70ea2f165a935ee7736ac51a8b629a8e6b688"
+      "bytes": 153189,
+      "gitBlobSha1": "51f8038a7e7637859f5ed44f6687b102eee1128d",
+      "sha256": "24c16087517a16eca97fd490943e1f66133cb2f858d6fc0ebf87eafe65b5df6b"
     },
     {
       "local": "packages/engine/src/playbooks.ts",

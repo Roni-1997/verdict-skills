@@ -5,7 +5,7 @@
 // reading the playbooks classic-script export global in the browser, `require`-ing the
 // playbooks CommonJS file in Node — is the simplification AGENTS.md invariant #5
 // anticipated: it collapses to one import below.
-import { ROUTES, getPlaybook, routeFromMode as playbooksRouteFromMode, type RouteId } from './playbooks';
+import { ROUTES, getPlaybook, routeFromMode as playbooksRouteFromMode, type RouteId } from './playbooks.js';
 
 // Third-party venue payloads (Polymarket/Kalshi/Oddpool/Deribit raw rows), the internal
 // normalized market objects, and the research "cards" this file builds are all read
@@ -452,7 +452,8 @@ function normalizeVerdictOutcome(outcome: Raw | null | undefined, ctx: { assetCt
   const category = inferCategory(title, outcome && outcome.parsed);
   const underlying = inferUnderlying(title, outcome && outcome.parsed);
   const shape = outcomeShape(outcome, parent);
-  const root: Raw = typeof window !== 'undefined' ? (window as unknown as Raw) : (globalThis as unknown as Raw);
+  const w = (globalThis as unknown as Raw).window;
+  const root: Raw = w !== undefined ? w : (globalThis as unknown as Raw);
   return {
     venue: VENUES.VERDICT,
     id: `verdict:${outcome && outcome.outcome}`,
@@ -767,7 +768,8 @@ async function fetchJson(url: string, timeoutMs?: number, headers?: Record<strin
   }
 }
 function sameOriginApi(path: string, params: URLSearchParams): string | null {
-  const root: Raw = typeof window !== 'undefined' ? (window as unknown as Raw) : (globalThis as unknown as Raw);
+  const w = (globalThis as unknown as Raw).window;
+  const root: Raw = w !== undefined ? w : (globalThis as unknown as Raw);
   if (!root || !root.location) return null;
   return `${path}?${params.toString()}`;
 }
