@@ -1,0 +1,3287 @@
+{
+ "outcomes": [
+  {
+   "outcome": 1209,
+   "name": "template:priceTouch",
+   "description": "perp:HYPE|priceDescription:HYPE-USDC perp mark |seconds:1|target:100|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1210,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|threshold:100000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1211,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:100000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1212,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:95000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1213,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:90000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1214,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:85000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1215,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:70000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1216,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:65000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1217,
+   "name": "template:priceTouch",
+   "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|target:60000|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1226,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1227,
+   "name": "template:policyRateNoChange",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1228,
+   "name": "template:policyRateDecrease",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1229,
+   "name": "template:policyRateIncrease",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1230,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:CL|priceDescription:xyz:CL|seconds:1|threshold:83.196|time:20260929-2100",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1251,
+   "name": "template:priceTouch",
+   "description": "perp:HYPE|priceDescription:HYPE-USDC perp mark|seconds:3|target:90|time:20261001-0000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1472,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1473,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Arsenal",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1474,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Manchester City",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1475,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Liverpool",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1476,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Chelsea",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1477,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Manchester United",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1478,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Tottenham Hotspur",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1479,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1480,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Barcelona",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1481,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Arsenal",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1482,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Bayern Munich",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1483,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Real Madrid",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1484,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Manchester City",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1485,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Paris Saint-Germain",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1486,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1487,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Los Angeles Rams",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1488,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Buffalo Bills",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1489,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Baltimore Ravens",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1490,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Seattle Seahawks",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1491,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Kansas City Chiefs",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1492,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Dallas Cowboys",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 1638,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1640,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Alexander Zverev",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1642,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Ben Shelton",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1646,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Frances Tiafoe",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1866,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:Dallas Cowboys|participantB:New York Giants|resolutionDeadline:20260914-0620|scheduledStart:20260914-0020|season:2026|shortNameA:Cowboys|shortNameB:Giants|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1867,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:Green Bay Packers|participantB:Minnesota Vikings|resolutionDeadline:20260914-0225|scheduledStart:20260913-2025|season:2026|shortNameA:Packers|shortNameB:Vikings|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1868,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:New Orleans Saints|participantB:Detroit Lions|resolutionDeadline:20260913-2300|scheduledStart:20260913-1700|season:2026|shortNameA:Saints|shortNameB:Lions|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1870,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:Arizona Cardinals|participantB:Los Angeles Chargers|resolutionDeadline:20260914-0225|scheduledStart:20260913-2025|season:2026|shortNameA:Cardinals|shortNameB:Chargers|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1872,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:Washington Commanders|participantB:Philadelphia Eagles|resolutionDeadline:20260914-0225|scheduledStart:20260913-2025|season:2026|shortNameA:Commander|shortNameB:Eagles|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 1875,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:Miami Dolphins|participantB:Las Vegas Raiders|resolutionDeadline:20260914-0225|scheduledStart:20260913-2025|season:2026|shortNameA:Dolphins|shortNameB:Raiders|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2179,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Karen Khachanov",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2180,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Alexander Blockx",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2181,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Botic Van de Zandschulp",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2193,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Tennessee Titans|participantB:New York Jets|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:TEN|shortNameB:NYJ|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2194,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Houston Texans|participantB:Buffalo Bills|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:HOU|shortNameB:BUF|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2195,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Indianapolis Colts|participantB:Baltimore Ravens|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:IND|shortNameB:BAL|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2196,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Pittsburgh Steelers|participantB:Atlanta Falcons|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:PIT|shortNameB:ATL|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2197,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Carolina Panthers|participantB:Chicago Bears|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:CAR|shortNameB:CHI|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2198,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Cincinnati Bengals|participantB:Tampa Bay Buccaneers|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:CIN|shortNameB:TB|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2200,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Jacksonville Jaguars|participantB:Cleveland Browns|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:JAX|shortNameB:CLE|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2201,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Detroit Lions|participantB:New Orleans Saints|resolutionDeadline:20260914-1700|scheduledStart:20260913-1700|season:2026|shortNameA:DET|shortNameB:NO|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2376,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Las Vegas Raiders|participantB:Miami Dolphins|resolutionDeadline:20260914-2025|scheduledStart:20260913-2025|season:2026|shortNameA:LV|shortNameB:MIA|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2377,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Philadelphia Eagles|participantB:Washington Commanders|resolutionDeadline:20260914-2025|scheduledStart:20260913-2025|season:2026|shortNameA:PHI|shortNameB:WAS|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2378,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Minnesota Vikings|participantB:Green Bay Packers|resolutionDeadline:20260914-2025|scheduledStart:20260913-2025|season:2026|shortNameA:MIN|shortNameB:GB|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2379,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Los Angeles Chargers|participantB:Arizona Cardinals|resolutionDeadline:20260914-2025|scheduledStart:20260913-2025|season:2026|shortNameA:LAC|shortNameB:ARI|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2389,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:New York Giants|participantB:Dallas Cowboys|resolutionDeadline:20260915-0020|scheduledStart:20260914-0020|season:2026|shortNameA:NYG|shortNameB:DAL|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2390,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2391,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Leeds United",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2392,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2393,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Newcastle United",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2494,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:CL|priceDescription:1-minute candle|seconds:300|threshold:95.932|time:20260930-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2519,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:game|countedPlay:regulation time and any overtime|officialSource:ESPN|participantA:Denver Broncos|participantB:Kansas City Chiefs|resolutionDeadline:20260915-0615|scheduledStart:20260915-0015|season:2026|shortNameA:Broncos|shortNameB:Chiefs|sport:football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2535,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2536,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Paris Saint-Germain",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2537,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2538,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Brest",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2549,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2550,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Los Angeles Dodgers",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2551,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Milwaukee Brewers",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2552,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:New York Yankees",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2553,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Tampa Bay Rays",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2554,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Philadelphia Phillies",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2555,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Atlanta Braves",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2556,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Boston Red Sox",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2557,
+   "name": "template:sportsTournamentParticipant",
+   "description": "participant:Chicago Cubs",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2562,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:28875|time:20260914-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2563,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:29400|time:20260914-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2564,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:29925|time:20260914-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2565,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7590|time:20260914-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2566,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7665|time:20260914-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2567,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7740|time:20260914-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2569,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SPCX|priceDescription:1-minute candle|seconds:300|threshold:151.11|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2570,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SNDK|priceDescription:1-minute candle|seconds:300|threshold:1633.2|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2571,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:1-minute candle|seconds:300|threshold:29361|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2572,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:CL|priceDescription:1-minute candle|seconds:300|threshold:97.17|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2573,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:MU|priceDescription:1-minute candle|seconds:300|threshold:975.45|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2574,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:GOLD|priceDescription:1-minute candle|seconds:300|threshold:4350.8|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2575,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:NVDA|priceDescription:1-minute candle|seconds:300|threshold:218.33|time:20260914-1335",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2586,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2587,
+   "name": "template:policyRateNoChange",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2588,
+   "name": "template:policyRateDecrease",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2589,
+   "name": "template:policyRateIncrease",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2597,
+   "name": "template:companyIpoConfirmed",
+   "description": "company:Anthropic|dateTime:20261031-2359",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2598,
+   "name": "template:companyIpoConfirmed",
+   "description": "company:OpenAI|dateTime:20261031-2359",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2613,
+   "name": "template:sportsOverUnderMarket",
+   "description": "countedPlay:regulation time and any overtime|event:NFL: Cowboys v Giants|line:2.5|measure:Cowboys margin over Giants|officialSource:ESPN|resolutionDeadline:20260914-0620|scheduledStart:20260914-0020|sport:football",
+   "sideSpecs": [
+    {
+     "name": "template:Over"
+    },
+    {
+     "name": "template:Under"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2614,
+   "name": "template:sportsOverUnderMarket",
+   "description": "countedPlay:regulation time and any overtime|event:NFL: Cowboys v Giants|line:48.5|measure:points scored by both teams|officialSource:ESPN|resolutionDeadline:20260914-0620|scheduledStart:20260914-0020|sport:football",
+   "sideSpecs": [
+    {
+     "name": "template:Over"
+    },
+    {
+     "name": "template:Under"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2688,
+   "name": "template:sportsContestWinner",
+   "description": "competition:US Open|contestType:match|countedPlay:the completed match|officialSource:ESPN|participantA:Alexander Zverev|participantB:Ben Shelton|resolutionDeadline:20260915-2000|scheduledStart:20260913-2000|season:2026|shortNameA:Zverev|shortNameB:Shelton|sport:tennis|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "txyz"
+  },
+  {
+   "outcome": 2720,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2721,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:AC Milan",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2722,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2723,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Benfica",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2724,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2725,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Sunderland",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2726,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2727,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:AZ Alkmaar",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2729,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2730,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Liverpool",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2731,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2732,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Tottenham Hotspur",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2733,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2734,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Ipswich Town",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2735,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2736,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Arsenal",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2737,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2738,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:West Ham United",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2739,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2740,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Fulham",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2758,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2759,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Elche CF",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2760,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2761,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Real Madrid",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2766,
+   "name": "template:sportsContestWinner",
+   "description": "competition:NFL|contestType:Match|countedPlay:the full game including overtime|officialSource:National Football League (NFL)|participantA:Kansas City Chiefs|participantB:Denver Broncos|resolutionDeadline:20260916-0015|scheduledStart:20260915-0015|season:2026|shortNameA:KC|shortNameB:DEN|sport:Football|stage:Regular Season",
+   "sideSpecs": [
+    {
+     "name": "template:{shortNameA}"
+    },
+    {
+     "name": "template:{shortNameB}"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2767,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2768,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Manchester United",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2769,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2770,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Brighton",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2771,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2772,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:FC Barcelona",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2773,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2774,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Racing Santander",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2820,
+   "name": "Recurring",
+   "description": "class:priceBinary|underlying:BTC|expiry:20260914-0600|targetPrice:77284|period:1d",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2821,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Hyperliquid BTC perp trade|seconds:90|threshold:76650|time:20260914-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2822,
+   "name": "Recurring",
+   "description": "class:priceBinary|underlying:ETH|expiry:20260914-0600|targetPrice:2522.3|period:1d",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2823,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Hyperliquid BTC perp trade|seconds:90|threshold:77850|time:20260914-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2824,
+   "name": "Recurring",
+   "description": "class:priceBinary|underlying:SOL|expiry:20260914-0600|targetPrice:101.76|period:1d",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2825,
+   "name": "Recurring",
+   "description": "class:priceBinary|underlying:HYPE|expiry:20260914-0600|targetPrice:79.348|period:1d",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2826,
+   "name": "Recurring Fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2827,
+   "name": "Recurring Named Outcome",
+   "description": "index:0",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2828,
+   "name": "Recurring Named Outcome",
+   "description": "index:1",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2829,
+   "name": "Recurring Named Outcome",
+   "description": "index:2",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC"
+  },
+  {
+   "outcome": 2894,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:74950|time:20260914-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2895,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:74950|time:20260916-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2896,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:74950|time:20260918-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2897,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:77250|time:20260914-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2898,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:77250|time:20260916-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2899,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:77250|time:20260918-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2900,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:79550|time:20260914-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2901,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:79550|time:20260916-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2902,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:79550|time:20260918-0600",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2903,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:28630|time:20260916-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2904,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:28630|time:20260918-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2905,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:29155|time:20260916-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2906,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:29155|time:20260918-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2907,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:29680|time:20260916-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2908,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:XYZ100|priceDescription:the Pyth US100 index price|seconds:90|threshold:29680|time:20260918-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2909,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7555|time:20260916-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2910,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7555|time:20260918-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2911,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7630|time:20260916-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2912,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7630|time:20260918-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2913,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7705|time:20260916-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2914,
+   "name": "template:binaryPrice",
+   "description": "perp:xyz:SP500|priceDescription:the Pyth US500 index price|seconds:90|threshold:7705|time:20260918-2000",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2916,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2917,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Bayer 04 Leverkusen",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2918,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2919,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:NK Publikum Celje",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2921,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2922,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Coventry City",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2923,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2924,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Aston Villa",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2930,
+   "name": "template fallback",
+   "description": "other",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2931,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Everton",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2932,
+   "name": "template:sportsContestDraw2",
+   "description": "",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2933,
+   "name": "template:sportsContestParticipant2",
+   "description": "participant:Wolverhampton Wanderers",
+   "sideSpecs": [
+    {
+     "name": "Yes"
+    },
+    {
+     "name": "No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2944,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Hyperliquid BTC perp trade|seconds:90|threshold:77075|time:20260914-0030",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2945,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Hyperliquid BTC perp trade|seconds:90|threshold:77325|time:20260914-0030",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2946,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Hyperliquid BTC perp trade|seconds:90|threshold:77575|time:20260914-0030",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2949,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:the Hyperliquid BTC perp trade|seconds:90|threshold:77319|time:20260913-2200",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "skew",
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 2951,
+   "name": "template:binaryPrice",
+   "description": "perp:BTC|priceDescription:BTC-USDC perp mark|seconds:60|threshold:77389|time:20260913-2145",
+   "sideSpecs": [
+    {
+     "name": "template:Yes"
+    },
+    {
+     "name": "template:No"
+    }
+   ],
+   "quoteToken": "USDC",
+   "venue": "out",
+   "deployerFeeScale": "1.0"
+  }
+ ],
+ "questions": [
+  {
+   "question": 191,
+   "name": "template:policyRateDecision",
+   "description": "decisionDeadline:20261028-2359|decisionLabel:September 2026|institution:Federal Reserve's Open Market Committee|officialSource:Federal Reserve's Open Market Committee|policyMeasure:the upper bound target range for the federal funds rate|scheduledDecision:20260916-1800",
+   "fallbackOutcome": 1226,
+   "namedOutcomes": [
+    1227,
+    1228,
+    1229
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 198,
+   "name": "template:sportsTournamentWinner",
+   "description": "competition:English Premier League|officialSource:English Premier League|resolutionDeadline:20270605-1200|season:2026/2027|sport:football/soccer",
+   "fallbackOutcome": 1472,
+   "namedOutcomes": [
+    1473,
+    1474,
+    1475,
+    1476,
+    1477,
+    1478
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 199,
+   "name": "template:sportsTournamentWinner",
+   "description": "competition:UEFA Champions League|officialSource:UEFA|resolutionDeadline:20270612-1200|season:2026/2027|sport:football/soccer",
+   "fallbackOutcome": 1479,
+   "namedOutcomes": [
+    1480,
+    1481,
+    1482,
+    1483,
+    1484,
+    1485
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 200,
+   "name": "template:sportsTournamentWinner",
+   "description": "competition:USA National Football League (NFL)|officialSource:USA National Football League (NFL)|resolutionDeadline:20270221-1200|season:2027|sport:football",
+   "fallbackOutcome": 1486,
+   "namedOutcomes": [
+    1487,
+    1488,
+    1489,
+    1490,
+    1491,
+    1492
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 202,
+   "name": "template:sportsTournamentWinner",
+   "description": "competition:US Open|officialSource:ESPN|resolutionDeadline:20260914-0030|season:2026|sport:tennis",
+   "fallbackOutcome": 1638,
+   "namedOutcomes": [
+    1640,
+    1642,
+    1646,
+    2179,
+    2180,
+    2181
+   ],
+   "settledNamedOutcomes": [
+    1639,
+    1641,
+    1643,
+    1644,
+    1645,
+    1647
+   ]
+  },
+  {
+   "question": 244,
+   "name": "template:sportsContestResult",
+   "description": "competition:English Premier League|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Premier League|participantA:Leeds United|participantB:Newcastle United|resolutionDeadline:20260915-1900|scheduledStart:20260914-1900|season:2026/27|sport:Soccer|stage:Matchday 4",
+   "fallbackOutcome": 2390,
+   "namedOutcomes": [
+    2391,
+    2392,
+    2393
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 249,
+   "name": "template:sportsContestResult",
+   "description": "competition:LIGUE1|contestType:game|countedPlay:regulation time, including stoppage time|officialSource:ESPN|participantA:Paris Saint-Germain|participantB:Brest|resolutionDeadline:20260914-0045|scheduledStart:20260913-1845|season:2026|sport:soccer|stage:Regular Season",
+   "fallbackOutcome": 2535,
+   "namedOutcomes": [
+    2536,
+    2537,
+    2538
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 250,
+   "name": "template:sportsTournamentWinner",
+   "description": "competition:MLB Championship|officialSource:MLB|resolutionDeadline:20261110-0000|season:2026|sport:baseball",
+   "fallbackOutcome": 2549,
+   "namedOutcomes": [
+    2550,
+    2551,
+    2552,
+    2553,
+    2554,
+    2555,
+    2556,
+    2557
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 251,
+   "name": "template:policyRateDecision",
+   "description": "decisionDeadline:20261027-2359|decisionLabel:September 2026 FOMC|institution:Federal Reserve|officialSource:federalreserve.gov|policyMeasure:the upper bound of the target range for the federal funds rate|scheduledDecision:20260916-1800",
+   "fallbackOutcome": 2586,
+   "namedOutcomes": [
+    2587,
+    2588,
+    2589
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 253,
+   "name": "template:sportsContestResult",
+   "description": "competition:UEFA Europa League|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:Union of European Football Associations|participantA:AC Milan|participantB:Benfica|resolutionDeadline:20260917-1900|scheduledStart:20260916-1900|season:2026/27|sport:Soccer|stage:Matchday 1",
+   "fallbackOutcome": 2720,
+   "namedOutcomes": [
+    2721,
+    2722,
+    2723
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 254,
+   "name": "template:sportsContestResult",
+   "description": "competition:UEFA Europa League|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:Union of European Football Associations|participantA:Sunderland|participantB:AZ Alkmaar|resolutionDeadline:20260917-1900|scheduledStart:20260916-1900|season:2026/27|sport:Soccer|stage:Matchday 1",
+   "fallbackOutcome": 2724,
+   "namedOutcomes": [
+    2725,
+    2726,
+    2727
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 255,
+   "name": "template:sportsContestResult",
+   "description": "competition:EFL Cup (Carabao Cup)|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Football League|participantA:Liverpool|participantB:Tottenham Hotspur|resolutionDeadline:20260916-1900|scheduledStart:20260915-1900|season:2026/27|sport:Soccer|stage:third round",
+   "fallbackOutcome": 2729,
+   "namedOutcomes": [
+    2730,
+    2731,
+    2732
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 256,
+   "name": "template:sportsContestResult",
+   "description": "competition:EFL Cup (Carabao Cup)|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Football League|participantA:Ipswich Town|participantB:Arsenal|resolutionDeadline:20260916-1900|scheduledStart:20260915-1900|season:2026/27|sport:Soccer|stage:third round",
+   "fallbackOutcome": 2733,
+   "namedOutcomes": [
+    2734,
+    2735,
+    2736
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 257,
+   "name": "template:sportsContestResult",
+   "description": "competition:EFL Cup (Carabao Cup)|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Football League|participantA:West Ham United|participantB:Fulham|resolutionDeadline:20260916-1845|scheduledStart:20260915-1845|season:2026/27|sport:Soccer|stage:third round",
+   "fallbackOutcome": 2737,
+   "namedOutcomes": [
+    2738,
+    2739,
+    2740
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 258,
+   "name": "template:sportsContestResult",
+   "description": "competition:Spanish La Liga|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:Spanish La Liga|participantA:Elche CF|participantB:Real Madrid|resolutionDeadline:20260916-1930|scheduledStart:20260915-1930|season:2026/27|sport:Soccer|stage:Matchday 6",
+   "fallbackOutcome": 2758,
+   "namedOutcomes": [
+    2759,
+    2760,
+    2761
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 259,
+   "name": "template:sportsContestResult",
+   "description": "competition:EFL Cup (Carabao Cup)|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Football League|participantA:Manchester United|participantB:Brighton|resolutionDeadline:20260917-1900|scheduledStart:20260916-1900|season:2026/27|sport:Soccer|stage:third round",
+   "fallbackOutcome": 2767,
+   "namedOutcomes": [
+    2768,
+    2769,
+    2770
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 260,
+   "name": "template:sportsContestResult",
+   "description": "competition:Spanish La Liga|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:Spanish La Liga|participantA:FC Barcelona|participantB:Racing Santander|resolutionDeadline:20260917-1930|scheduledStart:20260916-1930|season:2026/27|sport:Soccer|stage:Matchday 6",
+   "fallbackOutcome": 2771,
+   "namedOutcomes": [
+    2772,
+    2773,
+    2774
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 261,
+   "name": "Recurring",
+   "description": "class:priceBucket|underlying:BTC|expiry:20260914-0600|priceThresholds:75738,78829|period:1d",
+   "fallbackOutcome": 2826,
+   "namedOutcomes": [
+    2827,
+    2828,
+    2829
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 262,
+   "name": "template:sportsContestResult",
+   "description": "competition:UEFA Europa League|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:Union of European Football Associations|participantA:Bayer 04 Leverkusen|participantB:NK Publikum Celje|resolutionDeadline:20260917-1900|scheduledStart:20260916-1900|season:2026/27|sport:Soccer|stage:Matchday 1",
+   "fallbackOutcome": 2916,
+   "namedOutcomes": [
+    2917,
+    2918,
+    2919
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 263,
+   "name": "template:sportsContestResult",
+   "description": "competition:EFL Cup (Carabao Cup)|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Football League|participantA:Coventry City|participantB:Aston Villa|resolutionDeadline:20260917-1900|scheduledStart:20260916-1900|season:2026/27|sport:Soccer|stage:third round",
+   "fallbackOutcome": 2921,
+   "namedOutcomes": [
+    2922,
+    2923,
+    2924
+   ],
+   "settledNamedOutcomes": []
+  },
+  {
+   "question": 264,
+   "name": "template:sportsContestResult",
+   "description": "competition:EFL Cup (Carabao Cup)|contestType:Match|countedPlay:regulation time, 90 minutes plus stoppage time|officialSource:English Football League|participantA:Everton|participantB:Wolverhampton Wanderers|resolutionDeadline:20260917-1845|scheduledStart:20260916-1845|season:2026/27|sport:Soccer|stage:third round",
+   "fallbackOutcome": 2930,
+   "namedOutcomes": [
+    2931,
+    2932,
+    2933
+   ],
+   "settledNamedOutcomes": []
+  }
+ ],
+ "deployers": [
+  {
+   "deployer": "0x08e9c89f46dccee91bdb85c6532eb93a4c335efe",
+   "venue": "skew",
+   "subDeployers": [
+    [
+     "registerAndAssociateNamedOutcomeFromTemplate",
+     [
+      "0x1c867861e0cffb0eba07d9d94f716189c130dac6"
+     ]
+    ],
+    [
+     "registerQuestionFromTemplate",
+     [
+      "0x1c867861e0cffb0eba07d9d94f716189c130dac6"
+     ]
+    ],
+    [
+     "registerStandaloneOutcomeFromTemplate",
+     [
+      "0x1c867861e0cffb0eba07d9d94f716189c130dac6"
+     ]
+    ],
+    [
+     "settleOutcome",
+     [
+      "0x1c867861e0cffb0eba07d9d94f716189c130dac6"
+     ]
+    ],
+    [
+     "settleQuestion",
+     [
+      "0x1c867861e0cffb0eba07d9d94f716189c130dac6"
+     ]
+    ]
+   ]
+  },
+  {
+   "deployer": "0x0c46eb73fae2816f219fcf11f50d6d3c59b5819e",
+   "venue": "out",
+   "subDeployers": [
+    [
+     "registerAndAssociateNamedOutcomeFromTemplate",
+     [
+      "0x6947a610ef50f8b5d4b59abcd94dd75aaaa645b9",
+      "0xf1923927d7d2847191fb7ef8b1a16028aa5ae754"
+     ]
+    ],
+    [
+     "registerQuestionFromTemplate",
+     [
+      "0x6947a610ef50f8b5d4b59abcd94dd75aaaa645b9",
+      "0xf1923927d7d2847191fb7ef8b1a16028aa5ae754"
+     ]
+    ],
+    [
+     "registerStandaloneOutcomeFromTemplate",
+     [
+      "0x6947a610ef50f8b5d4b59abcd94dd75aaaa645b9",
+      "0xf1923927d7d2847191fb7ef8b1a16028aa5ae754"
+     ]
+    ],
+    [
+     "settleOutcome",
+     [
+      "0x6947a610ef50f8b5d4b59abcd94dd75aaaa645b9",
+      "0xf1923927d7d2847191fb7ef8b1a16028aa5ae754"
+     ]
+    ],
+    [
+     "settleQuestion",
+     [
+      "0x6947a610ef50f8b5d4b59abcd94dd75aaaa645b9",
+      "0xf1923927d7d2847191fb7ef8b1a16028aa5ae754"
+     ]
+    ]
+   ]
+  },
+  {
+   "deployer": "0x7aca09667816a4817b8bc697fb239ad42ff9f553",
+   "venue": "txyz",
+   "subDeployers": [
+    [
+     "registerAndAssociateNamedOutcomeFromTemplate",
+     [
+      "0x77ef1bbc0467f0ddde42e5a0e9ccd80369c55cc8",
+      "0x8ef95fa212d22448c9c7eafa277b4c8bbf3f9d57"
+     ]
+    ],
+    [
+     "registerQuestionFromTemplate",
+     [
+      "0x77ef1bbc0467f0ddde42e5a0e9ccd80369c55cc8",
+      "0x8ef95fa212d22448c9c7eafa277b4c8bbf3f9d57"
+     ]
+    ],
+    [
+     "registerStandaloneOutcomeFromTemplate",
+     [
+      "0x77ef1bbc0467f0ddde42e5a0e9ccd80369c55cc8",
+      "0x8ef95fa212d22448c9c7eafa277b4c8bbf3f9d57"
+     ]
+    ],
+    [
+     "settleOutcome",
+     [
+      "0x77ef1bbc0467f0ddde42e5a0e9ccd80369c55cc8",
+      "0x8ef95fa212d22448c9c7eafa277b4c8bbf3f9d57"
+     ]
+    ],
+    [
+     "settleQuestion",
+     [
+      "0x77ef1bbc0467f0ddde42e5a0e9ccd80369c55cc8",
+      "0x8ef95fa212d22448c9c7eafa277b4c8bbf3f9d57"
+     ]
+    ]
+   ]
+  }
+ ],
+ "feeScale": "1.0"
+}

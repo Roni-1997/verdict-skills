@@ -6,4 +6,9 @@ dist/
 .env.*
 !.env.example
 coverage/
+# Crypto Skill Bench clone and run output (scripts/bench.sh); dated reports go to bench/reports/
+bench/.cache/
+bench/runs/
 .DS_Store
+# written by skills/verdict/scripts/install.sh into the installed copy only
+skills/verdict/.repo-dir

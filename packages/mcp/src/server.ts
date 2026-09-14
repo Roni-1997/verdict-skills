@@ -38,7 +38,8 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
     {
       instructions: [
         `Verdict HIP-4 outcome markets on Hyperliquid ${config.network}${config.venue ? `, venue ${config.venue}` : ''}.`,
-        'Read tools never prompt and need no account. approve_builder_fee_payload and build_order return UNSIGNED payloads only:',
+        'Read tools never prompt and need no account. compare_market, fair_value, find_hedges and opportunities read Polymarket, Kalshi and Deribit for comparison only; orders route to Verdict alone.',
+        'approve_builder_fee_payload and build_order return UNSIGNED payloads only:',
         'show their confirmation lines to the user, stop, and wait for an explicit yes in a new message before anything is signed or submitted.',
         'Never sign on behalf of the user, never fabricate a confirmation, never add a yes flag. Analysis and trading do not happen in the same turn.',
       ].join(' '),
@@ -70,6 +71,26 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
       annotations: annot('quote'),
     },
     (input) => run(() => tools.quote(input)),
+  );
+  server.registerTool(
+    'compare_market',
+    { description: TOOL_DOCS.compare_market.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('compare_market') },
+    (input) => run(() => tools.compare_market(input)),
+  );
+  server.registerTool(
+    'fair_value',
+    { description: TOOL_DOCS.fair_value.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('fair_value') },
+    (input) => run(() => tools.fair_value(input)),
+  );
+  server.registerTool(
+    'find_hedges',
+    { description: TOOL_DOCS.find_hedges.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('find_hedges') },
+    (input) => run(() => tools.find_hedges(input)),
+  );
+  server.registerTool(
+    'opportunities',
+    { description: TOOL_DOCS.opportunities.description, inputSchema: { limit: z.number().int().min(1).max(8).optional() }, annotations: annot('opportunities') },
+    (input) => run(() => tools.opportunities(input)),
   );
   server.registerTool(
     'positions',

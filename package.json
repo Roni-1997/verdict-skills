@@ -11,14 +11,19 @@
   "scripts": {
     "build": "pnpm -r run build",
     "test": "vitest run",
-    "check:types": "tsc -b && tsc -p tsconfig.tests.json",
+    "check:engine": "node scripts/check-engine-drift.mjs",
+    "check:types": "pnpm --filter @verdict/engine run build && tsc -b && tsc -p tsconfig.tests.json",
     "check:lint": "biome lint .",
-    "check": "pnpm run check:types && pnpm run check:lint && pnpm run test"
+    "check": "pnpm run check:engine && pnpm run check:types && pnpm run check:lint && pnpm run test",
+    "sync:engine": "node scripts/sync-engine.mjs",
+    "bench:static": "node scripts/skill-static-check.mjs skills/verdict",
+    "bench": "bash scripts/bench.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.8",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@types/node": "22.15.3",
+    "@verdict/engine": "workspace:*",
     "typescript": "5.9.2",
     "vitest": "3.2.4",
     "zod": "3.25.76"
