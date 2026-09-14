@@ -396,6 +396,19 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       expect(() => configFromEnv({ VERDICT_API_URL: bad }), bad).toThrow(/VERDICT_API_URL/);
     }
     expect(() => parseApiUrl('nope', '--api')).toThrow(/^--api must be/);
+    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1/')).toThrow(/got "https:\/\/hyperverdict\.xyz\/api\/v1\/"/);
+    // A URL that carries credentials is refused without echoing them.
+    const withSecret = (() => {
+      try {
+        parseApiUrl('https://operator:s3cretvalue@hyperverdict.xyz/api/v1');
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+      return '';
+    })();
+    expect(withSecret).toContain('credentials in the URL');
+    expect(withSecret).not.toContain('s3cretvalue');
+    expect(withSecret).not.toContain('operator');
     expect(() => parseApiUrl('https://x/')).toThrow(/trailing slash/);
     expect(() => parseApiUrl('https://x?y')).toThrow(/query string/);
   });

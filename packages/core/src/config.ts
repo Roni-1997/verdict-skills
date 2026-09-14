@@ -49,8 +49,10 @@ export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL')
   if (value === undefined) return null;
   const raw = value.trim();
   if (raw === '') return null;
+  // The value is echoed so a typo is easy to spot, except when it carries credentials: those never reach a log line.
+  const shown = raw.includes('@') ? '[not shown: the URL carries credentials]' : JSON.stringify(value);
   const fail = (why: string): never => {
-    throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only for localhost), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${JSON.stringify(value)}`);
+    throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only for localhost), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${shown}`);
   };
   let url: URL;
   try {
