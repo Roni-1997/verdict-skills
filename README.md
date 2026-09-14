@@ -39,7 +39,7 @@ Payload tools, signed by the caller, never by the kit:
 
 ## Use it from an agent
 
-Nothing is published yet, so build once from a clone: `pnpm install && pnpm run build`. Replace `<repo>` below with the absolute path of the clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000). The builder address is published by the owner; without it the read tools other than `builder_status` work, and `builder_status` and the two payload tools return `not_configured`.
+Nothing is published yet, so build once from a clone: `pnpm install && pnpm run build`. Replace `<repo>` below with the absolute path of the clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000), and optionally `VERDICT_API_URL` for [hosted mode](#hosted-mode). The builder address is published by the owner; without it the read tools other than `builder_status` work, and `builder_status` and the two payload tools return `not_configured`.
 
 | Face | Read tools | Unsigned payloads | Signing |
 |---|---|---|---|
@@ -117,19 +117,34 @@ VERDICT_NETWORK=testnet VERDICT_VENUE=at VERDICT_BUILDER_ADDRESS=0x<builder addr
 
 Endpoint `http://127.0.0.1:8787/mcp`, health check `GET /healthz`. Add `--host 0.0.0.0` inside a container. The server is stateless: one transport per request, no sessions. Connect a client with `claude mcp add --transport http verdict https://<host>/mcp`, or the equivalent `"url"` entry in a `mcp.json`.
 
-The hosted server holds no keys and signs nothing. It serves the read tools and the unsigned payloads; signing happens on the caller's machine with the caller's key. The process has no TLS and no access control of its own; put a reverse proxy in front of it and do not set `HL_AGENT_PRIVATE_KEY` in its environment.
+The hosted server holds no keys and signs nothing. It serves the read tools and the unsigned payloads; signing happens on the caller's machine with the caller's key. The process has no TLS and no access control of its own; put a reverse proxy in front of it and do not set `HL_AGENT_PRIVATE_KEY` in its environment. Set `VERDICT_API_URL` on it so the read tools the Verdict API serves come from the API and the server runs no venue fetches of its own (next section).
+
+### Hosted mode
+
+The Verdict app serves the cross-venue engine as a public, anonymous, read-only JSON API at `https://hyperverdict.xyz/api/v1` (`GET /markets`, `/market`, `/compare`, `/fair-value`, `/hedges`, `/opportunities`; bodies match the kit's tool results field for field). With `VERDICT_API_URL` set, or `--api <url>` on a CLI command, the kit answers `list_markets`, `get_market`, `compare_market`, `fair_value`, `find_hedges` and `opportunities` from the API instead of running the embedded engine (`packages/core/src/remote.ts`): one GET per call, `net` and `venue` always sent from the kit's own configuration (so the API's production defaults of mainnet and every deployer never apply; `all` spells every deployer), every body validated with the same Zod result schemas the embedded tools return through, and the API's error slugs mapped back to the kit's errors: `bad_input` and `not_found` as `ToolError`, 429, 5xx, a non-JSON body and a network or timeout failure (30 s per request) as `UpstreamError`. `orderbook`, `quote`, `positions`, `builder_status`, `approve_builder_fee_payload` and `build_order` keep running locally in both modes, unchanged.
+
+```bash
+VERDICT_NETWORK=testnet VERDICT_VENUE=at VERDICT_API_URL=https://hyperverdict.xyz/api/v1 verdict-mcp --http 8787
+VERDICT_API_URL=https://hyperverdict.xyz/api/v1 verdict compare 12891
+verdict opportunities --limit 2 --api https://hyperverdict.xyz/api/v1
+```
+
+`VERDICT_API_URL` must be an `https://` URL without a trailing slash, query or fragment (`http://localhost` is accepted for tests); unset, the embedded engine runs, which stays the default. The API is rate limited per IP (60 requests per minute for `/markets`, `/market`, `/compare`, `/fair-value` and `/hedges`, 20 for `/opportunities`) and caches one answer per route, network and venue for 15 to 30 s. The hosted server holds no keys in either mode; hosted mode removes its venue fetches and its need for the engine's budget, nothing else changes. `ODDPOOL_API_KEY` plays no part in it.
+
+The API's contract is pinned the way the engine is: `packages/core/api-contract/openapi.json` is `docs/api/openapi.json` from `Roni-1997/verdict` byte for byte at the commit recorded in `packages/core/api-contract/UPSTREAM.json` (sha256, git blob sha, size), with a generated `API_CONTRACT` constant in `packages/core/src/api-contract.ts`. `scripts/check-api-contract.mjs` (`pnpm run check:api`, part of `pnpm run check`) recomputes the hashes, checks that the document describes a GET with a 200 JSON body for every route the hosted tools call, and compares the copy with the file GitHub serves at the pinned commit, failing closed like the engine drift check (`CHECK_ENGINE_OFFLINE=1` skips only the gh-unavailable class). To move the pin: `pnpm run sync:api -- --commit <sha>`, then `pnpm run check`. The tests check the contract in both directions: the kit's result schemas accept the production bodies recorded in `tests/fixtures/api-v1` (`tests/fixtures/record_api_v1.mjs`, public data, nothing redacted, dated in its `README.json`), and the embedded tools' results on the engine fixtures validate against the pinned OpenAPI response schemas through a dependency-free JSON Schema subset validator (`tests/_json-schema.ts`, which throws on any keyword it does not implement). `VERDICT_LIVE=1 pnpm vitest run tests/live.test.ts` also runs the hosted tools against production on testnet and checks that the live `/openapi` document equals the pinned one.
 
 ## Layout
 
 ```
 packages/engine the Verdict app's cross-venue engine, byte for byte at a pinned commit (UPSTREAM.json)
-packages/core   the tool module: Hyperliquid client, schemas, tools, engine snapshot adapter, venue payload schemas
+packages/core   the tool module: Hyperliquid client, schemas, tools, engine snapshot adapter, venue payload schemas, hosted-mode tools over the API
+packages/core/api-contract  the Verdict API's OpenAPI document, byte for byte at a pinned app commit (UPSTREAM.json)
 packages/cli    the verdict CLI, JSON by default and --pretty to indent, no prompts
 packages/mcp    the MCP server, stdio and streamable HTTP, thin over core
 skills/verdict  SKILL.md, references per command and for setup and signing, install and uninstall scripts
 bench           Crypto Skill Bench: how to run it against the skill, the score to beat, dated reports
-scripts         sync-engine, check-engine-drift and build-engine for the pinned engine; bench.sh runs the benchmark and skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
-tests           fixtures recorded from testnet, mainnet and the venues, tool tests, skill and bench tests
+scripts         sync-engine, check-engine-drift and build-engine for the pinned engine; sync-api-contract and check-api-contract for the pinned API contract; bench.sh runs the benchmark and skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
+tests           fixtures recorded from testnet, mainnet, the venues and the production API, tool tests, contract tests, skill and bench tests
 ```
 
 ## The engine
@@ -188,6 +203,6 @@ validated by `InfoClient` and pass through untouched. Tests replay recorded venu
 ## Toolchain
 
 Node 22, pnpm 10.34.5, strict TypeScript (same flags as the Verdict app), Zod on every input,
-output and upstream response, Vitest, Biome lint. `pnpm run check` (engine drift, types, lint,
-tests) must be green before any commit that changes code. Live checks against Hyperliquid, the
+output and upstream response, Vitest, Biome lint. `pnpm run check` (engine drift, API contract, types,
+lint, tests) must be green before any commit that changes code. Live checks against Hyperliquid, the
 venues and GitHub run with `VERDICT_LIVE=1 pnpm vitest run tests/live.test.ts`.
