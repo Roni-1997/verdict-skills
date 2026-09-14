@@ -68,7 +68,7 @@ function patchedCtxFetch(coins: readonly string[], patch: Record<string, string>
   }) as typeof fetch;
 }
 const client = new InfoClient({ network: 'mainnet', fetch: fetchAll });
-const config: KitConfig = { network: 'mainnet', venue: 'out', builder: null };
+const config: KitConfig = { network: 'mainnet', venue: 'out', builder: null, apiUrl: null };
 const tools = createTools(config, client, { engine: { timeoutMs: 5_000 } });
 
 beforeAll(() => {

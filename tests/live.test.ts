@@ -47,7 +47,7 @@ d('live: cross-venue engine on mainnet', () => {
       marketsFromCatalog(catalog).find((m) => m.venue && m.templateId === 'binaryPrice' && m.underlying === 'BTC' && (m.expiresAt === null || Date.parse(m.expiresAt) > now)),
       'a live deployer BTC binaryPrice market',
     );
-    const tools = createTools({ network: 'mainnet', venue: market.venue, builder: null }, client);
+    const tools = createTools({ network: 'mainnet', venue: market.venue, builder: null, apiUrl: null }, client);
     const r = await tools.compare_market({ outcome: market.outcome });
     expect(CompareMarketResult.safeParse(r).success).toBe(true);
     expect(r.market.outcome).toBe(market.outcome);

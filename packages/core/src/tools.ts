@@ -56,6 +56,20 @@ export interface ToolOptions {
   readonly engine?: EngineOptions;
 }
 
+/** Input checks shared by the embedded tools and the hosted ones (remote.ts), so both modes reject the same input with the same words. */
+export function checkOutcome(outcome: number): void {
+  if (!Number.isInteger(outcome) || outcome < 0) throw new ToolError(`outcome must be a nonnegative integer, got ${String(outcome)}`, 'bad_input');
+}
+
+/** The opportunities limit: absent means the engine maximum; anything else must be an integer from 1 to that maximum. */
+export function checkLimit(limit: number | undefined): number {
+  const n = limit ?? OPPORTUNITIES_ENGINE_MAX;
+  if (!Number.isInteger(n) || n < 1 || n > OPPORTUNITIES_ENGINE_MAX) {
+    throw new ToolError(`limit must be an integer between 1 and ${OPPORTUNITIES_ENGINE_MAX} (the engine ranks at most ${OPPORTUNITIES_ENGINE_MAX} markets per scan)`, 'bad_input');
+  }
+  return n;
+}
+
 export function resolveSide(market: Market, side: SideInput): 0 | 1 {
   if (side === 0 || side === 1) return side;
   const s = String(side).trim().toLowerCase();
@@ -69,10 +83,6 @@ export function resolveSide(market: Market, side: SideInput): 0 | 1 {
 export function createTools(config: KitConfig, client: InfoClient = new InfoClient({ network: config.network }), options: ToolOptions = {}): Tools {
   const net = networkConfig(config.network);
   const engineOpts = options.engine ?? {};
-
-  function checkOutcome(outcome: number): void {
-    if (!Number.isInteger(outcome) || outcome < 0) throw new ToolError(`outcome must be a nonnegative integer, got ${String(outcome)}`, 'bad_input');
-  }
 
   async function requireMarket(outcome: number): Promise<Market> {
     checkOutcome(outcome);
@@ -139,10 +149,7 @@ export function createTools(config: KitConfig, client: InfoClient = new InfoClie
     },
 
     async opportunities(input) {
-      const limit = input.limit ?? OPPORTUNITIES_ENGINE_MAX;
-      if (!Number.isInteger(limit) || limit < 1 || limit > OPPORTUNITIES_ENGINE_MAX) {
-        throw new ToolError(`limit must be an integer between 1 and ${OPPORTUNITIES_ENGINE_MAX} (the engine ranks at most ${OPPORTUNITIES_ENGINE_MAX} markets per scan)`, 'bad_input');
-      }
+      const limit = checkLimit(input.limit);
       const catalog = await loadCatalog(client);
       return scanOpportunities(client, catalog, config.venue, limit, engineOpts);
     },
