@@ -1,0 +1,167 @@
+{
+ "market": {
+  "outcome": 1210,
+  "venue": "out",
+  "displayName": "BTC above 100000 at 20261001-0000?",
+  "templateId": "binaryPrice",
+  "underlying": "BTC",
+  "threshold": "100000",
+  "expiresAt": "2026-10-01T00:00:00.000Z",
+  "settlementRule": "The market resolves to Yes if the BTC price is above 100000 at 20261001-0000, and otherwise resolves to No. Settlement is according to the 1-second TWAP of BTC-USDC mark price ending at 20261001-0000. If BTC is delisted before this market settles, settlement is instead according to the BTC settlement price at delisting.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "template:Yes",
+    "coin": "#12100",
+    "assetId": 100012100
+   },
+   {
+    "index": 1,
+    "name": "template:No",
+    "coin": "#12101",
+    "assetId": 100012101
+   }
+  ],
+  "deployerFeeScale": "1.0"
+ },
+ "verdict": {
+  "yesMid": 0.020499999999999997,
+  "priceSource": "book",
+  "unpriced": null,
+  "title": "BTC closes above $100,000",
+  "yesBid": 0.0185,
+  "yesAsk": 0.0225,
+  "spread": 0.004,
+  "depthUsd": 1.1099999999999999,
+  "volumeUsd": 5571,
+  "underlying": "BTC",
+  "direction": "above",
+  "strike": 100000,
+  "expiry": "2026-10-01T00:00:00.000Z"
+ },
+ "comparators": {
+  "polymarket": {
+   "venue": "polymarket",
+   "method": "maturity_adjusted_digital",
+   "confidence": "medium",
+   "edgeConfidence": "low",
+   "reasons": [
+    "contract_type_mismatch"
+   ],
+   "caveats": [
+    "maturity_adjusted_via_bs_digital",
+    "settlement_offset_2213h",
+    "model_iv_45pct",
+    "vol_sensitivity_4pt",
+    "model_dependent_not_locked_arb"
+   ],
+   "caveat": "The engine rates this edge low-confidence (the gap does not clear the spreads and the model band) and treats it as no edge, so no after-spreads gap is reported. Model-based comparator (maturity_adjusted_digital): a relative-value read, not a locked arbitrage; it carries vol and settlement risk.",
+   "title": "Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000",
+   "url": "https://polymarket.com/event/what-price-will-bitcoin-hit-before-2027",
+   "fairProb": 0.10188891630312771,
+   "yesBid": 0.23,
+   "yesAsk": 0.24,
+   "spread": 0.009999999999999981,
+   "depthUsd": 66081.677,
+   "volumeUsd": 3312713.572840999,
+   "expiry": "2027-01-01T05:00:00Z",
+   "gap": -0.08138891630312772,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": {
+    "rawProb": 0.235,
+    "adjustedProb": 0.10188891630312771,
+    "shift": -0.13311108369687227,
+    "offsetHours": 2213,
+    "iv": 44.76,
+    "spot": 79040.66,
+    "compExpiry": "2027-01-01T05:00:00Z"
+   },
+   "mismatchNote": "same strike, settles 2213h later than Verdict; repriced with a Black-Scholes digital at iv 44.8%",
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xdaa4866bae18be58c5a79d2aeeffd035ec78f1bb49dbd88f72993997778a990f",
+     "title": "Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000",
+     "url": "https://polymarket.com/event/what-price-will-bitcoin-hit-before-2027",
+     "yesMid": 0.235,
+     "strike": 100000,
+     "expiry": "2027-01-01T05:00:00Z"
+    }
+   ],
+   "line": "Polymarket: 10.2% vs Verdict 2.0%, gap -8.1pp, no edge after spreads (the engine rates the edge low-confidence) (medium confidence: contract_type_mismatch; maturity_adjusted_digital)."
+  },
+  "kalshi": {
+   "venue": "kalshi",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "strike_mismatch"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "strike $89,000 vs $100,000 · settles Sep 18 vs Oct 1"
+   ],
+   "caveat": "Low-confidence match (strike_mismatch): strike $89,000 vs $100,000 · settles Sep 18 vs Oct 1. The price difference is not a comparable gap and is not reported.",
+   "title": "BTC price on Sep 18, 2026 at 5pm EDT? · $89,000 or above",
+   "url": "https://kalshi.com/markets/kxbtcd",
+   "fairProb": 0.015,
+   "yesBid": 0,
+   "yesAsk": 0.03,
+   "spread": 0.03,
+   "depthUsd": 0,
+   "volumeUsd": 157.53,
+   "expiry": "2026-09-18T21:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": "strike $89,000 vs $100,000 · settles Sep 18 vs Oct 1",
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "kalshi:KXBTCD-26SEP1817-T88999.99",
+     "title": "BTC price on Sep 18, 2026 at 5pm EDT? · $89,000 or above",
+     "url": "https://kalshi.com/markets/kxbtcd",
+     "yesMid": 0.015,
+     "strike": null,
+     "expiry": "2026-09-18T21:00:00Z"
+    }
+   ],
+   "line": "Kalshi: low-confidence match (strike_mismatch); no comparable price gap. Closest market: \"BTC price on Sep 18, 2026 at 5pm EDT? · $89,000 or above\"."
+  }
+ },
+ "optionsImplied": {
+  "prob": 0.0055652272667238295,
+  "iv": 44.76,
+  "strikeUsed": 95000,
+  "spot": 79040.66,
+  "offsetHours": 32,
+  "marketProb": 0.020499999999999997,
+  "baseTitle": "BTC closes above $100,000"
+ },
+ "dataStatus": {
+  "polymarket": "ok",
+  "kalshi": "ok"
+ },
+ "errors": {},
+ "summary": "BTC above 100000 at 20261001-0000?: Verdict YES 2.0%. Polymarket: 10.2% vs Verdict 2.0%, gap -8.1pp, no edge after spreads (the engine rates the edge low-confidence) (medium confidence: contract_type_mismatch; maturity_adjusted_digital). Kalshi: low-confidence match (strike_mismatch); no comparable price gap. Closest market: \"BTC price on Sep 18, 2026 at 5pm EDT? · $89,000 or above\". Deribit options-implied: 0.6% (iv 44.8%, nearest expiry +32h from settle); reference only, not a tradable comparator.",
+ "lines": [
+  "Polymarket: 10.2% vs Verdict 2.0%, gap -8.1pp, no edge after spreads (the engine rates the edge low-confidence) (medium confidence: contract_type_mismatch; maturity_adjusted_digital).",
+  "Kalshi: low-confidence match (strike_mismatch); no comparable price gap. Closest market: \"BTC price on Sep 18, 2026 at 5pm EDT? · $89,000 or above\".",
+  "Deribit options-implied: 0.6% (iv 44.8%, nearest expiry +32h from settle); reference only, not a tradable comparator."
+ ],
+ "evidence": [
+  "Verdict markets scanned: 1/1",
+  "External markets fetched: 310",
+  "External markets usable after stale/illiquid filter: 194",
+  "Polymarket status: ok",
+  "Kalshi status: ok",
+  "Options-implied reference (BTC options chain): P(BTC above $100,000 at settle) = 0.6% (iv 44.8%, nearest options expiry +32h vs market settle; market YES 2.0%). Derivatives reference only, not a tradable comparator."
+ ],
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": "cross_venue_scanner",
+  "generatedAt": "2026-09-14T18:00:56.424Z"
+ }
+}

@@ -1,0 +1,628 @@
+{
+ "network": "mainnet",
+ "venue": null,
+ "scanned": 202,
+ "booksFetched": 40,
+ "count": 8,
+ "limit": 8,
+ "engineMax": 8,
+ "items": [
+  {
+   "rank": 1,
+   "outcome": 2917,
+   "venue": "out",
+   "displayName": "Bayer 04 Leverkusen",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.8524499999999999,
+   "spread": 0.00017999999999995797,
+   "depthUsd": 165.35784,
+   "volumeUsd": 21291,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.0% spread, $165 depth, YES 85.2%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $165."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 2,
+   "outcome": 2725,
+   "venue": "out",
+   "displayName": "Sunderland",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.59223,
+   "spread": 0.0023799999999999377,
+   "depthUsd": 206.864,
+   "volumeUsd": 14485,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.2% spread, $207 depth, YES 59.2%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $207."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 3,
+   "outcome": 2761,
+   "venue": "out",
+   "displayName": "Real Madrid",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.792305,
+   "spread": 0.002950000000000008,
+   "depthUsd": 226.17738,
+   "volumeUsd": 15817,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.3% spread, $226 depth, YES 79.2%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $226."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 4,
+   "outcome": 1473,
+   "venue": "out",
+   "displayName": "Arsenal",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.56761,
+   "spread": 0.00010000000000010001,
+   "depthUsd": 110.10663999999998,
+   "volumeUsd": 67949,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.0% spread, $110 depth, YES 56.8%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $110."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 5,
+   "outcome": 1227,
+   "venue": "out",
+   "displayName": "No change",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.1505,
+   "spread": 0.0030000000000000027,
+   "depthUsd": 184.015,
+   "volumeUsd": 87804,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.3% spread, $184 depth, YES 15.0%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $184."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 6,
+   "outcome": 2768,
+   "venue": "out",
+   "displayName": "Manchester United",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.5209900000000001,
+   "spread": 0.000060000000000060005,
+   "depthUsd": 84.40524,
+   "volumeUsd": 22879,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.0% spread, $84 depth, YES 52.1%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $84."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 7,
+   "outcome": 1482,
+   "venue": "out",
+   "displayName": "Bayern Munich",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.152005,
+   "spread": 0.00019000000000002348,
+   "depthUsd": 64.03410000000001,
+   "volumeUsd": 15481,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.0% spread, $64 depth, YES 15.2%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $64."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 8,
+   "outcome": 1487,
+   "venue": "out",
+   "displayName": "Los Angeles Rams",
+   "expiresAt": null,
+   "priced": true,
+   "yesMid": 0.11448,
+   "spread": 0.0002600000000000102,
+   "depthUsd": 62.462450000000004,
+   "volumeUsd": 34184,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "0.0% spread, $62 depth, YES 11.4%",
+   "tradeCall": {
+    "label": "Small YES only",
+    "reason": "Visible depth is thin at $62."
+   },
+   "actionState": "ticket",
+   "crossVenue": null,
+   "hedge": null
+  }
+ ],
+ "unpricedCount": 0,
+ "comparators": [
+  {
+   "venue": "kalshi",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Fed decision in Sep 2026? · Cut >25bps",
+   "url": "https://kalshi.com/markets/kxfeddecision",
+   "fairProb": 0.005,
+   "yesBid": 0,
+   "yesAsk": 0.01,
+   "spread": 0.01,
+   "depthUsd": 0,
+   "volumeUsd": 45986.39,
+   "expiry": "2026-09-16T17:59:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "kalshi:KXFEDDECISION-26SEP-C26",
+     "title": "Fed decision in Sep 2026? · Cut >25bps",
+     "url": "https://kalshi.com/markets/kxfeddecision",
+     "yesMid": 0.005,
+     "strike": null,
+     "expiry": "2026-09-16T17:59:00Z"
+    }
+   ],
+   "line": "Kalshi: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Fed decision in Sep 2026? · Cut >25bps\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will no Fed rate cuts happen in 2026? · 0 (0 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.9345000000000001,
+   "yesBid": 0.934,
+   "yesAsk": 0.935,
+   "spread": 0.0010000000000000009,
+   "depthUsd": 211898.48166,
+   "volumeUsd": 8314493.391854001,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xd4e77ba6f29fc093509d24f508631abd445ecf506bbdc9c4c80e60256a318527",
+     "title": "Will no Fed rate cuts happen in 2026? · 0 (0 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.9345000000000001,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will no Fed rate cuts happen in 2026? · 0 (0 bps)\"."
+  },
+  {
+   "venue": "kalshi",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Fed decision in Sep 2026? · Cut 25bps",
+   "url": "https://kalshi.com/markets/kxfeddecision",
+   "fairProb": 0.005,
+   "yesBid": 0,
+   "yesAsk": 0.01,
+   "spread": 0.01,
+   "depthUsd": 0,
+   "volumeUsd": 700609.4,
+   "expiry": "2026-09-16T17:59:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "kalshi:KXFEDDECISION-26SEP-C25",
+     "title": "Fed decision in Sep 2026? · Cut 25bps",
+     "url": "https://kalshi.com/markets/kxfeddecision",
+     "yesMid": 0.005,
+     "strike": null,
+     "expiry": "2026-09-16T17:59:00Z"
+    }
+   ],
+   "line": "Kalshi: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Fed decision in Sep 2026? · Cut 25bps\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 1 Fed rate cut happen in 2026? · 1 (25 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0435,
+   "yesBid": 0.043,
+   "yesAsk": 0.044,
+   "spread": 0.0010000000000000009,
+   "depthUsd": 255274.28936,
+   "volumeUsd": 3015547.1120909997,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x5e082f0b57f47a29044aa35b4c5658393122e659d5feae521c06b57cdd7f905c",
+     "title": "Will 1 Fed rate cut happen in 2026? · 1 (25 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0435,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 1 Fed rate cut happen in 2026? · 1 (25 bps)\"."
+  },
+  {
+   "venue": "kalshi",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Fed decision in Sep 2026? · Hike 0bps",
+   "url": "https://kalshi.com/markets/kxfeddecision",
+   "fairProb": 0.14500000000000002,
+   "yesBid": 0.14,
+   "yesAsk": 0.15,
+   "spread": 0.009999999999999981,
+   "depthUsd": 5087.447400000001,
+   "volumeUsd": 4484451.98,
+   "expiry": "2026-09-16T17:59:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "kalshi:KXFEDDECISION-26SEP-H0",
+     "title": "Fed decision in Sep 2026? · Hike 0bps",
+     "url": "https://kalshi.com/markets/kxfeddecision",
+     "yesMid": 0.14500000000000002,
+     "strike": null,
+     "expiry": "2026-09-16T17:59:00Z"
+    }
+   ],
+   "line": "Kalshi: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Fed decision in Sep 2026? · Hike 0bps\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 2 Fed rate cuts happen in 2026? · 2 (50 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.006500000000000001,
+   "yesBid": 0.005,
+   "yesAsk": 0.008,
+   "spread": 0.003,
+   "depthUsd": 111339.14118,
+   "volumeUsd": 3086309.4572809995,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xe0d9f508a249e0070db06eb7d1e1fb17eb23c963f6fb722c4c3f81e23240c1cd",
+     "title": "Will 2 Fed rate cuts happen in 2026? · 2 (50 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.006500000000000001,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 2 Fed rate cuts happen in 2026? · 2 (50 bps)\"."
+  },
+  {
+   "venue": "kalshi",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Fed decision in Sep 2026? · Hike 25bps",
+   "url": "https://kalshi.com/markets/kxfeddecision",
+   "fairProb": 0.845,
+   "yesBid": 0.84,
+   "yesAsk": 0.85,
+   "spread": 0.010000000000000009,
+   "depthUsd": 61434.03,
+   "volumeUsd": 1599498.26,
+   "expiry": "2026-09-16T17:59:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "kalshi:KXFEDDECISION-26SEP-H25",
+     "title": "Fed decision in Sep 2026? · Hike 25bps",
+     "url": "https://kalshi.com/markets/kxfeddecision",
+     "yesMid": 0.845,
+     "strike": null,
+     "expiry": "2026-09-16T17:59:00Z"
+    }
+   ],
+   "line": "Kalshi: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Fed decision in Sep 2026? · Hike 25bps\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 3 Fed rate cuts happen in 2026? · 3 (75 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0015,
+   "yesBid": 0.001,
+   "yesAsk": 0.002,
+   "spread": 0.001,
+   "depthUsd": 291172.94124,
+   "volumeUsd": 2871425.703143,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x8d4966e84ae80f24b2e14643fdd45364e354229e11e2c17903b4b1763cfbe67c",
+     "title": "Will 3 Fed rate cuts happen in 2026? · 3 (75 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0015,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 3 Fed rate cuts happen in 2026? · 3 (75 bps)\"."
+  },
+  {
+   "venue": "kalshi",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.15",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Fed decision in Sep 2026? · Hike >25bps",
+   "url": "https://kalshi.com/markets/kxfeddecision",
+   "fairProb": 0.015,
+   "yesBid": 0.01,
+   "yesAsk": 0.02,
+   "spread": 0.01,
+   "depthUsd": 8714.7073,
+   "volumeUsd": 2797293.85,
+   "expiry": "2026-09-16T17:59:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "kalshi:KXFEDDECISION-26SEP-H26",
+     "title": "Fed decision in Sep 2026? · Hike >25bps",
+     "url": "https://kalshi.com/markets/kxfeddecision",
+     "yesMid": 0.015,
+     "strike": null,
+     "expiry": "2026-09-16T17:59:00Z"
+    }
+   ],
+   "line": "Kalshi: low-confidence match (title_similarity_0.15, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Fed decision in Sep 2026? · Hike >25bps\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.14",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.14, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 4 Fed rate cuts happen in 2026? · 4 (100 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0015,
+   "yesBid": 0.001,
+   "yesAsk": 0.002,
+   "spread": 0.001,
+   "depthUsd": 212272.99677,
+   "volumeUsd": 2711105.0191780007,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xaece8d6062d3e3eb9845b32441a4ab06eb2ef332c0228bc6a36add450647c7c4",
+     "title": "Will 4 Fed rate cuts happen in 2026? · 4 (100 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0015,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.14, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 4 Fed rate cuts happen in 2026? · 4 (100 bps)\"."
+  }
+ ],
+ "dataStatus": {
+  "polymarket": "ok",
+  "kalshi": "ok"
+ },
+ "bookErrors": [],
+ "summary": "Scanned 202 live Verdict markets and ranked the 8 most tradeable by spread, depth, and live odds.",
+ "evidence": [
+  "Verdict/HL markets scanned: 202",
+  "Route: opportunity_scan",
+  "Ranked by tradeable quality (tight spread + depth + live prob-band), not raw volume.",
+  "Trade ticket handoff available for the surfaced markets."
+ ],
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": "opportunity_scan",
+  "generatedAt": "2026-09-14T18:01:04.612Z"
+ }
+}

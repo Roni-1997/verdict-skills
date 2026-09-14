@@ -1,0 +1,108 @@
+{
+ "market": {
+  "outcome": 12891,
+  "venue": "at",
+  "displayName": "BTC above 100000 at 20261231-2100?",
+  "templateId": "binaryPrice4",
+  "underlying": "BTC",
+  "threshold": "100000",
+  "expiresAt": "2026-12-31T21:00:00.000Z",
+  "settlementRule": "If the BTC price at time of settlement is above 100000 at 20261231-2100, Yes tokens pay out $1 each. Otherwise, No tokens pay out $1 each. Settlement is according to the 300-second TWAP of mark price before settlement time.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "template:Yes",
+    "coin": "#128910",
+    "assetId": 100128910
+   },
+   {
+    "index": 1,
+    "name": "template:No",
+    "coin": "#128911",
+    "assetId": 100128911
+   }
+  ],
+  "deployerFeeScale": "1.0"
+ },
+ "verdict": {
+  "yesMid": 0.30305,
+  "priceSource": "book",
+  "unpriced": null,
+  "title": "BTC closes above $100,000",
+  "yesBid": 0.30305,
+  "yesAsk": null,
+  "spread": null,
+  "depthUsd": 10.60675,
+  "volumeUsd": 0,
+  "underlying": "BTC",
+  "direction": "above",
+  "strike": 100000,
+  "expiry": "2026-12-31T21:00:00.000Z"
+ },
+ "comparators": {
+  "polymarket": {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "contract_type_mismatch"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "settles ~8h apart"
+   ],
+   "caveat": "Low-confidence match (contract_type_mismatch): settles ~8h apart. The price difference is not a comparable gap and is not reported.",
+   "title": "Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000",
+   "url": "https://polymarket.com/event/what-price-will-bitcoin-hit-before-2027",
+   "fairProb": 0.235,
+   "yesBid": 0.23,
+   "yesAsk": 0.24,
+   "spread": 0.009999999999999981,
+   "depthUsd": 66081.677,
+   "volumeUsd": 3312713.572840999,
+   "expiry": "2027-01-01T05:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": "settles ~8h apart",
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xdaa4866bae18be58c5a79d2aeeffd035ec78f1bb49dbd88f72993997778a990f",
+     "title": "Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000",
+     "url": "https://polymarket.com/event/what-price-will-bitcoin-hit-before-2027",
+     "yesMid": 0.235,
+     "strike": null,
+     "expiry": "2027-01-01T05:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (contract_type_mismatch); no comparable price gap. Closest market: \"Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000\"."
+  },
+  "kalshi": null
+ },
+ "optionsImplied": null,
+ "dataStatus": {
+  "polymarket": "ok",
+  "kalshi": "ok"
+ },
+ "errors": {},
+ "summary": "BTC above 100000 at 20261231-2100?: Verdict YES 30.3%. Polymarket: low-confidence match (contract_type_mismatch); no comparable price gap. Closest market: \"Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000\". Kalshi: no comparable market found.",
+ "lines": [
+  "Polymarket: low-confidence match (contract_type_mismatch); no comparable price gap. Closest market: \"Will Bitcoin reach $100,000 by December 31, 2026? · ↑ 100,000\".",
+  "Kalshi: no comparable market found."
+ ],
+ "evidence": [
+  "Verdict markets scanned: 1/1",
+  "External markets fetched: 310",
+  "External markets usable after stale/illiquid filter: 194",
+  "Polymarket status: ok",
+  "Kalshi status: ok"
+ ],
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": "cross_venue_scanner",
+  "generatedAt": "2026-09-14T18:00:35.044Z"
+ }
+}

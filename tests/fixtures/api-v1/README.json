@@ -1,0 +1,155 @@
+{
+ "recorded_at": "2026-09-14T18:00:28Z",
+ "base": "https://hyperverdict.xyz/api/v1",
+ "source": "Production responses of the Verdict API, recorded with tests/fixtures/record_api_v1.mjs. Public market data, nothing redacted. Do not edit by hand.",
+ "contract": "packages/core/api-contract/UPSTREAM.json pins the OpenAPI document these bodies are checked against; engine.commit in each body is the app commit that served it.",
+ "app_fixtures": "The Verdict app repository keeps its own copies of this kit's tests/fixtures/engine inputs under tests/fixtures/api-v1 (hl_*, polymarket_*, kalshi_*, deribit_*, testnet_*); it records no response bodies, so there was nothing to copy back. tests/remote.test.ts runs the kit's embedded tools on those same inputs and validates the results against the pinned OpenAPI schemas instead.",
+ "files": [
+  {
+   "file": "testnet_markets_at.json",
+   "route": "/markets",
+   "query": {
+    "net": "testnet",
+    "venue": "at"
+   },
+   "status": 200
+  },
+  {
+   "file": "testnet_market_12891.json",
+   "route": "/market",
+   "query": {
+    "net": "testnet",
+    "outcome": "12891"
+   },
+   "status": 200
+  },
+  {
+   "file": "testnet_compare_12891.json",
+   "route": "/compare",
+   "query": {
+    "net": "testnet",
+    "outcome": "12891"
+   },
+   "status": 200
+  },
+  {
+   "file": "testnet_fair_value_12891.json",
+   "route": "/fair-value",
+   "query": {
+    "net": "testnet",
+    "outcome": "12891"
+   },
+   "status": 200
+  },
+  {
+   "file": "testnet_hedges_12891.json",
+   "route": "/hedges",
+   "query": {
+    "net": "testnet",
+    "outcome": "12891"
+   },
+   "status": 200
+  },
+  {
+   "file": "testnet_fair_value_11351.json",
+   "route": "/fair-value",
+   "query": {
+    "net": "testnet",
+    "outcome": "11351"
+   },
+   "status": 200
+  },
+  {
+   "file": "testnet_opportunities_at.json",
+   "route": "/opportunities",
+   "query": {
+    "net": "testnet",
+    "venue": "at",
+    "limit": "8"
+   },
+   "status": 200
+  },
+  {
+   "file": "error_not_found_market.json",
+   "route": "/market",
+   "query": {
+    "net": "testnet",
+    "outcome": "999999"
+   },
+   "status": 404
+  },
+  {
+   "file": "error_bad_input_limit.json",
+   "route": "/opportunities",
+   "query": {
+    "net": "testnet",
+    "venue": "at",
+    "limit": "9"
+   },
+   "status": 400
+  },
+  {
+   "file": "error_bad_input_outcome_missing.json",
+   "route": "/market",
+   "query": {
+    "net": "testnet"
+   },
+   "status": 400
+  },
+  {
+   "file": "mainnet_markets_all.json",
+   "route": "/markets",
+   "query": {
+    "net": "mainnet",
+    "venue": "all"
+   },
+   "status": 200
+  },
+  {
+   "file": "mainnet_market_1210.json",
+   "route": "/market",
+   "query": {
+    "net": "mainnet",
+    "outcome": "1210"
+   },
+   "status": 200
+  },
+  {
+   "file": "mainnet_compare_1210.json",
+   "route": "/compare",
+   "query": {
+    "net": "mainnet",
+    "outcome": "1210"
+   },
+   "status": 200
+  },
+  {
+   "file": "mainnet_fair_value_1210.json",
+   "route": "/fair-value",
+   "query": {
+    "net": "mainnet",
+    "outcome": "1210"
+   },
+   "status": 200
+  },
+  {
+   "file": "mainnet_hedges_1210.json",
+   "route": "/hedges",
+   "query": {
+    "net": "mainnet",
+    "outcome": "1210"
+   },
+   "status": 200
+  },
+  {
+   "file": "mainnet_opportunities_all.json",
+   "route": "/opportunities",
+   "query": {
+    "net": "mainnet",
+    "venue": "all",
+    "limit": "8"
+   },
+   "status": 200
+  }
+ ]
+}

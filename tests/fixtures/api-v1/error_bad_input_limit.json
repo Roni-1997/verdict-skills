@@ -1,0 +1,4 @@
+{
+ "error": "bad_input",
+ "message": "limit must be an integer between 1 and 8 (the engine ranks at most 8 markets per scan)"
+}

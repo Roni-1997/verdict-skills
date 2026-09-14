@@ -1,0 +1,69 @@
+{
+ "market": {
+  "outcome": 12891,
+  "venue": "at",
+  "displayName": "BTC above 100000 at 20261231-2100?",
+  "templateId": "binaryPrice4",
+  "underlying": "BTC",
+  "threshold": "100000",
+  "expiresAt": "2026-12-31T21:00:00.000Z",
+  "settlementRule": "If the BTC price at time of settlement is above 100000 at 20261231-2100, Yes tokens pay out $1 each. Otherwise, No tokens pay out $1 each. Settlement is according to the 300-second TWAP of mark price before settlement time.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "template:Yes",
+    "coin": "#128910",
+    "assetId": 100128910
+   },
+   {
+    "index": 1,
+    "name": "template:No",
+    "coin": "#128911",
+    "assetId": 100128911
+   }
+  ],
+  "deployerFeeScale": "1.0"
+ },
+ "underlying": "BTC",
+ "hedgeable": true,
+ "candidates": [
+  {
+   "symbol": "BTC",
+   "kind": "perp",
+   "mid": 78955,
+   "fundingRate": null,
+   "openInterestUsd": null,
+   "available": true,
+   "reason": "Live Hyperliquid reference mid available."
+  },
+  {
+   "symbol": "BTC",
+   "kind": "spot",
+   "mid": 78955,
+   "fundingRate": null,
+   "openInterestUsd": null,
+   "available": true,
+   "reason": "Spot/perp exposure can reduce underlying price beta, but not event settlement risk."
+  }
+ ],
+ "leg": {
+  "symbol": "BTC",
+  "kind": "perp",
+  "directionForYes": "short",
+  "directionForNo": "long",
+  "mid": 78955,
+  "rationale": "BTC exposure can be partially hedged with Hyperliquid perp.",
+  "limitations": [
+   "The hedge will not perfectly match the YES/NO payout.",
+   "Funding, timing, and settlement price can move differently.",
+   "Near settlement, the outcome price can move much faster than the hedge."
+  ]
+ },
+ "note": "A Hyperliquid perp or spot hedge offsets the underlying price move only; the outcome token still settles on its own rule and can go to zero.",
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": "hedgeability",
+  "generatedAt": "2026-09-14T18:00:40.370Z"
+ }
+}

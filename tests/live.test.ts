@@ -3,7 +3,8 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CompareMarketResult, InfoClient, createTools, getMarket, listMarkets, loadCatalog, marketsFromCatalog, orderbook, quote } from '../packages/core/src/index.js';
+import { readFileSync } from 'node:fs';
+import { CompareMarketResult, InfoClient, ListMarketsResult, OpportunitiesResult, ToolError, createRemoteTools, createTools, getMarket, listMarkets, loadCatalog, marketsFromCatalog, orderbook, quote } from '../packages/core/src/index.js';
 
 function must<T>(value: T | undefined | null, what: string): T {
   if (value === undefined || value === null) throw new Error(`${what} is missing`);
@@ -68,4 +69,49 @@ d('live: cross-venue engine on mainnet', () => {
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(r.stdout).toContain('compared against GitHub');
   }, 60_000);
+});
+
+d('live: hosted API on testnet (https://hyperverdict.xyz/api/v1, venue at)', () => {
+  const API = 'https://hyperverdict.xyz/api/v1';
+  const tools = createRemoteTools({ network: 'testnet', venue: 'at', builder: null, apiUrl: API }, { apiUrl: API });
+  it('list_markets returns venue at markets on testnet', async () => {
+    const r = await tools.list_markets({});
+    expect(ListMarketsResult.safeParse(r).success).toBe(true);
+    expect(r.network).toBe('testnet');
+    expect(r.venue).toBe('at');
+    expect(r.markets.length).toBeGreaterThan(0);
+    expect(r.markets.every((m) => m.venue === 'at')).toBe(true);
+  }, 30_000);
+  it('compare_market on a listed market returns a typed result, and an index that is not a market a typed not_found', async () => {
+    const list = await tools.list_markets({});
+    const market = must(list.markets.find((m) => m.templateId?.startsWith('binaryPrice')) ?? list.markets[0], 'a testnet market');
+    const r = await tools.compare_market({ outcome: market.outcome });
+    expect(CompareMarketResult.safeParse(r).success).toBe(true);
+    expect(r.market.outcome).toBe(market.outcome);
+    for (const c of [r.comparators.polymarket, r.comparators.kalshi]) {
+      if (!c) continue;
+      expect(c.reasons.length).toBeGreaterThan(0);
+      if (c.confidence === 'low') {
+        expect(c.caveat).toBeTruthy();
+        expect(c.gap).toBeNull();
+      }
+    }
+    const e = await tools.compare_market({ outcome: 999999 }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(ToolError);
+    expect((e as ToolError).code).toBe('not_found');
+  }, 60_000);
+  it('opportunities with limit 2 returns items', async () => {
+    const r = await tools.opportunities({ limit: 2 });
+    expect(OpportunitiesResult.safeParse(r).success).toBe(true);
+    expect(r.limit).toBe(2);
+    expect(r.items.length).toBeGreaterThan(0);
+    expect(r.items.length).toBeLessThanOrEqual(2);
+  }, 60_000);
+  it('the production /openapi document is the pinned contract, key for key', async () => {
+    const res = await fetch(`${API}/openapi`);
+    expect(res.status).toBe(200);
+    const live: unknown = await res.json();
+    const pinned: unknown = JSON.parse(readFileSync(new URL('../packages/core/api-contract/openapi.json', import.meta.url), 'utf8'));
+    expect(live).toEqual(pinned);
+  }, 30_000);
 });

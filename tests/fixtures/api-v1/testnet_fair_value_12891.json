@@ -1,0 +1,36 @@
+{
+ "available": false,
+ "market": {
+  "outcome": 12891,
+  "venue": "at",
+  "displayName": "BTC above 100000 at 20261231-2100?",
+  "templateId": "binaryPrice4",
+  "underlying": "BTC",
+  "threshold": "100000",
+  "expiresAt": "2026-12-31T21:00:00.000Z",
+  "settlementRule": "If the BTC price at time of settlement is above 100000 at 20261231-2100, Yes tokens pay out $1 each. Otherwise, No tokens pay out $1 each. Settlement is according to the 300-second TWAP of mark price before settlement time.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "template:Yes",
+    "coin": "#128910",
+    "assetId": 100128910
+   },
+   {
+    "index": 1,
+    "name": "template:No",
+    "coin": "#128911",
+    "assetId": 100128911
+   }
+  ],
+  "deployerFeeScale": "1.0"
+ },
+ "reason": "no_options_chain_near_expiry",
+ "detail": "Deribit has no BTC option expiry within 3 days of 2026-12-31T21:00:00.000Z, or no priced calls on the nearest chain.",
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": null,
+  "generatedAt": "2026-09-14T18:00:37.643Z"
+ }
+}
