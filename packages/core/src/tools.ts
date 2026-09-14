@@ -246,7 +246,7 @@ export const TOOL_DOCS: Record<keyof Tools, { title: string; description: string
   opportunities: {
     title: 'Scan opportunities',
     description:
-      "Ranks the configured venue's live markets by tradeable quality (tight spread, real depth, live probability band, not raw volume), with the engine's trade call, hedge leg and any cross-venue gap against a Polymarket or Kalshi twin. At most 8 per scan; books are read for the 40 most-traded live markets and the rest price off Hyperliquid asset contexts. A market with no Verdict price (never traded, or no trades in 24h, and no real quote on its book) is carried as unpriced: ranked after every priced market, with a null probability and a reason, never a placeholder price. Read only.",
+      "Ranks the configured venue's live markets by tradeable quality (tight spread, real depth, live probability band, not raw volume), with the engine's trade call, hedge leg and any cross-venue gap against a Polymarket or Kalshi twin. At most 8 per scan; books are read for the 40 most-traded live markets and the rest price off Hyperliquid asset contexts. A market with no Verdict price (never traded, or no trades in 24h, and no real quote on its book) is carried as unpriced: ranked after every priced market (the engine is handed every priced market and only as many unpriced ones as its slots leave free, so none can displace a priced one), with a null probability and a reason, never a placeholder price. Read only.",
     readOnly: true,
   },
   positions: {

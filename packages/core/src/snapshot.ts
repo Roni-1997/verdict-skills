@@ -248,6 +248,23 @@ export function withoutUnpricedBooks(snap: EngineSnapshot): EngineSnapshot {
   };
 }
 
+/**
+ * The snapshot restricted to the given outcomes, applied to every place the engine's normalizeVerdictSnapshot reads
+ * (outcomes, standalone, each question's named and fallback outcomes) so no dropped market can come back through
+ * another list; a question left with no outcome is dropped. Everything else (contexts, mids, book errors) is kept.
+ */
+export function restrictSnapshot(snap: EngineSnapshot, keep: ReadonlySet<number>): EngineSnapshot {
+  const only = (xs: readonly EngineOutcome[]): EngineOutcome[] => xs.filter((o) => keep.has(o.outcome));
+  return {
+    ...snap,
+    outcomes: only(snap.outcomes),
+    standalone: only(snap.standalone),
+    questions: snap.questions
+      .map((q) => ({ ...q, namedOutcomes: only(q.namedOutcomes), fallbackOutcome: q.fallbackOutcome && keep.has(q.fallbackOutcome.outcome) ? q.fallbackOutcome : null }))
+      .filter((q) => q.namedOutcomes.length > 0 || q.fallbackOutcome !== null),
+  };
+}
+
 function questionDisplay(q: OutcomeMetaQuestion, catalog: Catalog): { name: string; description: string } {
   const templateId = templateIdOf(q.name);
   const template = templateId ? catalog.templates.get(templateId) : undefined;

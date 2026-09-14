@@ -15,7 +15,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const upstreamPath = resolve(root, 'packages/engine/UPSTREAM.json');
 const generatedPath = resolve(root, 'packages/engine/src/upstream.ts');
 
-const DEFAULTS = {
+/** The files the engine consists of, by kit path and upstream path. check-engine-drift.mjs requires UPSTREAM.json to list exactly these. */
+export const DEFAULTS = {
   repo: 'Roni-1997/verdict',
   commit: '79f3ed255dbd9a628b01d9a38eb149f2116cbffb',
   files: [

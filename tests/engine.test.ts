@@ -137,6 +137,49 @@ describe('engine pin', () => {
     expect(r.stdout).toContain('differs from the GitHub copy at the pinned commit (hash mismatch; never skipped)');
     expect(r.stdout).toContain('ok    src/research/playbooks.ts@');
   });
+  /** A scratch copy of the pin record and the engine sources, for coverage cases that must not touch this checkout. */
+  function scratchEngine(): string {
+    const tmp = mkdtempSync(join(tmpdir(), 'engine-coverage-'));
+    cpSync(join(ROOT, 'packages/engine/UPSTREAM.json'), join(tmp, 'packages/engine/UPSTREAM.json'));
+    cpSync(join(ROOT, 'packages/engine/src'), join(tmp, 'packages/engine/src'), { recursive: true });
+    return tmp;
+  }
+  it('a source file under packages/engine/src that UPSTREAM.json does not record fails the check by name', () => {
+    const tmp = scratchEngine();
+    writeFileSync(join(tmp, 'packages/engine/src/extra.ts'), 'export const stray = 1;\n');
+    const r = drift(fakeGh('serve'), false, ['--root', tmp]);
+    expect(r.status, r.stdout).toBe(1);
+    expect(r.stdout).toContain('FAIL  packages/engine/src/extra.ts: present in packages/engine/src but not recorded in UPSTREAM.json');
+    expect(r.stdout).not.toContain('every source file covered');
+    // The recorded files are still verified; the stray file is the only problem.
+    expect(r.stdout).toContain('ok    packages/engine/src/hl-shape.ts  sha256');
+    expect(r.stdout).toContain('engine drift: 1 problem(s)');
+  });
+  it('shrinking the pin record does not hide a hand-edited copy: a file dropped from UPSTREAM.json and upstream.ts still fails', () => {
+    const tmp = scratchEngine();
+    const upstreamPath = join(tmp, 'packages/engine/UPSTREAM.json');
+    const record = JSON.parse(readFileSync(upstreamPath, 'utf8')) as { files: { local: string; sha256: string }[] };
+    const dropped = must(record.files.find((f) => f.local.endsWith('hl-shape.ts')), 'hl-shape entry');
+    record.files = record.files.filter((f) => f !== dropped);
+    writeFileSync(upstreamPath, JSON.stringify(record, null, 2));
+    const gen = join(tmp, 'packages/engine/src/upstream.ts');
+    writeFileSync(gen, readFileSync(gen, 'utf8').replace(dropped.sha256, '0'.repeat(64)));
+    appendFileSync(join(tmp, 'packages/engine/src/hl-shape.ts'), '\n// hand edit\n');
+    const r = drift(fakeGh('serve'), false, ['--root', tmp]);
+    expect(r.status, r.stdout).toBe(1);
+    expect(r.stdout).toContain('FAIL  packages/engine/src/hl-shape.ts: present in packages/engine/src but not recorded in UPSTREAM.json');
+    expect(r.stdout).toContain('FAIL  packages/engine/src/hl-shape.ts: synced by scripts/sync-engine.mjs but not recorded in UPSTREAM.json; the pin record was shrunk');
+    expect(r.stdout).not.toContain('engine drift: none');
+  });
+  it('an empty pin record fails instead of verifying nothing', () => {
+    const tmp = scratchEngine();
+    const upstreamPath = join(tmp, 'packages/engine/UPSTREAM.json');
+    writeFileSync(upstreamPath, JSON.stringify({ ...(JSON.parse(readFileSync(upstreamPath, 'utf8')) as object), files: [] }, null, 2));
+    const r = drift(fakeGh('serve'), true, ['--root', tmp]);
+    expect(r.status, r.stdout).toBe(1);
+    expect(r.stdout).toContain('FAIL  packages/engine/src: UPSTREAM.json records no files; nothing would be verified');
+    expect(r.stdout.match(/but not recorded in UPSTREAM\.json/g)?.length).toBeGreaterThanOrEqual(3);
+  });
   it('a pin GitHub cannot find (HTTP 404) fails even under CHECK_ENGINE_OFFLINE=1', () => {
     for (const flag of [false, true]) {
       const r = drift(fakeGh('not_found'), flag);
@@ -328,22 +371,38 @@ describe('snapshot adapter', () => {
     const unread = await buildSnapshot(stale, catalog, [m], { books: false });
     expect(must(unread.outcomes[0], 'outcome')).toMatchObject({ mid: null, midSource: null, unpriced: 'stale_no_book' });
   });
-  it('maxBooks reads books for the most-traded markets only; the rest price off asset contexts', async () => {
-    const catalog = await loadCatalog(client);
+  it('maxBooks reads books for the most-traded markets only (counted at the fetch); the rest price off their asset-context mark', async () => {
+    // Every Hyperliquid info request is a POST to /info, so the request log cannot tell a book from a context read:
+    // record the l2Book coins at the fetch itself.
+    const bookCoins: string[] = [];
+    const counting = ((input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { type?: string; coin?: string };
+      if (body.type === 'l2Book') bookCoins.push(body.coin ?? '');
+      return fetchAll(input, init);
+    }) as typeof fetch;
+    const countingClient = new InfoClient({ network: 'mainnet', fetch: counting });
+    const catalog = await loadCatalog(countingClient);
     const ids = [1209, 1210, 1211, 1212, 1213];
     const markets = ids.map((id) => must(marketFromCatalog(catalog, id), `market ${id}`));
-    const snap = await buildSnapshot(client, catalog, markets, { maxBooks: 2 });
+    const snap = await buildSnapshot(countingClient, catalog, markets, { maxBooks: 2 });
+    // Two markets, two sides each: 1213 and 1209 carry the most 24h notional in the recorded contexts.
+    expect(bookCoins).toHaveLength(2 * Math.min(2, markets.length));
+    expect([...bookCoins].sort()).toEqual(['#12090', '#12091', '#12130', '#12131']);
     expect(snap.booksFetched).toBe(2);
-    const withBooks = snap.outcomes.filter((o) => o.books.yes !== null);
-    expect(withBooks).toHaveLength(2);
-    const volume = (o: (typeof snap.outcomes)[number]) => Number(snap.assetCtxByCoin[o.yesCoin]?.dayNtlVlm ?? 0) + Number(snap.assetCtxByCoin[o.noCoin]?.dayNtlVlm ?? 0);
-    const minWithBooks = Math.min(...withBooks.map(volume));
-    for (const o of snap.outcomes.filter((o) => o.books.yes === null)) {
-      expect(volume(o)).toBeLessThanOrEqual(minWithBooks);
-      expect(o.midSource === 'ctx' || o.mid === null).toBe(true);
+    expect(snap.outcomes.filter((o) => o.books.yes !== null).map((o) => o.outcome).sort()).toEqual([1209, 1213]);
+    // The three bookless markets are traded today, so each prices off its recorded YES mark, labelled ctx.
+    const bookless = snap.outcomes.filter((o) => o.books.yes === null);
+    expect(bookless.map((o) => o.outcome).sort()).toEqual([1210, 1211, 1212]);
+    for (const o of bookless) {
+      expect(o.midSource).toBe('ctx');
+      expect(o.unpriced).toBeNull();
+      expect(o.mid).toBe(Number(must(snap.assetCtxByCoin[o.yesCoin]?.markPx, `markPx ${o.yesCoin}`)));
     }
-    const full = await buildSnapshot(client, catalog, markets);
+    expect(must(bookless.find((o) => o.outcome === 1210), '1210').mid).toBe(0.0221);
+    bookCoins.length = 0;
+    const full = await buildSnapshot(countingClient, catalog, markets);
     expect(full.booksFetched).toBe(5);
+    expect(bookCoins).toHaveLength(10);
   });
   it('fails on a missing book by default and records it when asked to skip', async () => {
     const catalog = await loadCatalog(client);
@@ -758,6 +817,33 @@ describe('opportunities', () => {
     expect(r.summary).toBe('Scanned 5 live Verdict markets and ranked the 5 most tradeable by spread, depth, and live odds. 3 of the 5 shown have no Verdict price (unpriced) and rank last.');
     expect(r.bookErrors).toHaveLength(8);
     expect(JSON.stringify(r)).not.toMatch(/50\.0%/);
+  });
+  it('no unpriced market displaces a priced one: thin far-out-of-band priced markets all rank ahead of eight never-traded ones', async () => {
+    // Four markets priced off a thin traded mark far outside the engine's 5-95% band (volume 3.0, mark 1.2%) score
+    // below the engine's flat floor for a bookless market, so its own top-8 selection would drop every one of them for
+    // the eight never-traded skew rungs. The kit hands it only as many unpriced markets as it has slots left.
+    const pricedIds = [1228, 1477, 1478, 2774];
+    const unpricedIds = [2895, 2896, 2897, 2898, 2900, 2901, 2902, 2903];
+    const coins = pricedIds.flatMap((id) => [`#${id * 10}`, `#${id * 10 + 1}`]);
+    const f = patchedCtxFetch(coins, { dayNtlVlm: '3.0', markPx: '0.012' }, { outcomes: [...pricedIds, ...unpricedIds] });
+    const all = createTools({ ...config, venue: null }, new InfoClient({ network: 'mainnet', fetch: f }), { engine: { timeoutMs: 5_000 } });
+    const r = await all.opportunities({ limit: 8 });
+    expect(OpportunitiesResult.safeParse(r).success).toBe(true);
+    expect(r.scanned).toBe(12);
+    expect(r.items).toHaveLength(8);
+    expect(r.items.slice(0, 4).map((i) => i.outcome).sort()).toEqual(pricedIds);
+    for (const i of r.items.slice(0, 4)) expect(i).toMatchObject({ priced: true, yesMid: 0.012, priceSource: 'ctx', unpriced: null });
+    for (const i of r.items.slice(4)) expect(i).toMatchObject({ priced: false, yesMid: null, priceSource: null, unpriced: 'never_traded_no_book' });
+    expect(r.items.slice(4).every((i) => unpricedIds.includes(i.outcome))).toBe(true);
+    expect(r.unpricedCount).toBe(4);
+    expect(r.items.map((i) => i.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(r.summary).toBe('Scanned 12 live Verdict markets and ranked the 8 most tradeable by spread, depth, and live odds. 4 of the 8 shown have no Verdict price (unpriced) and rank last.');
+    expect(r.evidence).toContain('Verdict/HL markets scanned: 12');
+    // With room for every market (limit is the display cut, the engine's 8 is the scan cut) the same holds at limit 5.
+    const five = await all.opportunities({ limit: 5 });
+    expect(five.items.slice(0, 4).map((i) => i.outcome).sort()).toEqual(pricedIds);
+    expect(five.items).toHaveLength(5);
+    expect(five.unpricedCount).toBe(1);
   });
   it('ties every cross-venue reference and the Deribit line to a ranked market by outcome, not by the title three dailies share', async () => {
     // The engine titles 2897, 2898 and 2899 (Sep 14, 16, 18) all "BTC closes above $77,250". Make 2898 the only priced

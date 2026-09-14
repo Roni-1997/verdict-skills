@@ -6,7 +6,7 @@
 // needs no build, so it also runs against scratch CLAUDE_HOMEs: it must remove exactly the block
 // install.sh wrote and nothing the user owns.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -515,7 +515,8 @@ describe('install.sh repository lookup from an installed copy (fails before any 
 describe('install.sh refuses to replace what it did not write (fails before any build)', () => {
   const script = path(`${SKILL_DIR}scripts/install.sh`);
   const MARKER = must(/^MARKER="([^"]+)"$/m.exec(read(`${SKILL_DIR}scripts/install.sh`))?.[1], 'install.sh MARKER');
-  function runFromClone(args: readonly string[], seed: Record<string, string>): { status: number | null; stdout: string; stderr: string; survivors: Record<string, string> } {
+  /** Seed files (path -> text) and symlinks (path -> link target, which need not exist) under a scratch home, run install.sh, report what survived. */
+  function runFromClone(args: readonly string[], seed: Record<string, string>, links: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string; survivors: Record<string, string> } {
     const home = mkdtempSync(join(tmpdir(), 'verdict-skill-install-refuse-'));
     try {
       for (const [rel, text] of Object.entries(seed)) {
@@ -523,9 +524,14 @@ describe('install.sh refuses to replace what it did not write (fails before any 
         writeFileSync(join(home, rel), text);
         if (rel.startsWith('bin/')) chmodSync(join(home, rel), 0o755);
       }
+      for (const [rel, target] of Object.entries(links)) {
+        mkdirSync(join(home, rel, '..'), { recursive: true });
+        symlinkSync(target, join(home, rel));
+      }
       const r = spawnSync('bash', [script, ...args], { encoding: 'utf8', env: { ...envWithout('VERDICT_REPO_DIR'), CLAUDE_HOME: home, VERDICT_BIN_DIR: join(home, 'bin') } });
       const survivors: Record<string, string> = {};
       for (const rel of Object.keys(seed)) if (existsSync(join(home, rel))) survivors[rel] = readFileSync(join(home, rel), 'utf8');
+      for (const rel of Object.keys(links)) if (lstatSync(join(home, rel), { throwIfNoEntry: false })?.isSymbolicLink()) survivors[rel] = `-> ${readlinkSync(join(home, rel))}`;
       return { status: r.status, stdout: r.stdout, stderr: r.stderr, survivors };
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -540,6 +546,15 @@ describe('install.sh refuses to replace what it did not write (fails before any 
     expect(r.stderr).toContain('First line: #!/usr/bin/env bash');
     expect(r.stderr).toContain('VERDICT_BIN_DIR');
     expect(r.survivors).toEqual({ 'bin/verdict': mine });
+  });
+  it('refuses a dangling symlink at a launcher path the same way, before the build, and leaves the link as it was', () => {
+    // -e is false for a dangling symlink; without the -L leg the gate passed, the build ran and the launcher write failed.
+    const r = runFromClone([], {}, { 'bin/verdict': '/nonexistent/target/verdict' });
+    expect(r.status).toBe(1);
+    expect(r.stdout).not.toContain('[1/4]');
+    expect(r.stderr).toContain('bin/verdict exists and was not written by install.sh (no marker comment)');
+    expect(r.stderr).toContain('Nothing was changed');
+    expect(r.survivors).toEqual({ 'bin/verdict': '-> /nonexistent/target/verdict' });
   });
   it('leaves a user-authored ~/.claude/skills/verdict untouched and points at --skip-skill', () => {
     const r = runFromClone([], { 'skills/verdict/SKILL.md': '---\nname: verdict\n---\nmine\n' });

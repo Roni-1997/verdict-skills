@@ -17,7 +17,7 @@ Read only. No account, no key, no confirmation. A ranked market is a candidate f
 
 The venue comes from `VERDICT_VENUE` (`at` on testnet); unset, every deployer's live markets are scanned. `ODDPOOL_API_KEY` is optional: it routes the engine's Polymarket and Kalshi reads through api.oddpool.com and is sent there on every call, so it is never set on a hosted server.
 
-Books are read for the 40 most-traded live markets (80 book requests); the rest price off Hyperliquid asset contexts. With the engine's 20 s venue budget a scan can take about 30 seconds. It is fetching, not waiting for input.
+Books are read for the 40 most-traded live markets (80 book requests); the rest price off Hyperliquid asset contexts. The engine ranks at most 8 markets; it is handed every priced market and only as many unpriced ones as those 8 slots leave free, so an unpriced market never displaces a priced one. With the engine's 20 s venue budget a scan can take about 30 seconds. It is fetching, not waiting for input.
 
 ## Output
 
@@ -116,7 +116,7 @@ That scan's `summary` ends "3 of the 5 shown have no Verdict price (unpriced) an
 | Field | Meaning |
 |---|---|
 | `scanned`, `booksFetched` | Live markets considered, and how many had both books read (the most traded by 24h notional); the others price off the Hyperliquid mark, labelled `priceSource: "ctx"` and "Verdict price is the HL mark; no two-sided book" in `why`. |
-| `items[]` | The ranked markets, priced ones first in the engine's order, then unpriced ones. `count` of them, at most `limit`. |
+| `items[]` | The ranked markets, priced ones first in the engine's order, then unpriced ones; every priced market the scan found comes before any unpriced one, up to the engine's 8. `count` of them, at most `limit`. |
 | `priced`, `yesMid`, `unpriced` | `priced: true` with the YES probability from the kit's snapshot; or `priced: false`, `yesMid: null` and the reason (`never_traded_wall_book`, `never_traded_no_book`, `stale_wall_book`, `stale_no_book`, `no_price_data`). Hyperliquid's 0.5 placeholder and a wall-only book's average are never printed as a price. |
 | `spread`, `depthUsd`, `volumeUsd` | Top-of-book YES spread (as a probability) and depth in USD; null when unpriced. 24h notional volume. |
 | `why` | The kit's ranking reason from its own price, spread and depth. Starts with `unpriced` for an unpriced market. |

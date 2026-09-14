@@ -1,12 +1,15 @@
 // The CLI and the MCP server are thin faces over the same tool module: prove both against the recorded
 // fixtures through a fake fetch, with no network and no keys.
 import { readFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { describe, expect, it } from 'vitest';
 import { InfoClient, createTools, type KitConfig } from '../packages/core/src/index.js';
 import { runCli } from '../packages/cli/src/index.js';
-import { parseJsonBody } from '../packages/mcp/src/http.js';
+import { INTERNAL_ERROR_RESPONSE, type RequestHandlerOptions, createRequestHandler, parseJsonBody } from '../packages/mcp/src/http.js';
 import { createServer } from '../packages/mcp/src/server.js';
 
 const fixture = (name: string): unknown => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
@@ -91,6 +94,35 @@ describe('CLI face', () => {
     expect(unset.exitCode).toBe(4);
     expect(unset.stderr).toContain('VERDICT_BUILDER_ADDRESS');
   });
+  it('reports an invalid operator configuration as the not_configured JSON error with exit 4, never a stack trace', async () => {
+    // No config or tools passed: runCli reads the environment, as bin.ts does.
+    const saved = { ...process.env };
+    const restore = () => {
+      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+      Object.assign(process.env, saved);
+    };
+    try {
+      process.env.VERDICT_NETWORK = 'devnet';
+      const net = await runCli(['markets']);
+      expect(net.exitCode).toBe(4);
+      expect(net.stdout).toBe('');
+      expect(net.stderr.trim().split('\n')).toHaveLength(1);
+      expect(JSON.parse(net.stderr)).toEqual({ error: 'not_configured', message: 'VERDICT_NETWORK must be "testnet" or "mainnet", got "devnet"' });
+      expect(net.stderr).not.toContain('    at ');
+      process.env.VERDICT_NETWORK = 'testnet';
+      process.env.VERDICT_BUILDER_ADDRESS = '0x00000000000000000000000000000000000000b1';
+      process.env.VERDICT_BUILDER_FEE_TENTHS_BP = '1.5';
+      const fee = await runCli(['approve-builder-fee-payload']);
+      expect(fee.exitCode).toBe(4);
+      expect(fee.stdout).toBe('');
+      expect(JSON.parse(fee.stderr)).toEqual({ error: 'not_configured', message: 'VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got "1.5"' });
+      // Usage needs no configuration at all.
+      expect((await runCli(['--help'])).exitCode).toBe(0);
+      expect((await runCli([])).exitCode).toBe(1);
+    } finally {
+      restore();
+    }
+  });
   it('reports builder approval status with a next step', async () => {
     const yes = JSON.parse((await runCli(['builder-status', APPROVED], config, tools)).stdout) as { approved: boolean };
     const no = JSON.parse((await runCli(['builder-status', UNAPPROVED], config, tools)).stdout) as { approved: boolean; nextStep: string };
@@ -113,6 +145,92 @@ describe('MCP streamable HTTP body parsing (no port bound)', () => {
     expect(parseJsonBody('')).toEqual({ ok: true, body: undefined });
     expect(parseJsonBody('{"jsonrpc":"2.0","method":"ping","id":1}')).toEqual({ ok: true, body: { jsonrpc: '2.0', method: 'ping', id: 1 } });
     expect(parseJsonBody('null')).toEqual({ ok: true, body: null });
+  });
+});
+
+describe('MCP streamable HTTP request handler (ephemeral port): a failing request is answered once and never ends the process', () => {
+  const PING = JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 });
+  const HEADERS = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+  async function serve(open: RequestHandlerOptions['open']) {
+    const lines: string[] = [];
+    const server = createHttpServer(createRequestHandler({ health: () => ({ ok: true }), open, log: (line) => lines.push(line) }));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    return { url: `http://127.0.0.1:${port}`, lines, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  }
+  it('a session that cannot be opened is answered with one HTTP 500 JSON-RPC error, logged once, and the server keeps serving', async () => {
+    let opened = 0;
+    const s = await serve(async () => {
+      opened += 1;
+      throw new Error('connect failed');
+    });
+    try {
+      const r = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: PING });
+      expect(r.status).toBe(500);
+      expect(r.headers.get('content-type')).toBe('application/json');
+      expect(await r.text()).toBe(INTERNAL_ERROR_RESPONSE);
+      expect(JSON.parse(INTERNAL_ERROR_RESPONSE)).toEqual({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null });
+      expect(s.lines).toEqual(['verdict-mcp: request failed: connect failed']);
+      const health = await fetch(`${s.url}/healthz`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toEqual({ ok: true });
+      const again = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: PING });
+      expect(again.status).toBe(500);
+      expect(opened).toBe(2);
+      expect(s.lines).toHaveLength(2);
+    } finally {
+      await s.close();
+    }
+  });
+  it('a transport that fails after the headers went out gets the response ended, not a second answer; a failing close is only logged', async () => {
+    const s = await serve(async () => ({
+      handleRequest: async (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.write('{"partial":');
+        throw new Error('mid-stream');
+      },
+      close: async () => {
+        throw new Error('close failed');
+      },
+    }));
+    try {
+      const r = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: PING });
+      expect(r.status).toBe(200);
+      expect(await r.text()).toBe('{"partial":');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(s.lines).toEqual(['verdict-mcp: request failed: mid-stream', 'verdict-mcp: session close failed: close failed']);
+    } finally {
+      await s.close();
+    }
+  });
+  it('with the real server and transport, a valid-JSON body that is not an MCP message is refused by the transport (4xx), not the crash path, and a malformed body is 400', async () => {
+    const s = await serve(async () => {
+      const server = createServer(config, tools);
+      const transport = new StreamableHTTPServerTransport({});
+      await server.connect(transport as unknown as Parameters<typeof server.connect>[0]);
+      return {
+        handleRequest: (req, res, body) => transport.handleRequest(req, res, body),
+        close: async () => {
+          await Promise.all([transport.close(), server.close()]);
+        },
+      };
+    });
+    try {
+      const notMcp = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: JSON.stringify({ hello: 1 }) });
+      expect(notMcp.status).toBeGreaterThanOrEqual(400);
+      expect(notMcp.status).toBeLessThan(500);
+      expect((await notMcp.json()) as { error: unknown }).toMatchObject({ jsonrpc: '2.0', error: {} });
+      const malformed = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: '{not json' });
+      expect(malformed.status).toBe(400);
+      expect(await malformed.json()).toMatchObject({ jsonrpc: '2.0', id: null, error: { code: -32700 } });
+      const ping = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: PING });
+      expect(ping.status).toBe(200);
+      const nowhere = await fetch(`${s.url}/nowhere`);
+      expect(nowhere.status).toBe(404);
+      expect(s.lines).toEqual([]);
+    } finally {
+      await s.close();
+    }
   });
 });
 

@@ -75,10 +75,11 @@ if [[ ! -f "$REPO_DIR/pnpm-workspace.yaml" || ! -f "$REPO_DIR/packages/cli/packa
 fi
 
 # Refuse before changing anything. A file at a launcher path without the marker, or a skill directory
-# without .repo-dir, was not written by this script and belongs to the user.
+# without .repo-dir, was not written by this script and belongs to the user. -L as well as -e: a dangling
+# symlink fails -e, and the launcher write below would otherwise follow it.
 for name in verdict verdict-mcp; do
   target="$BIN_DIR/$name"
-  if [[ -e "$target" ]] && ! { [[ -f "$target" ]] && grep -q "$MARKER" "$target"; }; then
+  if [[ -e "$target" || -L "$target" ]] && ! { [[ -f "$target" ]] && grep -q "$MARKER" "$target"; }; then
     echo "error: $target exists and was not written by install.sh (no marker comment). First line: $(head -n 1 "$target" 2>/dev/null || echo '(unreadable)')" >&2
     echo "       Move it, or set VERDICT_BIN_DIR to another directory. Nothing was changed." >&2
     exit 1
@@ -155,7 +156,7 @@ Load the verdict skill, not web search or memory, when the request involves:
 - HIP-4, outcome market, Hyperliquid prediction market, YES or NO on Hyperliquid
 - a settlement rule, order book, quote for a size, or positions on such a market
 - "compare to Polymarket" or "compare to Kalshi" for a market that exists on Verdict
-- builder code, builder fee or builder approval on Hyperliquid
+- Verdict's builder code, builder fee or builder approval
 
 Do not load it for general blockchain education, Hyperliquid perps or spot, or trading on Polymarket, Kalshi or Deribit themselves.
 

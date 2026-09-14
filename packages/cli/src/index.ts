@@ -70,7 +70,19 @@ function cloidArg(v: string | undefined): `0x${string}` | undefined {
   return v as `0x${string}`;
 }
 
-export async function runCli(argv: readonly string[], config: KitConfig = configFromEnv(), tools: Tools = createTools(config)): Promise<CliResult> {
+/** Exit code per error class; one JSON object on stderr in every case (see SKILL.md). */
+const EXIT: Record<ToolError['code'], number> = { bad_input: 1, not_found: 2, upstream: 3, not_configured: 4 };
+
+function errorResult(code: ToolError['code'], message: string): CliResult {
+  return { exitCode: EXIT[code], stdout: '', stderr: `${JSON.stringify({ error: code, message })}\n` };
+}
+
+/**
+ * Run one command. `config` and `tools` default to the environment; they are resolved after argument parsing and inside
+ * the error mapping, so an invalid VERDICT_NETWORK or VERDICT_BUILDER_FEE_TENTHS_BP is reported as the not_configured
+ * JSON error with exit 4, never as a stack trace, and `--help` works whatever the environment holds.
+ */
+export async function runCli(argv: readonly string[], config?: KitConfig, tools?: Tools): Promise<CliResult> {
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
   try {
     parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true });
@@ -81,39 +93,45 @@ export async function runCli(argv: readonly string[], config: KitConfig = config
   const [cmd, arg] = positionals;
   if (values.help || !cmd) return { exitCode: values.help ? 0 : 1, stdout: values.help ? USAGE : '', stderr: values.help ? '' : USAGE };
   const emit = (v: unknown) => `${values.pretty ? JSON.stringify(v, null, 2) : JSON.stringify(v)}\n`;
+  let resolved: Tools;
+  try {
+    resolved = tools ?? createTools(config ?? configFromEnv());
+  } catch (e) {
+    return errorResult('not_configured', e instanceof Error ? e.message : String(e));
+  }
   try {
     switch (cmd) {
       case 'markets':
-        return { exitCode: 0, stdout: emit(await tools.list_markets({ venue: values.venue, includeExpired: values['include-expired'] })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.list_markets({ venue: values.venue, includeExpired: values['include-expired'] })), stderr: '' };
       case 'market':
-        return { exitCode: 0, stdout: emit(await tools.get_market({ outcome: outcomeArg(arg) })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.get_market({ outcome: outcomeArg(arg) })), stderr: '' };
       case 'book':
-        return { exitCode: 0, stdout: emit(await tools.orderbook({ outcome: outcomeArg(arg) })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.orderbook({ outcome: outcomeArg(arg) })), stderr: '' };
       case 'quote': {
         const size = Number(need(values.size, 'size'));
-        return { exitCode: 0, stdout: emit(await tools.quote({ outcome: outcomeArg(arg), side: need(values.side, 'side'), action: action(values.action), size })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.quote({ outcome: outcomeArg(arg), side: need(values.side, 'side'), action: action(values.action), size })), stderr: '' };
       }
       case 'compare':
-        return { exitCode: 0, stdout: emit(await tools.compare_market({ outcome: outcomeArg(arg) })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.compare_market({ outcome: outcomeArg(arg) })), stderr: '' };
       case 'fair-value':
-        return { exitCode: 0, stdout: emit(await tools.fair_value({ outcome: outcomeArg(arg) })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.fair_value({ outcome: outcomeArg(arg) })), stderr: '' };
       case 'hedges':
-        return { exitCode: 0, stdout: emit(await tools.find_hedges({ outcome: outcomeArg(arg) })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.find_hedges({ outcome: outcomeArg(arg) })), stderr: '' };
       case 'opportunities': {
         const limit = values.limit === undefined ? undefined : Number(values.limit);
         if (limit !== undefined && !Number.isInteger(limit)) throw new ToolError(`--limit must be an integer, got ${JSON.stringify(values.limit)}`, 'bad_input');
-        return { exitCode: 0, stdout: emit(await tools.opportunities({ limit })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.opportunities({ limit })), stderr: '' };
       }
       case 'positions':
-        return { exitCode: 0, stdout: emit(await tools.positions({ address: need(arg, 'address') })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.positions({ address: need(arg, 'address') })), stderr: '' };
       case 'builder-status':
-        return { exitCode: 0, stdout: emit(await tools.builder_status({ address: need(arg, 'address') })), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.builder_status({ address: need(arg, 'address') })), stderr: '' };
       case 'approve-builder-fee-payload':
-        return { exitCode: 0, stdout: emit(await tools.approve_builder_fee_payload({})), stderr: '' };
+        return { exitCode: 0, stdout: emit(await resolved.approve_builder_fee_payload({})), stderr: '' };
       case 'build-order': {
         const tif = values.tif;
         if (tif !== undefined && tif !== 'Gtc' && tif !== 'Ioc' && tif !== 'Alo') throw new ToolError('--tif must be Gtc, Ioc or Alo', 'bad_input');
-        const built = await tools.build_order({
+        const built = await resolved.build_order({
           outcome: outcomeArg(arg),
           side: need(values.side, 'side'),
           action: action(values.action),
@@ -128,10 +146,7 @@ export async function runCli(argv: readonly string[], config: KitConfig = config
         return { exitCode: 1, stdout: '', stderr: `unknown command ${JSON.stringify(cmd)}\n\n${USAGE}` };
     }
   } catch (e) {
-    if (e instanceof ToolError) {
-      const code = e.code === 'bad_input' ? 1 : e.code === 'not_found' ? 2 : e.code === 'not_configured' ? 4 : 3;
-      return { exitCode: code, stdout: '', stderr: `${JSON.stringify({ error: e.code, message: e.message })}\n` };
-    }
+    if (e instanceof ToolError) return errorResult(e.code, e.message);
     if (e instanceof UpstreamError) return { exitCode: 3, stdout: '', stderr: `${JSON.stringify({ error: 'upstream', kind: e.kind, message: e.message })}\n` };
     return { exitCode: 3, stdout: '', stderr: `${JSON.stringify({ error: 'internal', message: e instanceof Error ? e.message : String(e) })}\n` };
   }

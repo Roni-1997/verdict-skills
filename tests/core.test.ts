@@ -200,7 +200,7 @@ describe('positions', () => {
       network: 'testnet',
       fetch: fakeFetch({ spotClearinghouseState: fixture('testnet_spotClearinghouseState_subdeployer') }),
     });
-    const p = await positions(client, '0x2bd816e68b18d1dd6327266f273f0658f20467dc');
+    const p = await positions(client, '0x00000000000000000000000000000000000000a1');
     expect(Array.isArray(p)).toBe(true);
     expect(p.every((x) => x.tokenName.startsWith('+') && x.total > 0)).toBe(true);
   });
