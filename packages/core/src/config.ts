@@ -16,13 +16,15 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   const network = parseNetwork(env.VERDICT_NETWORK);
   const venue = env.VERDICT_VENUE && env.VERDICT_VENUE.trim() !== '' ? env.VERDICT_VENUE.trim() : null;
   const address = env.VERDICT_BUILDER_ADDRESS?.trim();
+  // The fee is validated whenever it is set, not only once an address is configured, so a bad value is
+  // reported the moment an operator writes it rather than later when the address arrives.
+  const feeRaw = env.VERDICT_BUILDER_FEE_TENTHS_BP?.trim() ?? '10';
+  const fee = Number(feeRaw);
+  if (!/^\d+$/.test(feeRaw) || !Number.isInteger(fee) || fee < 0 || fee > 10_000) {
+    throw new Error(`VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got ${JSON.stringify(feeRaw)}`);
+  }
   let builder: BuilderCode | null = null;
   if (address && /^0x[0-9a-fA-F]{40}$/.test(address) && !ZERO.test(address)) {
-    const feeRaw = env.VERDICT_BUILDER_FEE_TENTHS_BP?.trim() ?? '10';
-    const fee = Number(feeRaw);
-    if (!Number.isInteger(fee) || fee < 0 || fee > 10_000) {
-      throw new Error(`VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got ${JSON.stringify(feeRaw)}`);
-    }
     builder = { address: address.toLowerCase() as `0x${string}`, feeTenthsBp: fee };
   }
   return { network, venue, builder };

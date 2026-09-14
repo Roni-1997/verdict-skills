@@ -267,3 +267,13 @@ describe('MCP face', () => {
     expect(JSON.parse(text)).toMatchObject({ error: 'not_found' });
   });
 });
+
+describe('operator configuration', () => {
+  it('rejects a bad builder fee even when no builder address is set', async () => {
+    const { configFromEnv } = await import('../packages/core/src/index.js');
+    expect(() => configFromEnv({ VERDICT_NETWORK: 'testnet', VERDICT_BUILDER_FEE_TENTHS_BP: 'abc' })).toThrow(/VERDICT_BUILDER_FEE_TENTHS_BP/);
+    expect(() => configFromEnv({ VERDICT_NETWORK: 'testnet', VERDICT_BUILDER_FEE_TENTHS_BP: '1.5' })).toThrow(/VERDICT_BUILDER_FEE_TENTHS_BP/);
+    expect(configFromEnv({ VERDICT_NETWORK: 'testnet' }).builder).toBeNull();
+    expect(configFromEnv({ VERDICT_NETWORK: 'testnet', VERDICT_BUILDER_ADDRESS: '0x00000000000000000000000000000000000000b1', VERDICT_BUILDER_FEE_TENTHS_BP: '7' }).builder).toEqual({ address: '0x00000000000000000000000000000000000000b1', feeTenthsBp: 7 });
+  });
+});

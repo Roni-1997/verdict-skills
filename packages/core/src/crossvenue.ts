@@ -947,8 +947,13 @@ export async function opportunities(client: InfoClient, catalog: Catalog, venue:
   const unpricedCount = items.filter((item) => !item.priced).length;
   // The engine's sentence and evidence count the markets it was handed; the scan's count is every live market the
   // snapshot was built for (`scanned`), so the two are restated with that number, in the engine's own words.
-  const scannedLine = `Scanned ${markets.length} live Verdict markets and ranked the ${ranked.length} most tradeable by spread, depth, and live odds.`;
-  const engineSummary = ranked.length > 0 ? scannedLine : res.summary;
+  // Restate the engine's own summary with the scan's count by substituting into its sentence; if a pin move
+  // ever rewords that sentence, the engine's text passes through untouched instead of a stale hand copy.
+  const SCANNED_SUMMARY = /^Scanned (\d+) live Verdict markets and ranked the (\d+) /;
+  const engineSummary =
+    ranked.length > 0 && SCANNED_SUMMARY.test(res.summary)
+      ? res.summary.replace(SCANNED_SUMMARY, `Scanned ${markets.length} live Verdict markets and ranked the ${ranked.length} `)
+      : res.summary;
   const summary =
     unpricedCount === 0
       ? engineSummary
