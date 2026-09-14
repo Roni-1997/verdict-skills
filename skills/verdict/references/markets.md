@@ -14,7 +14,7 @@ Read only. No account, no key, no confirmation. Run it yourself and show the use
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--venue <name>` | `VERDICT_VENUE` | Deployer venue to list. Overrides the environment. If neither is set, every deployer's markets are listed. |
+| `--venue <name>` | `VERDICT_VENUE` | Deployer venue to list. Overrides the environment. If neither is set, or either is blank or `all` (any case), every deployer's markets are listed and the output reports `venue: null`. A name is 1 to 32 letters, digits, `_` or `-`; the same rule and meaning apply in hosted mode (`hosted-mode.md`). |
 | `--include-expired` | off | Keep markets whose `expiresAt` is already in the past. |
 | `--pretty` | off | Indent the JSON. |
 
@@ -62,6 +62,7 @@ Trimmed to one market. Recorded from the mainnet fixtures (venue `out`) on 2026-
 | Exit | stderr | Meaning | Do |
 |---|---|---|---|
 | 1 | usage text | Unknown flag. | Fix the flag and run once more. |
+| 1 | `{"error":"bad_input","message":"venue must be 1 to 32 letters, digits, _ or -"}` | `--venue` outside that rule, refused before any request in both modes. | Fix the name; `--venue all` lists every deployer. |
 | 3 | `{"error":"upstream","kind":"http" or "schema" or "network","message":...}` | The Hyperliquid info endpoint failed, timed out (10 s), or returned an unexpected shape. | Retry once after a few seconds. Then stop and report the JSON. |
 
 ## Notes

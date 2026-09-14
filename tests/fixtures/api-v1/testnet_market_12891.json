@@ -1,0 +1,40 @@
+{
+ "outcome": 12891,
+ "venue": "at",
+ "name": "template:binaryPrice4",
+ "templateId": "binaryPrice4",
+ "description": "perp:BTC|priceDescription:mark|seconds:300|threshold:100000|time:20261231-2100",
+ "keywords": {
+  "perp": "BTC",
+  "priceDescription": "mark",
+  "seconds": "300",
+  "threshold": "100000",
+  "time": "20261231-2100"
+ },
+ "sides": [
+  {
+   "index": 0,
+   "name": "template:Yes",
+   "coin": "#128910",
+   "tokenName": "+128910",
+   "assetId": 100128910
+  },
+  {
+   "index": 1,
+   "name": "template:No",
+   "coin": "#128911",
+   "tokenName": "+128911",
+   "assetId": 100128911
+  }
+ ],
+ "quoteToken": "USDC",
+ "deployerFeeScale": "1.0",
+ "displayName": "BTC above 100000 at 20261231-2100?",
+ "settlementRule": "If the BTC price at time of settlement is above 100000 at 20261231-2100, Yes tokens pay out $1 each. Otherwise, No tokens pay out $1 each. Settlement is according to the 300-second TWAP of mark price before settlement time.",
+ "semanticRestriction": null,
+ "expiresAt": "2026-12-31T21:00:00.000Z",
+ "underlying": "BTC",
+ "threshold": "100000",
+ "priceDescription": "mark",
+ "twapSeconds": 300
+}

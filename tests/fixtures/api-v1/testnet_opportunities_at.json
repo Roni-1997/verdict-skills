@@ -1,0 +1,580 @@
+{
+ "network": "testnet",
+ "venue": "at",
+ "scanned": 5,
+ "booksFetched": 5,
+ "count": 5,
+ "limit": 8,
+ "engineMax": 8,
+ "items": [
+  {
+   "rank": 1,
+   "outcome": 12891,
+   "venue": "at",
+   "displayName": "BTC above 100000 at 20261231-2100?",
+   "expiresAt": "2026-12-31T21:00:00.000Z",
+   "priced": true,
+   "yesMid": 0.30305,
+   "spread": null,
+   "depthUsd": 10.60675,
+   "volumeUsd": 0,
+   "priceSource": "book",
+   "unpriced": null,
+   "why": "$11 depth, YES 30.3%",
+   "tradeCall": {
+    "label": "Watch YES",
+    "reason": "No clear live spread, so the shown price may be hard to trade."
+   },
+   "actionState": "research",
+   "crossVenue": null,
+   "hedge": {
+    "symbol": "BTC",
+    "kind": "perp",
+    "directionForYes": "short"
+   }
+  },
+  {
+   "rank": 2,
+   "outcome": 11351,
+   "venue": "at",
+   "displayName": "No change",
+   "expiresAt": null,
+   "priced": false,
+   "yesMid": null,
+   "spread": null,
+   "depthUsd": null,
+   "volumeUsd": 0,
+   "priceSource": null,
+   "unpriced": "never_traded_wall_book",
+   "why": "unpriced (never traded, wall-only book); no Verdict price, spread or depth to rank on",
+   "tradeCall": {
+    "label": "Watch only",
+    "reason": "No live executable price."
+   },
+   "actionState": "research",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 3,
+   "outcome": 11352,
+   "venue": "at",
+   "displayName": "Decrease",
+   "expiresAt": null,
+   "priced": false,
+   "yesMid": null,
+   "spread": null,
+   "depthUsd": null,
+   "volumeUsd": 0,
+   "priceSource": null,
+   "unpriced": "never_traded_wall_book",
+   "why": "unpriced (never traded, wall-only book); no Verdict price, spread or depth to rank on",
+   "tradeCall": {
+    "label": "Watch only",
+    "reason": "No live executable price."
+   },
+   "actionState": "research",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 4,
+   "outcome": 11353,
+   "venue": "at",
+   "displayName": "Increase",
+   "expiresAt": null,
+   "priced": false,
+   "yesMid": null,
+   "spread": null,
+   "depthUsd": null,
+   "volumeUsd": 0,
+   "priceSource": null,
+   "unpriced": "never_traded_wall_book",
+   "why": "unpriced (never traded, wall-only book); no Verdict price, spread or depth to rank on",
+   "tradeCall": {
+    "label": "Watch only",
+    "reason": "No live executable price."
+   },
+   "actionState": "research",
+   "crossVenue": null,
+   "hedge": null
+  },
+  {
+   "rank": 5,
+   "outcome": 12893,
+   "venue": "at",
+   "displayName": "HYPE above 60 at 20261231-2100?",
+   "expiresAt": "2026-12-31T21:00:00.000Z",
+   "priced": false,
+   "yesMid": null,
+   "spread": null,
+   "depthUsd": null,
+   "volumeUsd": 0,
+   "priceSource": null,
+   "unpriced": "never_traded_wall_book",
+   "why": "unpriced (never traded, wall-only book); no Verdict price, spread or depth to rank on",
+   "tradeCall": {
+    "label": "Watch only",
+    "reason": "No live executable price."
+   },
+   "actionState": "research",
+   "crossVenue": null,
+   "hedge": {
+    "symbol": "HYPE",
+    "kind": "perp",
+    "directionForYes": "short"
+   }
+  }
+ ],
+ "unpricedCount": 4,
+ "comparators": [
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.18",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will no Fed rate cuts happen in 2026? · 0 (0 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.9345000000000001,
+   "yesBid": 0.934,
+   "yesAsk": 0.935,
+   "spread": 0.0010000000000000009,
+   "depthUsd": 211898.48166,
+   "volumeUsd": 8314493.391854001,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xd4e77ba6f29fc093509d24f508631abd445ecf506bbdc9c4c80e60256a318527",
+     "title": "Will no Fed rate cuts happen in 2026? · 0 (0 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.9345000000000001,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will no Fed rate cuts happen in 2026? · 0 (0 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.18",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 1 Fed rate cut happen in 2026? · 1 (25 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0435,
+   "yesBid": 0.043,
+   "yesAsk": 0.044,
+   "spread": 0.0010000000000000009,
+   "depthUsd": 255274.28936,
+   "volumeUsd": 3015547.1120909997,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x5e082f0b57f47a29044aa35b4c5658393122e659d5feae521c06b57cdd7f905c",
+     "title": "Will 1 Fed rate cut happen in 2026? · 1 (25 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0435,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 1 Fed rate cut happen in 2026? · 1 (25 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.18",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 2 Fed rate cuts happen in 2026? · 2 (50 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.006500000000000001,
+   "yesBid": 0.005,
+   "yesAsk": 0.008,
+   "spread": 0.003,
+   "depthUsd": 111339.14118,
+   "volumeUsd": 3086309.4572809995,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xe0d9f508a249e0070db06eb7d1e1fb17eb23c963f6fb722c4c3f81e23240c1cd",
+     "title": "Will 2 Fed rate cuts happen in 2026? · 2 (50 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.006500000000000001,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 2 Fed rate cuts happen in 2026? · 2 (50 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.18",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 3 Fed rate cuts happen in 2026? · 3 (75 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0015,
+   "yesBid": 0.001,
+   "yesAsk": 0.002,
+   "spread": 0.001,
+   "depthUsd": 291172.94124,
+   "volumeUsd": 2871425.703143,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x8d4966e84ae80f24b2e14643fdd45364e354229e11e2c17903b4b1763cfbe67c",
+     "title": "Will 3 Fed rate cuts happen in 2026? · 3 (75 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0015,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.18, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 3 Fed rate cuts happen in 2026? · 3 (75 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.17",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 4 Fed rate cuts happen in 2026? · 4 (100 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0015,
+   "yesBid": 0.001,
+   "yesAsk": 0.002,
+   "spread": 0.001,
+   "depthUsd": 212272.99677,
+   "volumeUsd": 2711105.0191780007,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xaece8d6062d3e3eb9845b32441a4ab06eb2ef332c0228bc6a36add450647c7c4",
+     "title": "Will 4 Fed rate cuts happen in 2026? · 4 (100 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0015,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 4 Fed rate cuts happen in 2026? · 4 (100 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.17",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 5 Fed rate cuts happen in 2026? · 5 (125 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0015,
+   "yesBid": 0.001,
+   "yesAsk": 0.002,
+   "spread": 0.001,
+   "depthUsd": 222835.93503,
+   "volumeUsd": 2975115.7651269995,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x7ee722a07e0f84405f1267bc1c84eb95bd6348454453abf445618e778af8fd18",
+     "title": "Will 5 Fed rate cuts happen in 2026? · 5 (125 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0015,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 5 Fed rate cuts happen in 2026? · 5 (125 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.17",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 6 Fed rate cuts happen in 2026? · 6 (150 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0005,
+   "yesBid": null,
+   "yesAsk": 0.001,
+   "spread": null,
+   "depthUsd": 128604.13892,
+   "volumeUsd": 4218779.095319999,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x4914bfdd892a48c341b5e0f41ec10475a815f2277273110b16f95e21084bfe75",
+     "title": "Will 6 Fed rate cuts happen in 2026? · 6 (150 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0005,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 6 Fed rate cuts happen in 2026? · 6 (150 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.17",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 7 Fed rate cuts happen in 2026? · 7 (175 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0005,
+   "yesBid": null,
+   "yesAsk": 0.001,
+   "spread": null,
+   "depthUsd": 150912.29204,
+   "volumeUsd": 3519600.295167,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x2368d2604c9c2b95bc98c51bd50c66e5351caebf05b9fe79d3398c387fe29a89",
+     "title": "Will 7 Fed rate cuts happen in 2026? · 7 (175 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0005,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 7 Fed rate cuts happen in 2026? · 7 (175 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.17",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 8 Fed rate cuts happen in 2026? · 8 (200 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0005,
+   "yesBid": null,
+   "yesAsk": 0.001,
+   "spread": null,
+   "depthUsd": 282088.37418,
+   "volumeUsd": 3288352.6758900005,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0xfe28cb84a714b1a964290d7fd2587e71d57e905678c8ab64488449b24be78e52",
+     "title": "Will 8 Fed rate cuts happen in 2026? · 8 (200 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0005,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 8 Fed rate cuts happen in 2026? · 8 (200 bps)\"."
+  },
+  {
+   "venue": "polymarket",
+   "method": "reference",
+   "confidence": "low",
+   "edgeConfidence": null,
+   "reasons": [
+    "title_similarity_0.17",
+    "same_category",
+    "strike_missing",
+    "expiry_missing",
+    "rules_available"
+   ],
+   "caveats": [
+    "reference_not_tradable_twin",
+    "verdict_unpriced_never_traded_wall_book"
+   ],
+   "caveat": "Low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available). The price difference is not a comparable gap and is not reported.",
+   "title": "Will 9 Fed rate cuts happen in 2026? · 9 (225 bps)",
+   "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+   "fairProb": 0.0005,
+   "yesBid": null,
+   "yesAsk": 0.001,
+   "spread": null,
+   "depthUsd": 488708.78815,
+   "volumeUsd": 4284246.867517999,
+   "expiry": "2026-12-31T00:00:00Z",
+   "gap": null,
+   "spreadAdjustedGap": null,
+   "expiryAdjusted": null,
+   "mismatchNote": null,
+   "tradeCall": null,
+   "legs": [
+    {
+     "id": "polymarket:0x4ec6fcb43fe1a32163c7da09d54a99ab9bf6abdc6fd49939d7ad67d696a3248b",
+     "title": "Will 9 Fed rate cuts happen in 2026? · 9 (225 bps)",
+     "url": "https://polymarket.com/event/how-many-fed-rate-cuts-in-2026",
+     "yesMid": 0.0005,
+     "strike": null,
+     "expiry": "2026-12-31T00:00:00Z"
+    }
+   ],
+   "line": "Polymarket: low-confidence match (title_similarity_0.17, same_category, strike_missing, expiry_missing, rules_available); no comparable price gap. Closest market: \"Will 9 Fed rate cuts happen in 2026? · 9 (225 bps)\"."
+  }
+ ],
+ "dataStatus": {
+  "polymarket": "ok",
+  "kalshi": "ok"
+ },
+ "bookErrors": [],
+ "summary": "Scanned 5 live Verdict markets and ranked the 5 most tradeable by spread, depth, and live odds. 4 of the 5 shown have no Verdict price (unpriced) and rank last.",
+ "evidence": [
+  "Verdict/HL markets scanned: 5",
+  "Route: opportunity_scan",
+  "Ranked by tradeable quality (tight spread + depth + live prob-band), not raw volume.",
+  "Trade ticket handoff available for the surfaced markets."
+ ],
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": "opportunity_scan",
+  "generatedAt": "2026-09-14T18:00:47.900Z"
+ }
+}

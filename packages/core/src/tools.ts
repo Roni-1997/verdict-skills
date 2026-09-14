@@ -2,7 +2,7 @@
 // concerns. The CLI and the MCP server call these and nothing else.
 import { approveBuilderFeePayload, buildOrder, builderStatus, type BuiltOrder, type TimeInForce } from './builder.js';
 import { orderbook as readBook, quote as readQuote, type Orderbook, type Quote } from './book.js';
-import { BUILDER_UNSET_MESSAGE, type KitConfig } from './config.js';
+import { BUILDER_UNSET_MESSAGE, type KitConfig, VENUE_MESSAGE, VENUE_NAME, normalizeVenue } from './config.js';
 import {
   compareMarket,
   type CompareMarketResult,
@@ -56,6 +56,38 @@ export interface ToolOptions {
   readonly engine?: EngineOptions;
 }
 
+/**
+ * Largest outcome index either mode accepts: nine digits, the API's rule (OutcomeParam in the app). Outcome coins are
+ * `#<outcome><side>` and the info endpoint takes nine-digit coins at most, so a longer index can never name a market
+ * and is bad input, not a market that happens to be missing.
+ */
+export const MAX_OUTCOME = 999_999_999;
+
+/** Input checks shared by the embedded tools and the hosted ones (remote.ts), so both modes reject the same input with the same words before any request. */
+export function checkOutcome(outcome: number): void {
+  if (!Number.isInteger(outcome) || outcome < 0 || outcome > MAX_OUTCOME) throw new ToolError(`outcome must be a nonnegative integer of at most 9 digits, got ${String(outcome)}`, 'bad_input');
+}
+
+/**
+ * The venue a list or scan is about: unset, blank and `all` (any case) mean every deployer (null), the API's reading
+ * of its `venue` parameter; a name is checked against the API's rule so a venue the API would refuse is refused here
+ * too, in both modes, with the API's words.
+ */
+export function checkVenue(venue: string | null | undefined): string | null {
+  const v = normalizeVenue(venue);
+  if (v !== null && !VENUE_NAME.test(v)) throw new ToolError(VENUE_MESSAGE, 'bad_input');
+  return v;
+}
+
+/** The opportunities limit: absent means the engine maximum; anything else must be an integer from 1 to that maximum. */
+export function checkLimit(limit: number | undefined): number {
+  const n = limit ?? OPPORTUNITIES_ENGINE_MAX;
+  if (!Number.isInteger(n) || n < 1 || n > OPPORTUNITIES_ENGINE_MAX) {
+    throw new ToolError(`limit must be an integer between 1 and ${OPPORTUNITIES_ENGINE_MAX} (the engine ranks at most ${OPPORTUNITIES_ENGINE_MAX} markets per scan)`, 'bad_input');
+  }
+  return n;
+}
+
 export function resolveSide(market: Market, side: SideInput): 0 | 1 {
   if (side === 0 || side === 1) return side;
   const s = String(side).trim().toLowerCase();
@@ -69,10 +101,6 @@ export function resolveSide(market: Market, side: SideInput): 0 | 1 {
 export function createTools(config: KitConfig, client: InfoClient = new InfoClient({ network: config.network }), options: ToolOptions = {}): Tools {
   const net = networkConfig(config.network);
   const engineOpts = options.engine ?? {};
-
-  function checkOutcome(outcome: number): void {
-    if (!Number.isInteger(outcome) || outcome < 0) throw new ToolError(`outcome must be a nonnegative integer, got ${String(outcome)}`, 'bad_input');
-  }
 
   async function requireMarket(outcome: number): Promise<Market> {
     checkOutcome(outcome);
@@ -97,13 +125,13 @@ export function createTools(config: KitConfig, client: InfoClient = new InfoClie
 
   return {
     async list_markets(input) {
-      const venue = input.venue ?? config.venue ?? undefined;
-      let markets = await listMarkets(client, venue ? { venue } : {});
+      const venue = checkVenue(input.venue ?? config.venue);
+      let markets = await listMarkets(client, venue === null ? {} : { venue });
       if (!input.includeExpired) {
         const now = Date.now();
         markets = markets.filter((m) => m.expiresAt === null || Date.parse(m.expiresAt) > now);
       }
-      return { network: config.network, venue: venue ?? null, count: markets.length, markets: markets.map(summarize) };
+      return { network: config.network, venue, count: markets.length, markets: markets.map(summarize) };
     },
 
     async get_market(input) {
@@ -139,12 +167,10 @@ export function createTools(config: KitConfig, client: InfoClient = new InfoClie
     },
 
     async opportunities(input) {
-      const limit = input.limit ?? OPPORTUNITIES_ENGINE_MAX;
-      if (!Number.isInteger(limit) || limit < 1 || limit > OPPORTUNITIES_ENGINE_MAX) {
-        throw new ToolError(`limit must be an integer between 1 and ${OPPORTUNITIES_ENGINE_MAX} (the engine ranks at most ${OPPORTUNITIES_ENGINE_MAX} markets per scan)`, 'bad_input');
-      }
+      const limit = checkLimit(input.limit);
+      const venue = checkVenue(config.venue);
       const catalog = await loadCatalog(client);
-      return scanOpportunities(client, catalog, config.venue, limit, engineOpts);
+      return scanOpportunities(client, catalog, venue, limit, engineOpts);
     },
 
     async positions(input) {

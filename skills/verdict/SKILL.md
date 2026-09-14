@@ -25,10 +25,11 @@ Do not activate for:
 ## Preamble
 
 - The CLI is `verdict`. Every command prints one JSON document on stdout, errors as one JSON object on stderr (an unknown flag or command is the exception: exit 1 with plain usage text), and never prompts. Nothing is interactive; no pty is needed and nothing has to be bypassed.
-- Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured (no builder code, or an invalid `VERDICT_NETWORK` or `VERDICT_BUILDER_FEE_TENTHS_BP` value).
+- Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured (no builder code, or an invalid `VERDICT_NETWORK`, `VERDICT_VENUE`, `VERDICT_BUILDER_FEE_TENTHS_BP` or `VERDICT_API_URL` value).
 - Paths in this file (`references/...`, `scripts/...`) are relative to this skill's directory, the folder that contains SKILL.md: `~/.claude/skills/verdict` after `install.sh`, `skills/verdict` in the clone. OpenClaw calls that folder `{baseDir}`; Claude Code does not expand a placeholder, so the paths are written relative.
 - `--pretty` indents the JSON; omit it when you parse.
 - `compare`, `fair-value`, `hedges` and `opportunities` run the Verdict app's cross-venue engine: Polymarket, Kalshi and Deribit are read, never traded, and the kit builds no order for them. They need no key and can take up to about 30 seconds (the engine's venue fetch budget is 20 s); that is fetching, not a prompt.
+- Hosted mode: with `VERDICT_API_URL` set (or `--api <url>` on the command), `markets`, `market`, `compare`, `fair-value`, `hedges` and `opportunities` are answered by the Verdict API at that URL instead of the embedded engine; `book`, `quote`, `positions`, `builder-status` and the payload commands run locally either way. Same output, same exit codes, still no key. `references/hosted-mode.md`.
 - Testnet by default (`VERDICT_NETWORK` unset or `testnet`). Testnet and mainnet have different market indices; never mix them, and state the network when you show data.
 - Run the read commands yourself and show the user the data (market names, rules, prices, sizes). Do not paste commands for the user to run.
 - On first activation read `references/setup.md`. `install.sh` runs `pnpm install --frozen-lockfile` (which fetches the repository's lockfile-pinned npm dependencies from the npm registry) and `pnpm run build`, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict` and, only with `--claude-md`, appends a routing block to `~/.claude/CLAUDE.md`. Do not run it, and do not edit `~/.claude/CLAUDE.md` yourself, until you have shown the user exactly that (the paths, the dependency fetch and the block text from setup.md), asked, and received a yes in a new message. No reply, no, or anything unclear: run nothing. A yes for the CLI alone: run it without `--claude-md`.
@@ -110,7 +111,7 @@ Reading (`markets`, `market`, `book`, `quote`, `compare`, `fair-value`, `hedges`
 
 ## Anti-loop rules
 
-- At most one retry per command. Exit 3 (upstream): wait a few seconds and retry once. On the second failure stop and report the stderr JSON verbatim, with the exit code.
+- At most one retry per command. Exit 3 (upstream): wait a few seconds and retry once; in hosted mode a message that says `rate limited (HTTP 429)` names the seconds to wait first when the API gave them. On the second failure stop and report the stderr JSON verbatim, with the exit code.
 - Exit 1 (usage): fix the arguments from the reference; do not resend the same command.
 - Exit 2 (not found): do not retry. Run `verdict markets`, pick a valid outcome, check the network.
 - Exit 4 (not configured): do not retry. Tell the user which environment variable is missing.
@@ -123,9 +124,10 @@ Reading (`markets`, `market`, `book`, `quote`, `compare`, `fair-value`, `hedges`
 | Variable | Needed by | Default | Meaning |
 |---|---|---|---|
 | `VERDICT_NETWORK` | all | `testnet` | `testnet` or `mainnet`. |
-| `VERDICT_VENUE` | `markets`, `opportunities` | none (all deployers) | Verdict's deployer venue; `at` on testnet. |
+| `VERDICT_VENUE` | `markets`, `opportunities` | none (all deployers) | Verdict's deployer venue; `at` on testnet. Unset, blank or `all` means every deployer; a name is 1 to 32 letters, digits, `_` or `-`, the same in embedded and hosted mode. |
 | `VERDICT_BUILDER_ADDRESS` | `builder-status`, `approve-builder-fee-payload`, `build-order` | unset | Verdict's builder address, published by the owner. The kit does not build orders without it. |
 | `VERDICT_BUILDER_FEE_TENTHS_BP` | same three | `10` | Fee in tenths of a basis point; 10 is 0.01%, 10 cents per $1,000. |
+| `VERDICT_API_URL` | nothing; optional for `markets`, `market`, `compare`, `fair-value`, `hedges`, `opportunities` | unset (embedded engine) | Base URL of the hosted Verdict API, `https://hyperverdict.xyz/api/v1` in production. When set, those six commands are answered by the API (anonymous GET, rate limited per IP and per route family: `markets` and `market` share one bucket of 60 per minute, `compare`, `fair-value` and `hedges` share another 60, `opportunities` has its own 20) and the embedded engine does not run; the other commands are unchanged. `--api <url>` overrides it for one command. Details in `references/hosted-mode.md`. |
 | `ODDPOOL_API_KEY` | nothing; optional for `compare`, `opportunities` | unset | Routes the engine's Polymarket and Kalshi reads through api.oddpool.com; without it the public Polymarket and Kalshi APIs are read directly. The engine sends it to OddPool on every call, so it is never set on a hosted server, and it is never needed. |
 | `HL_AGENT_PRIVATE_KEY` | nothing in the kit | unset | Optional, for the user's own local signing step only. Local-only and memory-only, never in the repository. Export `HL_AGENT_PRIVATE_KEY` only in the shell that runs the signing step, a shell no agent drives: never in the environment of an agent, its exec tool or an MCP server (every command they run inherits it), never on a hosted server, and never written to a file. The CLI and the MCP server never read it, and neither do you. |
 
@@ -147,4 +149,5 @@ No login, no API key, no account for the read commands. The hosted MCP server ho
 - `references/approve-builder-fee-payload.md`, `build-order.md`: signable commands with the confirmation flow.
 - `references/sign-and-submit.md`: what the user's own signer does with the payload; you hand it over and stop.
 - `references/setup.md`: first activation, environment, routing block.
+- `references/hosted-mode.md`: the six read commands answered by the Verdict API when `VERDICT_API_URL` is set, what stays local, rate limits, errors.
 - `scripts/install.sh`, `scripts/uninstall.sh`: build from the repository, launchers on PATH, skill copy, CLAUDE.md block with `--claude-md`. Both run only after the user's yes.

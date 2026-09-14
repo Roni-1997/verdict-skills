@@ -1,6 +1,19 @@
 // The streamable HTTP face's request handling, kept out of bin.ts so it can be unit-tested against an
 // ephemeral port or no port at all: bin.ts is the process entry point and starts listening on import.
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { type KitConfig, toolsMode } from '@verdict/core';
+
+/** Body of GET /healthz: the network and venue served, and whether the six API-served tools come from the embedded engine or the hosted API (and which). No key is involved in either mode, so none is reported. */
+export function healthBody(config: KitConfig): { ok: true; network: string; venue: string | null; mode: 'embedded' | 'hosted'; api: string | null } {
+  return { ok: true, network: config.network, venue: config.venue, mode: toolsMode(config), api: config.apiUrl };
+}
+
+/** The one stderr line --http prints once it listens: endpoint, network, venue, mode and the API base URL in hosted mode. */
+export function listenLine(config: KitConfig, host: string, port: number): string {
+  const venue = config.venue ? `, venue ${config.venue}` : '';
+  const via = config.apiUrl ? ` via ${config.apiUrl}` : '';
+  return `verdict-mcp listening on http://${host}:${port}/mcp (${config.network}${venue}, ${toolsMode(config)}${via})`;
+}
 
 export type ParsedBody = { readonly ok: true; readonly body: unknown } | { readonly ok: false; readonly status: 400; readonly response: string };
 

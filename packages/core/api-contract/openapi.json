@@ -1,0 +1,2292 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Verdict API",
+    "version": "1.0.0",
+    "description": "Read-only JSON over Verdict's cross-venue engine: the live HIP-4 outcome markets on Hyperliquid, the same market on Polymarket and Kalshi with the resolution-equivalence verdict, the Deribit options-implied fair value, hedge legs and a ranked opportunity scan. Every body has the field names and semantics of the Verdict agent kit's tool results. Anonymous, rate limited per IP, no account needed. Guide: docs/api.md in the Roni-1997/verdict repository."
+  },
+  "servers": [
+    {
+      "url": "https://hyperverdict.xyz/api/v1",
+      "description": "Production. Preview deployments on *.vercel.app default to testnet."
+    }
+  ],
+  "paths": {
+    "/compare": {
+      "get": {
+        "operationId": "compare_market",
+        "summary": "Compare with Polymarket and Kalshi",
+        "description": "The same market on Polymarket and Kalshi via the Verdict app's cross-venue engine: the best comparator per venue with its price, the gap to Verdict when the contracts match (exact twin, ladder interpolation, or repriced to Verdict's settlement time), and always the engine's resolution-equivalence confidence and reasons. A low-confidence match carries a caveat and no gap. A market with no trades in the last 24h and no real quote on its book (never traded, or traded on an earlier day) has no Verdict price and no gap; a Verdict price taken from the Hyperliquid mark is labelled as such; an edge the engine rates low or that flips under vol stress carries no after-spreads gap. Includes the Deribit options-implied probability for BTC/ETH/SOL price markets. Read only; the kit never builds orders for other venues.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/outcome"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compare with Polymarket and Kalshi. Body: CompareMarketResult.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=30, stale-while-revalidate=60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareMarketResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+        "x-rate-limit": {
+          "perMinute": 60,
+          "scope": "ip",
+          "family": "v1-engine"
+        },
+        "x-deadline-ms": 12000,
+        "x-read-only": true
+      }
+    },
+    "/coverage": {
+      "get": {
+        "operationId": "coverage",
+        "summary": "Comparator coverage",
+        "description": "The share of the venue's live Verdict markets the cross-venue engine can match to a Polymarket or Kalshi comparator, over the 40 most-traded live markets: matched (a mispricing card or a high-equivalence reference), referenced (a medium-equivalence reference), unmatched. Cached for ten minutes per instance. Read only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/venue"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comparator coverage. Body: CoverageResult.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=300, stale-while-revalidate=600"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=300, stale-while-revalidate=600",
+        "x-rate-limit": {
+          "perMinute": 20,
+          "scope": "ip",
+          "family": "v1-coverage"
+        },
+        "x-deadline-ms": 25000,
+        "x-read-only": true
+      }
+    },
+    "/fair-value": {
+      "get": {
+        "operationId": "fair_value",
+        "summary": "Option-implied fair value",
+        "description": "The probability implied by the Deribit options chain (Black-Scholes digital, nearest expiry and strike) for a BTC, ETH or SOL price market, next to the Verdict price, or a typed not-available result with the reason. Reference only, not a tradable comparator. Read only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/outcome"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Option-implied fair value. Body: FairValueResult.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=30, stale-while-revalidate=60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FairValueResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+        "x-rate-limit": {
+          "perMinute": 60,
+          "scope": "ip",
+          "family": "v1-engine"
+        },
+        "x-deadline-ms": 12000,
+        "x-read-only": true
+      }
+    },
+    "/hedges": {
+      "get": {
+        "operationId": "find_hedges",
+        "summary": "Find hedges",
+        "description": "Hyperliquid perp and spot hedge candidates for the market underlying, with reference mids and the hedge direction for holding YES (NO is the opposite). A hedge offsets price exposure only; the outcome still settles separately. Read only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/outcome"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Find hedges. Body: FindHedgesResult.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=30, stale-while-revalidate=60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHedgesResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+        "x-rate-limit": {
+          "perMinute": 60,
+          "scope": "ip",
+          "family": "v1-engine"
+        },
+        "x-deadline-ms": 12000,
+        "x-read-only": true
+      }
+    },
+    "/market": {
+      "get": {
+        "operationId": "get_market",
+        "summary": "Get one market",
+        "description": "Everything about one outcome market: sides, coins, asset ids, settlement rule, expiry, fee scale. Read only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/outcome"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get one market. Body: Market.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=15, stale-while-revalidate=60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Market"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=15, stale-while-revalidate=60",
+        "x-rate-limit": {
+          "perMinute": 60,
+          "scope": "ip",
+          "family": "v1-markets"
+        },
+        "x-deadline-ms": 12000,
+        "x-read-only": true
+      }
+    },
+    "/markets": {
+      "get": {
+        "operationId": "list_markets",
+        "summary": "List Verdict markets",
+        "description": "Live HIP-4 outcome markets on Verdict with the settlement rule each one resolves on. Read only. No account needed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/venue"
+          },
+          {
+            "$ref": "#/components/parameters/includeExpired"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List Verdict markets. Body: ListMarketsResult.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=15, stale-while-revalidate=60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMarketsResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=15, stale-while-revalidate=60",
+        "x-rate-limit": {
+          "perMinute": 60,
+          "scope": "ip",
+          "family": "v1-markets"
+        },
+        "x-deadline-ms": 12000,
+        "x-read-only": true
+      }
+    },
+    "/opportunities": {
+      "get": {
+        "operationId": "opportunities",
+        "summary": "Scan opportunities",
+        "description": "Ranks the configured venue's live markets by tradeable quality (tight spread, real depth, live probability band, not raw volume), with the engine's trade call, hedge leg and the cross-venue gap, if one exists, against a Polymarket or Kalshi twin. At most 8 per scan; books are read for the 40 most-traded live markets and the rest price off Hyperliquid asset contexts. A market with no Verdict price (never traded, or no trades in 24h, and no real quote on its book) is carried as unpriced: ranked after every priced market (the engine is handed every priced market and only as many unpriced ones as its slots leave free, so none can displace a priced one), with a null probability and a reason, never a placeholder price. Read only.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/net"
+          },
+          {
+            "$ref": "#/components/parameters/venue"
+          },
+          {
+            "$ref": "#/components/parameters/limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan opportunities. Body: OpportunitiesResult.",
+            "headers": {
+              "Cache-Control": {
+                "description": "CDN cache policy for a successful answer.",
+                "schema": {
+                  "type": "string",
+                  "const": "public, s-maxage=30, stale-while-revalidate=60"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpportunitiesResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadInput"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/Upstream"
+          }
+        },
+        "x-cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+        "x-rate-limit": {
+          "perMinute": 20,
+          "scope": "ip",
+          "family": "v1-opportunities"
+        },
+        "x-deadline-ms": 25000,
+        "x-read-only": true
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Comparator": {
+        "description": "The best Polymarket or Kalshi comparator for a Verdict market: its price at the Verdict contract, the gap when the contracts are comparable, and always the resolution-equivalence confidence, reasons and caveats.",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "string",
+            "enum": [
+              "polymarket",
+              "kalshi"
+            ]
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "exact_twin",
+              "ladder_interpolation",
+              "maturity_adjusted_digital",
+              "reference"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "edgeConfidence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "caveats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "caveat": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fairProb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yesBid": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yesAsk": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spread": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "depthUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "volumeUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "expiry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gap": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spreadAdjustedGap": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "expiryAdjusted": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "rawProb": {
+                    "type": "number"
+                  },
+                  "adjustedProb": {
+                    "type": "number"
+                  },
+                  "shift": {
+                    "type": "number"
+                  },
+                  "offsetHours": {
+                    "type": "number"
+                  },
+                  "iv": {
+                    "type": "number"
+                  },
+                  "spot": {
+                    "type": "number"
+                  },
+                  "compExpiry": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "rawProb",
+                  "adjustedProb",
+                  "shift",
+                  "offsetHours",
+                  "iv",
+                  "spot",
+                  "compExpiry"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mismatchNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tradeCall": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TradeCall"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legs": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComparatorLeg"
+            }
+          },
+          "line": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "venue",
+          "method",
+          "confidence",
+          "edgeConfidence",
+          "reasons",
+          "caveats",
+          "caveat",
+          "title",
+          "url",
+          "fairProb",
+          "yesBid",
+          "yesAsk",
+          "spread",
+          "depthUsd",
+          "volumeUsd",
+          "expiry",
+          "gap",
+          "spreadAdjustedGap",
+          "expiryAdjusted",
+          "mismatchNote",
+          "tradeCall",
+          "legs",
+          "line"
+        ],
+        "additionalProperties": false
+      },
+      "ComparatorLeg": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "yesMid": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "strike": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "expiry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "url",
+          "yesMid",
+          "strike",
+          "expiry"
+        ],
+        "additionalProperties": false
+      },
+      "CompareMarketResult": {
+        "description": "GET /compare: the same market on Polymarket and Kalshi via the cross-venue engine.",
+        "type": "object",
+        "properties": {
+          "market": {
+            "$ref": "#/components/schemas/MarketSummary"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/VerdictSide"
+          },
+          "comparators": {
+            "type": "object",
+            "properties": {
+              "polymarket": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Comparator"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kalshi": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Comparator"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "polymarket",
+              "kalshi"
+            ],
+            "additionalProperties": false
+          },
+          "optionsImplied": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptionsImplied"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dataStatus": {
+            "type": "object",
+            "properties": {
+              "polymarket": {
+                "type": "string"
+              },
+              "kalshi": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "polymarket",
+              "kalshi"
+            ],
+            "additionalProperties": false
+          },
+          "errors": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "engine": {
+            "$ref": "#/components/schemas/EngineInfo"
+          }
+        },
+        "required": [
+          "market",
+          "verdict",
+          "comparators",
+          "optionsImplied",
+          "dataStatus",
+          "errors",
+          "summary",
+          "lines",
+          "evidence",
+          "engine"
+        ],
+        "additionalProperties": false
+      },
+      "CoverageResult": {
+        "description": "GET /coverage: the share of live Verdict markets the engine can match to a Polymarket or Kalshi comparator.",
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "testnet",
+              "mainnet"
+            ]
+          },
+          "venue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "computedAt": {
+            "type": "string"
+          },
+          "liveMarkets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "considered": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "matched": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referenced": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unmatched": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "share": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "byVenue": {
+            "type": "object",
+            "properties": {
+              "polymarket": {
+                "type": "object",
+                "properties": {
+                  "matched": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "referenced": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "matched",
+                  "referenced"
+                ],
+                "additionalProperties": false
+              },
+              "kalshi": {
+                "type": "object",
+                "properties": {
+                  "matched": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "referenced": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "matched",
+                  "referenced"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "polymarket",
+              "kalshi"
+            ],
+            "additionalProperties": false
+          },
+          "dataStatus": {
+            "type": "object",
+            "properties": {
+              "polymarket": {
+                "type": "string"
+              },
+              "kalshi": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "polymarket",
+              "kalshi"
+            ],
+            "additionalProperties": false
+          },
+          "errors": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "engine": {
+            "$ref": "#/components/schemas/EngineInfo"
+          }
+        },
+        "required": [
+          "network",
+          "venue",
+          "computedAt",
+          "liveMarkets",
+          "considered",
+          "truncated",
+          "matched",
+          "referenced",
+          "unmatched",
+          "share",
+          "byVenue",
+          "dataStatus",
+          "errors",
+          "engine"
+        ],
+        "additionalProperties": false
+      },
+      "EngineInfo": {
+        "description": "Which engine produced the result: the repository, the deployed commit, the engine route that ran and when.",
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "commit",
+          "route",
+          "generatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorBadInput": {
+        "description": "A query parameter is missing, malformed or out of range.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "bad_input"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorMethodNotAllowed": {
+        "description": "Only GET and OPTIONS are served.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "method_not_allowed"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorNotFound": {
+        "description": "No outcome market with that index on the requested network.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "not_found"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorRateLimited": {
+        "description": "The per-IP budget for this route family is spent; Retry-After says when to try again.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "rate_limited"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "ErrorUpstream": {
+        "description": "Hyperliquid could not be read within the request deadline: an HTTP failure, a body that did not match the expected shape, or a network failure. Polymarket, Kalshi and Deribit failures are reported inside 200 bodies, never as this error.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "upstream"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "http",
+              "schema",
+              "network"
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "FairValueResult": {
+        "description": "GET /fair-value: the Deribit options-implied probability for a BTC, ETH or SOL price market, or a typed not-available result with the reason.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "const": true
+              },
+              "market": {
+                "$ref": "#/components/schemas/MarketSummary"
+              },
+              "source": {
+                "type": "string",
+                "const": "deribit"
+              },
+              "model": {
+                "type": "string",
+                "const": "black_scholes_digital"
+              },
+              "underlying": {
+                "type": "string",
+                "enum": [
+                  "BTC",
+                  "ETH",
+                  "SOL"
+                ]
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "above",
+                  "below"
+                ]
+              },
+              "strike": {
+                "type": "number"
+              },
+              "expiry": {
+                "type": "string"
+              },
+              "marketProb": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "impliedProb": {
+                "type": "number"
+              },
+              "gap": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "iv": {
+                "type": "number"
+              },
+              "strikeUsed": {
+                "type": "number"
+              },
+              "spot": {
+                "type": "number"
+              },
+              "optionsExpiryOffsetHours": {
+                "type": "number"
+              },
+              "caveats": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "engine": {
+                "$ref": "#/components/schemas/EngineInfo"
+              }
+            },
+            "required": [
+              "available",
+              "market",
+              "source",
+              "model",
+              "underlying",
+              "direction",
+              "strike",
+              "expiry",
+              "marketProb",
+              "impliedProb",
+              "gap",
+              "iv",
+              "strikeUsed",
+              "spot",
+              "optionsExpiryOffsetHours",
+              "caveats",
+              "evidence",
+              "engine"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "const": false
+              },
+              "market": {
+                "$ref": "#/components/schemas/MarketSummary"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_price_market",
+                  "unsupported_underlying",
+                  "missing_expiry",
+                  "no_options_chain_near_expiry",
+                  "upstream_unavailable"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              },
+              "engine": {
+                "$ref": "#/components/schemas/EngineInfo"
+              }
+            },
+            "required": [
+              "available",
+              "market",
+              "reason",
+              "detail",
+              "engine"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "FindHedgesResult": {
+        "description": "GET /hedges: Hyperliquid perp and spot hedge candidates for the market underlying, with the hedge direction for holding YES.",
+        "type": "object",
+        "properties": {
+          "market": {
+            "$ref": "#/components/schemas/MarketSummary"
+          },
+          "underlying": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hedgeable": {
+            "type": "boolean"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HedgeCandidateResult"
+            }
+          },
+          "leg": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "directionForYes": {
+                    "type": "string",
+                    "enum": [
+                      "short",
+                      "long",
+                      "none"
+                    ]
+                  },
+                  "directionForNo": {
+                    "type": "string",
+                    "enum": [
+                      "short",
+                      "long",
+                      "none"
+                    ]
+                  },
+                  "mid": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "rationale": {
+                    "type": "string"
+                  },
+                  "limitations": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "kind",
+                  "directionForYes",
+                  "directionForNo",
+                  "mid",
+                  "rationale",
+                  "limitations"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/EngineInfo"
+          }
+        },
+        "required": [
+          "market",
+          "underlying",
+          "hedgeable",
+          "candidates",
+          "leg",
+          "note",
+          "engine"
+        ],
+        "additionalProperties": false
+      },
+      "HedgeCandidateResult": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "perp",
+              "spot"
+            ]
+          },
+          "mid": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fundingRate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "openInterestUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "kind",
+          "mid",
+          "fundingRate",
+          "openInterestUsd",
+          "available",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "ListMarketsResult": {
+        "description": "GET /markets: the live outcome markets of one venue (or every deployer) with the settlement rule each resolves on.",
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "testnet",
+              "mainnet"
+            ]
+          },
+          "venue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "markets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketSummary"
+            }
+          }
+        },
+        "required": [
+          "network",
+          "venue",
+          "count",
+          "markets"
+        ],
+        "additionalProperties": false
+      },
+      "Market": {
+        "description": "One outcome market with its sides, coins, asset ids, settlement rule, expiry and fee scale.",
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "venue": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "keywords": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "sides": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/components/schemas/MarketSide"
+              },
+              {
+                "$ref": "#/components/schemas/MarketSide"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "quoteToken": {
+            "type": "string"
+          },
+          "deployerFeeScale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "settlementRule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "semanticRestriction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "underlying": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "threshold": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priceDescription": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "twapSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "venue",
+          "name",
+          "templateId",
+          "description",
+          "keywords",
+          "sides",
+          "quoteToken",
+          "deployerFeeScale",
+          "displayName",
+          "settlementRule",
+          "semanticRestriction",
+          "expiresAt",
+          "underlying",
+          "threshold",
+          "priceDescription",
+          "twapSeconds"
+        ],
+        "additionalProperties": false
+      },
+      "MarketSide": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 0
+              },
+              {
+                "type": "number",
+                "const": 1
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "coin": {
+            "type": "string"
+          },
+          "tokenName": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "index",
+          "name",
+          "coin",
+          "tokenName",
+          "assetId"
+        ],
+        "additionalProperties": false
+      },
+      "MarketSummary": {
+        "description": "The compact market view embedded in every engine result.",
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "venue": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "templateId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "underlying": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "threshold": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settlementRule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 0
+                    },
+                    {
+                      "type": "number",
+                      "const": 1
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "coin": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "index",
+                "name",
+                "coin",
+                "assetId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "deployerFeeScale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "venue",
+          "displayName",
+          "templateId",
+          "underlying",
+          "threshold",
+          "expiresAt",
+          "settlementRule",
+          "sides",
+          "deployerFeeScale"
+        ],
+        "additionalProperties": false
+      },
+      "OpportunitiesResult": {
+        "description": "GET /opportunities: the venue's live markets ranked by tradeable quality, priced markets before unpriced ones.",
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "testnet",
+              "mainnet"
+            ]
+          },
+          "venue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scanned": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "booksFetched": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "engineMax": {
+            "type": "number",
+            "const": 8
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpportunityItem"
+            }
+          },
+          "unpricedCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "comparators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comparator"
+            }
+          },
+          "dataStatus": {
+            "type": "object",
+            "properties": {
+              "polymarket": {
+                "type": "string"
+              },
+              "kalshi": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "polymarket",
+              "kalshi"
+            ],
+            "additionalProperties": false
+          },
+          "bookErrors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "coin": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "coin",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "engine": {
+            "$ref": "#/components/schemas/EngineInfo"
+          }
+        },
+        "required": [
+          "network",
+          "venue",
+          "scanned",
+          "booksFetched",
+          "count",
+          "limit",
+          "engineMax",
+          "items",
+          "unpricedCount",
+          "comparators",
+          "dataStatus",
+          "bookErrors",
+          "summary",
+          "evidence",
+          "engine"
+        ],
+        "additionalProperties": false
+      },
+      "OpportunityItem": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "outcome": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "venue": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priced": {
+            "type": "boolean"
+          },
+          "yesMid": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spread": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "depthUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "volumeUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "priceSource": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "book",
+                  "ctx"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unpriced": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnpricedReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "why": {
+            "type": "string"
+          },
+          "tradeCall": {
+            "$ref": "#/components/schemas/TradeCall"
+          },
+          "actionState": {
+            "type": "string"
+          },
+          "crossVenue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hedge": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "directionForYes": {
+                    "type": "string",
+                    "enum": [
+                      "short",
+                      "long",
+                      "none"
+                    ]
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "kind",
+                  "directionForYes"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "rank",
+          "outcome",
+          "venue",
+          "displayName",
+          "expiresAt",
+          "priced",
+          "yesMid",
+          "spread",
+          "depthUsd",
+          "volumeUsd",
+          "priceSource",
+          "unpriced",
+          "why",
+          "tradeCall",
+          "actionState",
+          "crossVenue",
+          "hedge"
+        ],
+        "additionalProperties": false
+      },
+      "OptionsImplied": {
+        "description": "Deribit options-implied probability for a BTC, ETH or SOL price market (Black-Scholes digital on the nearest expiry and strike). Reference only.",
+        "type": "object",
+        "properties": {
+          "prob": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "iv": {
+            "type": "number"
+          },
+          "strikeUsed": {
+            "type": "number"
+          },
+          "spot": {
+            "type": "number"
+          },
+          "offsetHours": {
+            "type": "number"
+          },
+          "marketProb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "baseTitle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prob",
+          "iv",
+          "strikeUsed",
+          "spot",
+          "offsetHours",
+          "marketProb"
+        ],
+        "additionalProperties": {}
+      },
+      "TradeCall": {
+        "description": "The engine's trade call for a market: a label and the reason behind it.",
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "UnpricedReason": {
+        "description": "Why a Verdict market has no price: no trades in the last 24h (never traded, or traded on an earlier day) and no real quote on a book that was read.",
+        "type": "string",
+        "enum": [
+          "never_traded_wall_book",
+          "never_traded_no_book",
+          "stale_wall_book",
+          "stale_no_book",
+          "no_price_data"
+        ]
+      },
+      "VerdictSide": {
+        "description": "The Verdict side of a comparison: the engine's normalized view of the market plus the library's price verdict.",
+        "type": "object",
+        "properties": {
+          "yesMid": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "priceSource": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "book",
+                  "ctx"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unpriced": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnpricedReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "yesBid": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "yesAsk": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spread": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "depthUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "volumeUsd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "underlying": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "above",
+                  "below",
+                  "range"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strike": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "expiry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "yesMid",
+          "priceSource",
+          "unpriced",
+          "title",
+          "yesBid",
+          "yesAsk",
+          "spread",
+          "depthUsd",
+          "volumeUsd",
+          "underlying",
+          "direction",
+          "strike",
+          "expiry"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {
+      "includeExpired": {
+        "name": "includeExpired",
+        "in": "query",
+        "required": false,
+        "description": "Keep markets whose expiry has passed. Accepts 1, true, 0 or false. Default false.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1",
+            "true",
+            "false"
+          ]
+        }
+      },
+      "limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "How many ranked markets to return, 1 to 8. Default 8, the most the engine ranks per scan.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[1-8]$"
+        }
+      },
+      "net": {
+        "name": "net",
+        "in": "query",
+        "required": false,
+        "description": "Hyperliquid network to read. Default: testnet when the request host is vercel.app or ends in .vercel.app (preview deployments), mainnet everywhere else. An explicit value always wins.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "testnet",
+            "mainnet"
+          ]
+        }
+      },
+      "outcome": {
+        "name": "outcome",
+        "in": "query",
+        "required": true,
+        "description": "Outcome market index on the selected network, as in the Hyperliquid outcomeMeta catalogue: a decimal integer of at most 9 digits, no sign, no leading zeros. A longer index can never name a market and is 400 bad_input rather than 404 not_found.",
+        "schema": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d{0,8})$"
+        }
+      },
+      "venue": {
+        "name": "venue",
+        "in": "query",
+        "required": false,
+        "description": "Deployer venue filter for the routes that list or scan markets (/markets, /opportunities, /coverage). Default: 'at' (Verdict's own deployer) on testnet, every deployer on mainnet. 'all' means every deployer explicitly. A venue nobody deploys under is a valid, empty answer. Routes addressed by outcome ignore it.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$"
+        }
+      }
+    },
+    "responses": {
+      "BadInput": {
+        "description": "A query parameter is missing, malformed or out of range. The message says which.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Error responses are never cached.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorBadInput"
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "Only GET and OPTIONS are served.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Error responses are never cached.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorMethodNotAllowed"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No outcome market with that index on the requested network.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Error responses are never cached.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorNotFound"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The per-IP budget for this route family is spent for the current minute.",
+        "headers": {
+          "Cache-Control": {
+            "description": "Error responses are never cached.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          },
+          "Retry-After": {
+            "description": "Seconds until the budget resets.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorRateLimited"
+            }
+          }
+        }
+      },
+      "Upstream": {
+        "description": "Hyperliquid could not be read within the request deadline. kind is http (a status or an unreadable body), schema (a body that did not match the expected shape) or network (a connection failure or the deadline). A Polymarket, Kalshi or Deribit failure is not a 502: the engine degrades and reports it inside a 200 body (dataStatus and errors on compare, opportunities and coverage; available false with reason upstream_unavailable on fair-value).",
+        "headers": {
+          "Cache-Control": {
+            "description": "Error responses are never cached.",
+            "schema": {
+              "type": "string",
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorUpstream"
+            }
+          }
+        }
+      }
+    }
+  }
+}

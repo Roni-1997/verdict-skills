@@ -1,0 +1,132 @@
+{
+ "network": "testnet",
+ "venue": "at",
+ "count": 5,
+ "markets": [
+  {
+   "outcome": 11351,
+   "venue": "at",
+   "displayName": "No change",
+   "templateId": "policyRateNoChange",
+   "underlying": null,
+   "threshold": null,
+   "expiresAt": null,
+   "settlementRule": "This outcome resolves to Yes if the Decision Value equals the Prior Value, or if the parent question's cancellation, postponement, or decision-deadline rule applies.",
+   "sides": [
+    {
+     "index": 0,
+     "name": "Yes",
+     "coin": "#113510",
+     "assetId": 100113510
+    },
+    {
+     "index": 1,
+     "name": "No",
+     "coin": "#113511",
+     "assetId": 100113511
+    }
+   ],
+   "deployerFeeScale": null
+  },
+  {
+   "outcome": 11352,
+   "venue": "at",
+   "displayName": "Decrease",
+   "templateId": "policyRateDecrease",
+   "underlying": null,
+   "threshold": null,
+   "expiresAt": null,
+   "settlementRule": "This outcome resolves to Yes if the Decision Value is lower than the Prior Value under the parent question's rules.",
+   "sides": [
+    {
+     "index": 0,
+     "name": "Yes",
+     "coin": "#113520",
+     "assetId": 100113520
+    },
+    {
+     "index": 1,
+     "name": "No",
+     "coin": "#113521",
+     "assetId": 100113521
+    }
+   ],
+   "deployerFeeScale": null
+  },
+  {
+   "outcome": 11353,
+   "venue": "at",
+   "displayName": "Increase",
+   "templateId": "policyRateIncrease",
+   "underlying": null,
+   "threshold": null,
+   "expiresAt": null,
+   "settlementRule": "This outcome resolves to Yes if the Decision Value is higher than the Prior Value under the parent question's rules.",
+   "sides": [
+    {
+     "index": 0,
+     "name": "Yes",
+     "coin": "#113530",
+     "assetId": 100113530
+    },
+    {
+     "index": 1,
+     "name": "No",
+     "coin": "#113531",
+     "assetId": 100113531
+    }
+   ],
+   "deployerFeeScale": null
+  },
+  {
+   "outcome": 12891,
+   "venue": "at",
+   "displayName": "BTC above 100000 at 20261231-2100?",
+   "templateId": "binaryPrice4",
+   "underlying": "BTC",
+   "threshold": "100000",
+   "expiresAt": "2026-12-31T21:00:00.000Z",
+   "settlementRule": "If the BTC price at time of settlement is above 100000 at 20261231-2100, Yes tokens pay out $1 each. Otherwise, No tokens pay out $1 each. Settlement is according to the 300-second TWAP of mark price before settlement time.",
+   "sides": [
+    {
+     "index": 0,
+     "name": "template:Yes",
+     "coin": "#128910",
+     "assetId": 100128910
+    },
+    {
+     "index": 1,
+     "name": "template:No",
+     "coin": "#128911",
+     "assetId": 100128911
+    }
+   ],
+   "deployerFeeScale": "1.0"
+  },
+  {
+   "outcome": 12893,
+   "venue": "at",
+   "displayName": "HYPE above 60 at 20261231-2100?",
+   "templateId": "binaryPrice4",
+   "underlying": "HYPE",
+   "threshold": "60",
+   "expiresAt": "2026-12-31T21:00:00.000Z",
+   "settlementRule": "If the HYPE price at time of settlement is above 60 at 20261231-2100, Yes tokens pay out $1 each. Otherwise, No tokens pay out $1 each. Settlement is according to the 300-second TWAP of mark price before settlement time.",
+   "sides": [
+    {
+     "index": 0,
+     "name": "template:Yes",
+     "coin": "#128930",
+     "assetId": 100128930
+    },
+    {
+     "index": 1,
+     "name": "template:No",
+     "coin": "#128931",
+     "assetId": 100128931
+    }
+   ],
+   "deployerFeeScale": "1.0"
+  }
+ ]
+}

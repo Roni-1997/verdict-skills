@@ -37,7 +37,7 @@ const routes = {
   [`maxBuilderFee:${UNAPPROVED}`]: 0,
 };
 
-const config: KitConfig = { network: 'mainnet', venue: 'out', builder: { address: '0x00000000000000000000000000000000000000b1', feeTenthsBp: 10 } };
+const config: KitConfig = { network: 'mainnet', venue: 'out', builder: { address: '0x00000000000000000000000000000000000000b1', feeTenthsBp: 10 }, apiUrl: null };
 const tools = createTools(config, new InfoClient({ network: 'mainnet', fetch: fakeFetch(routes) }));
 
 describe('CLI face', () => {

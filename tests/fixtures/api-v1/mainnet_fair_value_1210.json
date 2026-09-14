@@ -1,0 +1,54 @@
+{
+ "available": true,
+ "market": {
+  "outcome": 1210,
+  "venue": "out",
+  "displayName": "BTC above 100000 at 20261001-0000?",
+  "templateId": "binaryPrice",
+  "underlying": "BTC",
+  "threshold": "100000",
+  "expiresAt": "2026-10-01T00:00:00.000Z",
+  "settlementRule": "The market resolves to Yes if the BTC price is above 100000 at 20261001-0000, and otherwise resolves to No. Settlement is according to the 1-second TWAP of BTC-USDC mark price ending at 20261001-0000. If BTC is delisted before this market settles, settlement is instead according to the BTC settlement price at delisting.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "template:Yes",
+    "coin": "#12100",
+    "assetId": 100012100
+   },
+   {
+    "index": 1,
+    "name": "template:No",
+    "coin": "#12101",
+    "assetId": 100012101
+   }
+  ],
+  "deployerFeeScale": "1.0"
+ },
+ "source": "deribit",
+ "model": "black_scholes_digital",
+ "underlying": "BTC",
+ "direction": "above",
+ "strike": 100000,
+ "expiry": "2026-10-01T00:00:00.000Z",
+ "marketProb": 0.020505,
+ "impliedProb": 0.005564414696874883,
+ "gap": 0.014940585303125116,
+ "iv": 44.76,
+ "strikeUsed": 95000,
+ "spot": 79040.29,
+ "optionsExpiryOffsetHours": 32,
+ "caveats": [
+  "reference_only_not_tradable_comparator",
+  "deribit_options_settle_0800_utc",
+  "nearest_options_expiry_+32h_from_market_settle",
+  "nearest_listed_strike_95000_not_100000"
+ ],
+ "evidence": "Options-implied reference (BTC options chain): P(BTC above $100,000 at settle) = 0.6% (iv 44.8%, nearest options expiry +32h vs market settle; market YES 2.1%). Derivatives reference only, not a tradable comparator.",
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": null,
+  "generatedAt": "2026-09-14T18:00:58.148Z"
+ }
+}

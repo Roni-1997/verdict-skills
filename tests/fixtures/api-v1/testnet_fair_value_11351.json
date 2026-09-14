@@ -1,0 +1,36 @@
+{
+ "available": false,
+ "market": {
+  "outcome": 11351,
+  "venue": "at",
+  "displayName": "No change",
+  "templateId": "policyRateNoChange",
+  "underlying": null,
+  "threshold": null,
+  "expiresAt": null,
+  "settlementRule": "This outcome resolves to Yes if the Decision Value equals the Prior Value, or if the parent question's cancellation, postponement, or decision-deadline rule applies.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "Yes",
+    "coin": "#113510",
+    "assetId": 100113510
+   },
+   {
+    "index": 1,
+    "name": "No",
+    "coin": "#113511",
+    "assetId": 100113511
+   }
+  ],
+  "deployerFeeScale": null
+ },
+ "reason": "not_price_market",
+ "detail": "Option-implied fair value needs a directional price binary (above or below a strike); this market has no strike or direction the engine recognises.",
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": null,
+  "generatedAt": "2026-09-14T18:00:42.633Z"
+ }
+}

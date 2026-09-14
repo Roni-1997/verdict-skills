@@ -1,0 +1,69 @@
+{
+ "market": {
+  "outcome": 1210,
+  "venue": "out",
+  "displayName": "BTC above 100000 at 20261001-0000?",
+  "templateId": "binaryPrice",
+  "underlying": "BTC",
+  "threshold": "100000",
+  "expiresAt": "2026-10-01T00:00:00.000Z",
+  "settlementRule": "The market resolves to Yes if the BTC price is above 100000 at 20261001-0000, and otherwise resolves to No. Settlement is according to the 1-second TWAP of BTC-USDC mark price ending at 20261001-0000. If BTC is delisted before this market settles, settlement is instead according to the BTC settlement price at delisting.",
+  "sides": [
+   {
+    "index": 0,
+    "name": "template:Yes",
+    "coin": "#12100",
+    "assetId": 100012100
+   },
+   {
+    "index": 1,
+    "name": "template:No",
+    "coin": "#12101",
+    "assetId": 100012101
+   }
+  ],
+  "deployerFeeScale": "1.0"
+ },
+ "underlying": "BTC",
+ "hedgeable": true,
+ "candidates": [
+  {
+   "symbol": "BTC",
+   "kind": "perp",
+   "mid": 78894.5,
+   "fundingRate": null,
+   "openInterestUsd": null,
+   "available": true,
+   "reason": "Live Hyperliquid reference mid available."
+  },
+  {
+   "symbol": "BTC",
+   "kind": "spot",
+   "mid": 78894.5,
+   "fundingRate": null,
+   "openInterestUsd": null,
+   "available": true,
+   "reason": "Spot/perp exposure can reduce underlying price beta, but not event settlement risk."
+  }
+ ],
+ "leg": {
+  "symbol": "BTC",
+  "kind": "perp",
+  "directionForYes": "short",
+  "directionForNo": "long",
+  "mid": 78894.5,
+  "rationale": "BTC exposure can be partially hedged with Hyperliquid perp.",
+  "limitations": [
+   "The hedge will not perfectly match the YES/NO payout.",
+   "Funding, timing, and settlement price can move differently.",
+   "Near settlement, the outcome price can move much faster than the hedge."
+  ]
+ },
+ "note": "A Hyperliquid perp or spot hedge offsets the underlying price move only; the outcome token still settles on its own rule and can go to zero.",
+ "engine": {
+  "repo": "Roni-1997/verdict",
+  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  "route": "hedgeability",
+  "generatedAt": "2026-09-14T18:01:00.334Z"
+ }
+}

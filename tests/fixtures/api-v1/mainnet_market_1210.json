@@ -1,0 +1,40 @@
+{
+ "outcome": 1210,
+ "venue": "out",
+ "name": "template:binaryPrice",
+ "templateId": "binaryPrice",
+ "description": "perp:BTC|priceDescription:BTC-USDC mark|seconds:1|threshold:100000|time:20261001-0000",
+ "keywords": {
+  "perp": "BTC",
+  "priceDescription": "BTC-USDC mark",
+  "seconds": "1",
+  "threshold": "100000",
+  "time": "20261001-0000"
+ },
+ "sides": [
+  {
+   "index": 0,
+   "name": "template:Yes",
+   "coin": "#12100",
+   "tokenName": "+12100",
+   "assetId": 100012100
+  },
+  {
+   "index": 1,
+   "name": "template:No",
+   "coin": "#12101",
+   "tokenName": "+12101",
+   "assetId": 100012101
+  }
+ ],
+ "quoteToken": "USDC",
+ "deployerFeeScale": "1.0",
+ "displayName": "BTC above 100000 at 20261001-0000?",
+ "settlementRule": "The market resolves to Yes if the BTC price is above 100000 at 20261001-0000, and otherwise resolves to No. Settlement is according to the 1-second TWAP of BTC-USDC mark price ending at 20261001-0000. If BTC is delisted before this market settles, settlement is instead according to the BTC settlement price at delisting.",
+ "semanticRestriction": "This market must refer to the price of a Hyperliquid perp.",
+ "expiresAt": "2026-10-01T00:00:00.000Z",
+ "underlying": "BTC",
+ "threshold": "100000",
+ "priceDescription": "BTC-USDC mark",
+ "twapSeconds": 1
+}

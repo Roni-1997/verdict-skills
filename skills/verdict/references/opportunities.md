@@ -15,7 +15,7 @@ Read only. No account, no key, no confirmation. A ranked market is a candidate f
 | `--limit <1..8>` | `8` | How many ranked markets to return. The engine ranks at most 8 per scan; anything outside 1..8 is a usage error. |
 | `--pretty` | off | Indent the JSON. |
 
-The venue comes from `VERDICT_VENUE` (`at` on testnet); unset, every deployer's live markets are scanned. `ODDPOOL_API_KEY` is optional: it routes the engine's Polymarket and Kalshi reads through api.oddpool.com and is sent there on every call, so it is never set on a hosted server.
+The venue comes from `VERDICT_VENUE` (`at` on testnet); unset, blank or `all`, every deployer's live markets are scanned and the output reports `venue: null`. `ODDPOOL_API_KEY` is optional: it routes the engine's Polymarket and Kalshi reads through api.oddpool.com and is sent there on every call, so it is never set on a hosted server.
 
 Books are read for the 40 most-traded live markets (80 book requests); the rest price off Hyperliquid asset contexts. The engine ranks at most 8 markets; it is handed every priced market and only as many unpriced ones as those 8 slots leave free, so an unpriced market never displaces a priced one. With the engine's 20 s venue budget a scan can take about 30 seconds. It is fetching, not waiting for input.
 
@@ -126,7 +126,7 @@ That scan's `summary` ends "3 of the 5 shown have no Verdict price (unpriced) an
 | `hedge` | The engine's hedge leg for holding YES (`hedges.md`), or null when none is mapped. |
 | `comparators[]` | Every Polymarket or Kalshi reference the engine found across the scan, in the `compare` comparator shape (`compare.md`), each tied to the ranked outcome it was matched to. Low-confidence and unpriced comparators carry a `caveat` and a `gap` of null. |
 | `bookErrors[]` | Books that could not be read (coin and message); those markets price off the mark or are unpriced. |
-| `dataStatus` | Per venue: `ok`, `partial` or `unavailable`. |
+| `dataStatus` | Per venue: `ok`, `partial`, `unavailable`, or `skipped` when the engine did not query it. |
 | `summary`, `evidence` | The sentence to show the user, and the engine's notes including the Deribit reference line when a BTC, ETH or SOL strike market was ranked. |
 
 ## Presenting a scan

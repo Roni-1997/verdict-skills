@@ -1,7 +1,7 @@
 // The MCP face: every tool is a thin call into @verdict/core. No keys, no signing, no LLM.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { TOOL_DOCS, ToolError, UpstreamError, configFromEnv, createTools, type KitConfig, type Tools } from '@verdict/core';
+import { TOOL_DOCS, ToolError, UpstreamError, configFromEnv, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
 
 export const SERVER_NAME = 'verdict';
 export const SERVER_VERSION = '0.0.0';
@@ -32,7 +32,12 @@ async function run(fn: () => Promise<unknown>) {
   }
 }
 
-export function createServer(config: KitConfig = configFromEnv(), tools: Tools = createTools(config)): McpServer {
+/** The instructions line for hosted mode: which tools the API answers and that the server still holds no keys. */
+export function hostedInstructions(apiUrl: string): string {
+  return `Hosted mode: list_markets, get_market, compare_market, fair_value, find_hedges and opportunities are answered by the Verdict API at ${apiUrl}; orderbook, quote, positions, builder_status and the two payload tools run in this process against Hyperliquid. The server holds no keys and signs nothing in either mode.`;
+}
+
+export function createServer(config: KitConfig = configFromEnv(), tools: Tools = toolsFromConfig(config)): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
@@ -42,6 +47,7 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
         'approve_builder_fee_payload and build_order return UNSIGNED payloads only:',
         'show their confirmation lines to the user, stop, and wait for an explicit yes in a new message before anything is signed or submitted.',
         'Never sign on behalf of the user, never fabricate a confirmation, never add a yes flag. Analysis and trading do not happen in the same turn.',
+        ...(config.apiUrl === null ? [] : [hostedInstructions(config.apiUrl)]),
       ].join(' '),
     },
   );

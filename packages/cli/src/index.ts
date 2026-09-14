@@ -1,6 +1,6 @@
 // The CLI face: one command per tool, JSON on stdout, never interactive. Agents run this; people can too.
 import { parseArgs } from 'node:util';
-import { ToolError, UpstreamError, configFromEnv, createTools, type KitConfig, type Tools } from '@verdict/core';
+import { ToolError, UpstreamError, configFromEnv, parseApiUrl, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
 
 export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command line (JSON output, no prompts)
 
@@ -17,7 +17,8 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict approve-builder-fee-payload
   verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo] [--cloid 0x<32 hex>]
 
-Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP.
+Options: --pretty indents the JSON. --api <url> answers markets, market, compare, fair-value, hedges and opportunities from the hosted Verdict API at <url> (https://hyperverdict.xyz/api/v1 in production; the same as VERDICT_API_URL, which the flag overrides); book, quote, positions, builder-status and the payload commands run locally either way. Without either, the embedded engine runs. A blank --api is refused (exit 1): to run one command on the embedded engine, run it with VERDICT_API_URL unset or blank.
+Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE (a deployer venue; unset, blank or all: every deployer), VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP, VERDICT_API_URL (hosted mode, see --api).
 Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare and opportunities call, so never set it on a hosted server.
 Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
 compare, fair-value, hedges and opportunities run the Verdict app's cross-venue engine (Polymarket, Kalshi, Deribit are read, never traded).
@@ -41,6 +42,7 @@ const OPTIONS = {
   tif: { type: 'string' },
   cloid: { type: 'string' },
   limit: { type: 'string' },
+  api: { type: 'string' },
   pretty: { type: 'boolean', default: false },
   help: { type: 'boolean', default: false },
 } as const;
@@ -80,7 +82,12 @@ function errorResult(code: ToolError['code'], message: string): CliResult {
 /**
  * Run one command. `config` and `tools` default to the environment; they are resolved after argument parsing and inside
  * the error mapping, so an invalid VERDICT_NETWORK or VERDICT_BUILDER_FEE_TENTHS_BP is reported as the not_configured
- * JSON error with exit 4, never as a stack trace, and `--help` works whatever the environment holds.
+ * JSON error with exit 4, never as a stack trace, and `--help` works whatever the environment holds. `--api <url>`
+ * overrides the configuration's API URL (hosted mode); a malformed or blank value is bad_input with exit 1 (a blank
+ * VERDICT_API_URL means embedded mode, but a flag given without a URL is a mistake, most often an unset shell
+ * variable, and must not silently run the engine in process). With the flag present VERDICT_API_URL is not read at
+ * all, so a malformed variable cannot stop a command that names its own host. An injected `tools` wins over both,
+ * for tests.
  */
 export async function runCli(argv: readonly string[], config?: KitConfig, tools?: Tools): Promise<CliResult> {
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
@@ -93,9 +100,21 @@ export async function runCli(argv: readonly string[], config?: KitConfig, tools?
   const [cmd, arg] = positionals;
   if (values.help || !cmd) return { exitCode: values.help ? 0 : 1, stdout: values.help ? USAGE : '', stderr: values.help ? '' : USAGE };
   const emit = (v: unknown) => `${values.pretty ? JSON.stringify(v, null, 2) : JSON.stringify(v)}\n`;
+  let apiOverride: string | undefined;
+  if (values.api !== undefined) {
+    if (values.api.trim() === '') return errorResult('bad_input', '--api was given without a URL; pass the API base URL (e.g. --api https://hyperverdict.xyz/api/v1), or run the command with VERDICT_API_URL unset or blank to use the embedded engine');
+    try {
+      apiOverride = parseApiUrl(values.api, '--api') ?? undefined;
+    } catch (e) {
+      return errorResult('bad_input', e instanceof Error ? e.message : String(e));
+    }
+  }
   let resolved: Tools;
   try {
-    resolved = tools ?? createTools(config ?? configFromEnv());
+    // --api replaces VERDICT_API_URL rather than layering over it: the variable is dropped from the environment before
+    // it is parsed, so the flag wins even when the variable holds a value the kit would refuse.
+    const base = config ?? configFromEnv(apiOverride === undefined ? process.env : { ...process.env, VERDICT_API_URL: undefined });
+    resolved = tools ?? toolsFromConfig(apiOverride === undefined ? base : { ...base, apiUrl: apiOverride });
   } catch (e) {
     return errorResult('not_configured', e instanceof Error ? e.message : String(e));
   }

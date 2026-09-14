@@ -1,8 +1,10 @@
 // list_markets and get_market: the live catalogue for one venue with the settlement rule text
 // substituted from the template each market was deployed from.
+import { z } from 'zod';
 import type { InfoClient } from './hl/client.js';
 import { outcomeAssetId, outcomeCoin, outcomeTokenName } from './hl/encoding.js';
 import type { OutcomeMeta, OutcomeMetaOutcome, OutcomeTemplate } from './hl/schemas.js';
+import { MarketSummary } from './summary.js';
 
 export interface MarketSide {
   readonly index: 0 | 1;
@@ -39,6 +41,45 @@ export interface Market {
   readonly priceDescription: string | null;
   readonly twapSeconds: number | null;
 }
+
+/** Zod view of MarketSide, for a market that arrives over the wire (remote.ts) and for the API contract tests. */
+export const MarketSideSchema: z.ZodType<MarketSide> = z.object({
+  index: z.union([z.literal(0), z.literal(1)]),
+  name: z.string(),
+  coin: z.string(),
+  tokenName: z.string(),
+  assetId: z.number().int(),
+});
+
+/** Zod view of Market, field for field; what GET /market returns and what get_market validates in hosted mode. */
+export const MarketSchema: z.ZodType<Market> = z.object({
+  outcome: z.number().int().nonnegative(),
+  venue: z.string(),
+  name: z.string(),
+  templateId: z.string().nullable(),
+  description: z.string(),
+  keywords: z.record(z.string(), z.string()),
+  sides: z.tuple([MarketSideSchema, MarketSideSchema]),
+  quoteToken: z.string(),
+  deployerFeeScale: z.string().nullable(),
+  displayName: z.string(),
+  settlementRule: z.string().nullable(),
+  semanticRestriction: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  underlying: z.string().nullable(),
+  threshold: z.string().nullable(),
+  priceDescription: z.string().nullable(),
+  twapSeconds: z.number().int().nullable(),
+});
+
+/** What list_markets returns and GET /markets serves: the venue filter applied (null means every deployer) and the summaries. */
+export const ListMarketsResult = z.object({
+  network: z.enum(['testnet', 'mainnet']),
+  venue: z.string().nullable(),
+  count: z.number().int().nonnegative(),
+  markets: z.array(MarketSummary),
+});
+export type ListMarketsResult = z.infer<typeof ListMarketsResult>;
 
 export function parseDescription(desc: string): Record<string, string> {
   const out: Record<string, string> = {};

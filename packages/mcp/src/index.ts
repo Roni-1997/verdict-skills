@@ -1,1 +1,1 @@
-export { SERVER_NAME, SERVER_VERSION, createServer } from './server.js';
+export { SERVER_NAME, SERVER_VERSION, createServer, hostedInstructions } from './server.js';
