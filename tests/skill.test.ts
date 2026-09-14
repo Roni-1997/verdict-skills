@@ -75,8 +75,8 @@ describe('SKILL.md frontmatter', () => {
 });
 
 describe('every CLI command has a table row and a reference', () => {
-  it('reads eight commands out of USAGE', () => {
-    expect(usageCommands).toEqual(['markets', 'market', 'book', 'quote', 'positions', 'builder-status', 'approve-builder-fee-payload', 'build-order']);
+  it('reads twelve commands out of USAGE, the four cross-venue ones included', () => {
+    expect(usageCommands).toEqual(['markets', 'market', 'book', 'quote', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'builder-status', 'approve-builder-fee-payload', 'build-order']);
   });
   for (const cmd of usageCommands) {
     it(`maps "${cmd}" to a CLI invocation, an MCP tool and references/${cmd}.md`, () => {
@@ -94,9 +94,39 @@ describe('every CLI command has a table row and a reference', () => {
   });
   it('lists exactly the read-only commands as read only', () => {
     const section = must(/## Read-only commands\n\n([^\n]+)/.exec(skill)?.[1], 'read-only list');
-    for (const cmd of ['markets', 'market', 'book', 'quote', 'positions', 'builder-status']) expect(section).toContain(`\`${cmd}\``);
+    const readOnly = Object.entries(TOOL_DOCS).filter(([, doc]) => doc.readOnly).length;
+    for (const cmd of ['markets', 'market', 'book', 'quote', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'builder-status']) expect(section).toContain(`\`${cmd}\``);
+    expect(section.match(/`[a-z-]+`/g)).toHaveLength(readOnly);
     expect(section).not.toContain('build-order');
     expect(section).not.toContain('approve-builder-fee-payload');
+  });
+  it('presents the cross-venue commands as available, with the low-confidence rule, and no longer says they are missing', () => {
+    for (const doc of [skill, ...referenceFiles.map((f) => read(`${SKILL_DIR}references/${f}`)), read('README.md')]) {
+      expect(doc).not.toMatch(/not (a command |available )?in this CLI version/i);
+      expect(doc).not.toMatch(/comparison command is not available/i);
+    }
+    expect(skill).toContain('A low-confidence match must be presented with its confidence and reasons and never as a bare number');
+    const boundary = must(/## Analysis-to-trade boundary\n([\s\S]*?)\n## /.exec(skill)?.[1], 'boundary section');
+    for (const cmd of ['compare', 'fair-value', 'hedges', 'opportunities']) expect(boundary).toContain(`\`${cmd}\``);
+    for (const f of ['compare.md', 'opportunities.md']) {
+      const doc = read(`${SKILL_DIR}references/${f}`);
+      expect(doc).toContain('never as a bare number');
+      expect(doc).toContain('`confidence`');
+      expect(doc).toContain('`reasons`');
+      expect(doc).toMatch(/`gap`[^\n]*null/);
+    }
+    for (const f of ['compare.md', 'fair-value.md', 'hedges.md', 'opportunities.md']) {
+      const doc = read(`${SKILL_DIR}references/${f}`);
+      expect(doc).toContain('recorded fixtures');
+      expect(doc).toContain('injected fetch');
+      expect(doc).toContain('2026-09-13T21:31:31Z');
+      expect(doc).toMatch(/\| 3 \| `\{"error":"upstream"/);
+    }
+    // The three price-bearing references say what an unpriced (never traded) Verdict market looks like; hedges carry no price.
+    for (const f of ['compare.md', 'fair-value.md', 'opportunities.md']) expect(read(`${SKILL_DIR}references/${f}`)).toContain('never traded');
+    expect(read(`${SKILL_DIR}references/fair-value.md`)).toContain('"available": false');
+    expect(read(`${SKILL_DIR}references/hedges.md`)).toContain('"directionForYes": "short"');
+    expect(read(`${SKILL_DIR}references/opportunities.md`)).toContain('"priced": false');
   });
   it('writes paths relative to the skill directory, says what that directory is, and every one resolves to a file', () => {
     // Claude Code does not expand OpenClaw's {baseDir}; relative paths work in both hosts once the base is stated.

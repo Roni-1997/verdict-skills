@@ -69,4 +69,4 @@ Trimmed to one market. Recorded from the mainnet fixtures (venue `out`) on 2026-
 - Fallback container outcomes (`template fallback`) are dropped from the list.
 - The list is a live snapshot. Run the command again instead of reusing a list from an earlier turn.
 - Testnet and mainnet have different market indices. State the network when you show the list.
-- Cross-venue comparison (Polymarket, Kalshi, Deribit) is not a command in this CLI version. If asked, say so and offer the Verdict-side facts; do not estimate a gap from memory.
+- To compare a listed market with Polymarket and Kalshi run `verdict compare <outcome>` (`compare.md`); do not estimate a gap from memory.

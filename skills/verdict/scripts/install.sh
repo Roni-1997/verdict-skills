@@ -161,7 +161,7 @@ Do not load it for general blockchain education, Hyperliquid perps or spot, or t
 
 ### Rules the skill enforces
 
-- Read commands (markets, market, book, quote, positions, builder-status) run without asking and need no account.
+- Read commands (markets, market, book, quote, compare, fair-value, hedges, opportunities, positions, builder-status) run without asking and need no account. A Polymarket or Kalshi comparison is shown with its confidence and reasons, never as a bare number.
 - build-order and approve-builder-fee-payload return unsigned payloads. Show the market, the settlement rule text, side, price, size, the fee in cents per $1,000 and the builder address, end the message, and wait for a real reply in a new message before anything is signed. Never fabricate a confirmation.
 - Analysis and order building never happen in the same turn.
 - Nothing signs on a hosted server; keys stay local and in memory.
