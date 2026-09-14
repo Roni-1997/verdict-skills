@@ -64,3 +64,4 @@ export { TOOL_DOCS, ToolError, checkLimit, checkOutcome, createTools, resolveSid
 export type { SideInput, ToolOptions, Tools } from './tools.js';
 export { LOCAL_TOOLS, REMOTE_DEFAULT_TIMEOUT_MS, REMOTE_ROUTES, REMOTE_TOOLS, createRemoteTools, toolsFromConfig, toolsMode } from './remote.js';
 export type { RemoteToolName, RemoteToolsOptions, ToolsFromConfigOptions } from './remote.js';
+export { API_CONTRACT } from './api-contract.js';
