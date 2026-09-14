@@ -6,13 +6,15 @@
 // bad_input and not_found as ToolError, 429, 5xx and a network or timeout failure as UpstreamError.
 // The other six tools (orderbook, quote, positions, builder_status, approve_builder_fee_payload, build_order) keep
 // running locally through createTools, unchanged: books and balances are read from Hyperliquid directly and payloads
-// are built in process. Every request here is an anonymous GET; the API holds no keys and this module sends none.
+// are built in process. Every request here is an anonymous GET to the configured base URL and nowhere else: a redirect
+// is refused rather than followed (it could leave the https host parseApiUrl accepted), a body larger than
+// REMOTE_MAX_BODY_BYTES is refused unread, and the API holds no keys and this module sends none.
 import { z } from 'zod';
-import type { KitConfig } from './config.js';
+import { type KitConfig, normalizeVenue } from './config.js';
 import { CompareMarketResult, type EngineOptions, FairValueResult, FindHedgesResult, OpportunitiesResult } from './crossvenue.js';
 import { type InfoClient, UpstreamError } from './hl/client.js';
 import { ListMarketsResult, MarketSchema } from './markets.js';
-import { ToolError, type ToolOptions, type Tools, checkLimit, checkOutcome, createTools } from './tools.js';
+import { ToolError, type ToolOptions, type Tools, checkLimit, checkOutcome, checkVenue, createTools } from './tools.js';
 
 /** The tools the API serves; every other tool runs locally in hosted mode too. */
 export const REMOTE_TOOLS = ['list_markets', 'get_market', 'compare_market', 'fair_value', 'find_hedges', 'opportunities'] as const satisfies readonly (keyof Tools)[];
@@ -31,6 +33,9 @@ export const REMOTE_ROUTES: Record<RemoteToolName, string> = {
 
 /** Default budget per request. The API's own deadline is 25 s for /opportunities and 12 s elsewhere. */
 export const REMOTE_DEFAULT_TIMEOUT_MS = 30_000;
+
+/** Largest body accepted from the API, by its Content-Length: the biggest documented answer (/markets for every mainnet deployer) is a few hundred kB. */
+export const REMOTE_MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 export interface RemoteToolsOptions {
   /** API base URL without a trailing slash, e.g. https://hyperverdict.xyz/api/v1 (KitConfig.apiUrl). */
@@ -56,12 +61,12 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
   /**
    * One GET. `net` and `venue` go on every request: the production host defaults to mainnet and to every deployer,
    * so the kit's own network and venue are always spelled out ('all' is the API's word for every deployer; routes
-   * addressed by outcome ignore the parameter).
+   * addressed by outcome ignore the parameter). Redirects are not followed: the kit talks to the configured host only.
    */
   async function get<S extends z.ZodTypeAny>(route: string, params: Readonly<Record<string, string | undefined>>, schema: S): Promise<z.output<S>> {
     const url = new URL(`${base}/${route}`);
     url.searchParams.set('net', config.network);
-    url.searchParams.set('venue', params.venue ?? config.venue ?? 'all');
+    url.searchParams.set('venue', params.venue ?? normalizeVenue(config.venue) ?? 'all');
     for (const [k, v] of Object.entries(params)) if (k !== 'venue' && v !== undefined) url.searchParams.set(k, v);
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
@@ -69,11 +74,24 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
     let retryAfter: string | null;
     let text: string;
     try {
-      const res = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' }, signal: ctl.signal });
+      const res = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' }, redirect: 'manual', signal: ctl.signal });
       status = res.status;
       retryAfter = res.headers.get('retry-after');
+      if ((status >= 300 && status < 400) || res.type === 'opaqueredirect') {
+        const location = res.headers.get('location');
+        let target = location === null ? 'an undisclosed location' : location;
+        try {
+          if (location !== null) target = new URL(location, url).host;
+        } catch {
+          // Not a URL: reported as written.
+        }
+        throw new UpstreamError(`api ${route} answered with a redirect${status ? ` (HTTP ${status})` : ''} to ${target}; the kit follows none. Set the API base URL to the final address`, 'http', { status, location });
+      }
+      const length = Number(res.headers.get('content-length'));
+      if (Number.isFinite(length) && length > REMOTE_MAX_BODY_BYTES) throw new UpstreamError(`api ${route} answered with a ${length}-byte body, above the ${REMOTE_MAX_BODY_BYTES}-byte limit; not read`, 'schema', { status, length });
       text = await res.text();
     } catch (e) {
+      if (e instanceof UpstreamError) throw e;
       if (ctl.signal.aborted) throw new UpstreamError(`api ${route} timed out after ${timeoutMs} ms`, 'network', e);
       throw new UpstreamError(`api ${route} request failed: ${describe(e)}`, 'network', e);
     } finally {
@@ -108,7 +126,7 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
     ...local,
 
     async list_markets(input) {
-      const venue = input.venue ?? config.venue ?? 'all';
+      const venue = checkVenue(input.venue ?? config.venue) ?? 'all';
       return get(REMOTE_ROUTES.list_markets, { venue, includeExpired: input.includeExpired ? 'true' : undefined }, ListMarketsResult);
     },
 
@@ -134,7 +152,8 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
 
     async opportunities(input) {
       const limit = checkLimit(input.limit);
-      return get(REMOTE_ROUTES.opportunities, { limit: String(limit) }, OpportunitiesResult);
+      const venue = checkVenue(config.venue) ?? 'all';
+      return get(REMOTE_ROUTES.opportunities, { venue, limit: String(limit) }, OpportunitiesResult);
     },
   };
 }

@@ -27,10 +27,16 @@ describe('json schema subset validator', () => {
     ok({ const: { a: [1] } }, { a: [1] });
     bad({ const: { a: [1] } }, { a: [2] });
   });
-  it('nullable admits null and nothing else extra', () => {
+  it('nullable admits null and nothing else extra, next to a $ref as well as next to a type', () => {
     ok({ type: 'string', nullable: true }, null);
     ok({ type: 'string', nullable: true }, 's');
     bad({ type: 'string', nullable: true }, 1);
+    const root = { components: { schemas: { Market: { type: 'object', properties: { outcome: { type: 'integer' } }, required: ['outcome'] } } } };
+    ok({ $ref: '#/components/schemas/Market', nullable: true }, null, root);
+    ok({ $ref: '#/components/schemas/Market', nullable: true }, { outcome: 1 }, root);
+    bad({ $ref: '#/components/schemas/Market', nullable: true }, { outcome: 'x' }, root);
+    bad({ $ref: '#/components/schemas/Market', nullable: true }, 'x', root);
+    bad({ $ref: '#/components/schemas/Market' }, null, root);
     bad({ type: 'string' }, null);
   });
   it('anyOf needs one branch, oneOf exactly one, allOf every one', () => {

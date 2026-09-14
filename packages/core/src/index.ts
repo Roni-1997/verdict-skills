@@ -13,7 +13,7 @@ export { approveBuilderFeePayload, buildOrder, builderStatus, canonicalDecimal, 
 export type { ApproveBuilderFeeAction, ApproveBuilderFeePayload, BuildOrderRequest, BuilderCode, BuilderStatus, BuiltOrder, OrderAction, TimeInForce } from './builder.js';
 export { positions } from './positions.js';
 export type { OutcomePosition } from './positions.js';
-export { BUILDER_UNSET_MESSAGE, configFromEnv, parseApiUrl } from './config.js';
+export { BUILDER_UNSET_MESSAGE, VENUE_MESSAGE, VENUE_NAME, configFromEnv, normalizeVenue, parseApiUrl } from './config.js';
 export type { KitConfig } from './config.js';
 export { EngineAssetCtx, EngineOutcome, EngineParsed, EngineQuestion, EngineSnapshot, EngineTopOfBook, HEDGE_SYMBOLS, OUTCOME_WALL_BAND, UnpricedReason, buildSnapshot, isPlaceholderCtx, isStaleCtx, priceFromBook, restrictSnapshot, tradedToday, withoutUnpricedBooks } from './snapshot.js';
 export type { PriceFromBook, SnapshotOptions } from './snapshot.js';
@@ -60,8 +60,8 @@ export {
   withValidatedVenueFetch,
 } from './venues.js';
 export type { VenueName } from './venues.js';
-export { TOOL_DOCS, ToolError, checkLimit, checkOutcome, createTools, resolveSide } from './tools.js';
+export { MAX_OUTCOME, TOOL_DOCS, ToolError, checkLimit, checkOutcome, checkVenue, createTools, resolveSide } from './tools.js';
 export type { SideInput, ToolOptions, Tools } from './tools.js';
-export { LOCAL_TOOLS, REMOTE_DEFAULT_TIMEOUT_MS, REMOTE_ROUTES, REMOTE_TOOLS, createRemoteTools, toolsFromConfig, toolsMode } from './remote.js';
+export { LOCAL_TOOLS, REMOTE_DEFAULT_TIMEOUT_MS, REMOTE_MAX_BODY_BYTES, REMOTE_ROUTES, REMOTE_TOOLS, createRemoteTools, toolsFromConfig, toolsMode } from './remote.js';
 export type { RemoteToolName, RemoteToolsOptions, ToolsFromConfigOptions } from './remote.js';
 export { API_CONTRACT } from './api-contract.js';

@@ -25,7 +25,7 @@ Do not activate for:
 ## Preamble
 
 - The CLI is `verdict`. Every command prints one JSON document on stdout, errors as one JSON object on stderr (an unknown flag or command is the exception: exit 1 with plain usage text), and never prompts. Nothing is interactive; no pty is needed and nothing has to be bypassed.
-- Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured (no builder code, or an invalid `VERDICT_NETWORK` or `VERDICT_BUILDER_FEE_TENTHS_BP` value).
+- Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured (no builder code, or an invalid `VERDICT_NETWORK`, `VERDICT_VENUE`, `VERDICT_BUILDER_FEE_TENTHS_BP` or `VERDICT_API_URL` value).
 - Paths in this file (`references/...`, `scripts/...`) are relative to this skill's directory, the folder that contains SKILL.md: `~/.claude/skills/verdict` after `install.sh`, `skills/verdict` in the clone. OpenClaw calls that folder `{baseDir}`; Claude Code does not expand a placeholder, so the paths are written relative.
 - `--pretty` indents the JSON; omit it when you parse.
 - `compare`, `fair-value`, `hedges` and `opportunities` run the Verdict app's cross-venue engine: Polymarket, Kalshi and Deribit are read, never traded, and the kit builds no order for them. They need no key and can take up to about 30 seconds (the engine's venue fetch budget is 20 s); that is fetching, not a prompt.
@@ -124,7 +124,7 @@ Reading (`markets`, `market`, `book`, `quote`, `compare`, `fair-value`, `hedges`
 | Variable | Needed by | Default | Meaning |
 |---|---|---|---|
 | `VERDICT_NETWORK` | all | `testnet` | `testnet` or `mainnet`. |
-| `VERDICT_VENUE` | `markets`, `opportunities` | none (all deployers) | Verdict's deployer venue; `at` on testnet. |
+| `VERDICT_VENUE` | `markets`, `opportunities` | none (all deployers) | Verdict's deployer venue; `at` on testnet. Unset, blank or `all` means every deployer; a name is 1 to 32 letters, digits, `_` or `-`, the same in embedded and hosted mode. |
 | `VERDICT_BUILDER_ADDRESS` | `builder-status`, `approve-builder-fee-payload`, `build-order` | unset | Verdict's builder address, published by the owner. The kit does not build orders without it. |
 | `VERDICT_BUILDER_FEE_TENTHS_BP` | same three | `10` | Fee in tenths of a basis point; 10 is 0.01%, 10 cents per $1,000. |
 | `VERDICT_API_URL` | nothing; optional for `markets`, `market`, `compare`, `fair-value`, `hedges`, `opportunities` | unset (embedded engine) | Base URL of the hosted Verdict API, `https://hyperverdict.xyz/api/v1` in production. When set, those six commands are answered by the API (anonymous GET, rate limited per IP: 60 per minute, 20 for `opportunities`) and the embedded engine does not run; the other commands are unchanged. `--api <url>` overrides it for one command. Details in `references/hosted-mode.md`. |

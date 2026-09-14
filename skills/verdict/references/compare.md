@@ -129,7 +129,7 @@ The same run for outcome 2899 (venue `skew`, never traded, wall-only book: bid 0
 | `legs` | The comparator markets used: one for a twin or reference, two for an interpolation. |
 | `line` | The one-line reading of the comparator. A low-confidence match is always described here, never reduced to a number. |
 | `optionsImplied` | Deribit options-implied probability (`prob`), the iv, strike and spot used, hours between the nearest options expiry and the market's settlement, and Verdict's price (`marketProb`, null when unpriced). Reference only; `fair-value.md` has the dedicated command. `null` for markets that are not BTC, ETH or SOL price binaries. |
-| `dataStatus`, `errors` | Per venue: `ok`, `partial` or `unavailable`, and any fetch error text. A venue that fails is reported here, not priced. |
+| `dataStatus`, `errors` | Per venue: `ok`, `partial`, `unavailable`, or `skipped` when the engine did not query it, and any fetch error text. A venue that fails is reported here, not priced. |
 | `summary`, `lines` | The sentence to show the user and its parts: Verdict price (or that there is none), one line per venue, the Deribit line. |
 | `engine` | The pinned Verdict app engine commit that produced the result and the route it ran. |
 
@@ -146,7 +146,7 @@ The same run for outcome 2899 (venue `skew`, never traded, wall-only book: bid 0
 
 | Exit | stderr | Meaning | Do |
 |---|---|---|---|
-| 1 | `{"error":"bad_input","message":"<outcome> must be a nonnegative integer, got ..."}` | `<outcome>` missing or not a nonnegative integer. | Fix the argument. |
+| 1 | `{"error":"bad_input","message":"<outcome> must be a nonnegative integer, got ..."}` | `<outcome>` missing, not a nonnegative integer, or over 9 digits (no market can have such an index; the message then reads `outcome must be a nonnegative integer of at most 9 digits`). | Fix the argument. |
 | 1 | usage text | Unknown flag. | Fix the flag and run once more. |
 | 2 | `{"error":"not_found","message":"no outcome market with index N on <network>"}` | No market with that index on the configured network. | Do not retry. Run `verdict markets` and pick from it; check `VERDICT_NETWORK`. |
 | 3 | `{"error":"upstream","kind":"http" or "schema" or "network",...}` | The Hyperliquid info endpoint failed (for example `info outcomeMeta returned HTTP 503`), timed out, or returned an unexpected shape. | Retry once after a few seconds, then report the JSON. |

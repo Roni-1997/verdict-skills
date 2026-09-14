@@ -64,7 +64,7 @@ For a market with no mapped underlying (outcome 1473, a Premier League participa
 
 | Exit | stderr | Meaning | Do |
 |---|---|---|---|
-| 1 | `{"error":"bad_input","message":"<outcome> must be a nonnegative integer, got ..."}` | `<outcome>` missing or not a nonnegative integer. | Fix the argument. |
+| 1 | `{"error":"bad_input","message":"<outcome> must be a nonnegative integer, got ..."}` | `<outcome>` missing, not a nonnegative integer, or over 9 digits (no market can have such an index; the message then reads `outcome must be a nonnegative integer of at most 9 digits`). | Fix the argument. |
 | 1 | usage text | Unknown flag. | Fix the flag and run once more. |
 | 2 | `{"error":"not_found","message":"no outcome market with index N on <network>"}` | No market with that index on the configured network. | Do not retry. Run `verdict markets` and pick from it; check `VERDICT_NETWORK`. |
 | 3 | `{"error":"upstream","kind":"http" or "schema" or "network",...}` | The Hyperliquid info endpoint failed, timed out, or returned an unexpected shape. | Retry once after a few seconds, then report the JSON. |

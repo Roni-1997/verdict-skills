@@ -5,8 +5,8 @@ import { createServer as createHttpServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { type KitConfig, configFromEnv, toolsMode } from '@verdict/core';
-import { createRequestHandler } from './http.js';
+import { type KitConfig, configFromEnv } from '@verdict/core';
+import { createRequestHandler, healthBody, listenLine } from './http.js';
 import { createServer } from './server.js';
 
 const { values } = parseArgs({
@@ -26,7 +26,7 @@ if (values.help) {
       '  verdict-mcp --http 8787     streamable HTTP on 127.0.0.1:8787/mcp',
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
-      'Environment: VERDICT_NETWORK (testnet|mainnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP',
+      'Environment: VERDICT_NETWORK (testnet|mainnet), VERDICT_VENUE (a deployer venue; unset, blank or all: every deployer), VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP',
       'Hosted mode: VERDICT_API_URL=https://hyperverdict.xyz/api/v1 answers list_markets, get_market, compare_market, fair_value, find_hedges',
       '          and opportunities from the Verdict API instead of the embedded engine; set it on every --http deployment so the server',
       '          fetches no venue itself. The other tools run in process against Hyperliquid. The server holds no keys in either mode.',
@@ -58,7 +58,7 @@ if (values.http === undefined) {
     process.exit(1);
   }
   const handler = createRequestHandler({
-    health: () => ({ ok: true, network: config.network, venue: config.venue, mode: toolsMode(config) }),
+    health: () => healthBody(config),
     open: async () => {
       const server = createServer(config);
       // Stateless: no session ids, one transport per request. The SDK's option type marks
@@ -78,6 +78,6 @@ if (values.http === undefined) {
   });
   const httpServer = createHttpServer(handler);
   httpServer.listen(port, values.host, () => {
-    process.stderr.write(`verdict-mcp listening on http://${values.host}:${port}/mcp (${config.network}${config.venue ? `, venue ${config.venue}` : ''}, ${toolsMode(config)}${config.apiUrl ? ` via ${config.apiUrl}` : ''})\n`);
+    process.stderr.write(`${listenLine(config, values.host, port)}\n`);
   });
 }

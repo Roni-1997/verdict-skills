@@ -129,9 +129,11 @@ function walk(schema: Schema | boolean, value: unknown, path: string, root: unkn
   }
   const fail = (message: string) => issues.push({ path, message });
 
-  if (typeof schema.$ref === 'string') walk(resolveRef(schema.$ref, root), value, path, root, issues, depth + 1);
-
+  // OpenAPI 3.0's nullable admits null whatever the rest of the schema says, the referenced one included, so it is
+  // decided before the $ref is walked.
   if (schema.nullable === true && value === null) return;
+
+  if (typeof schema.$ref === 'string') walk(resolveRef(schema.$ref, root), value, path, root, issues, depth + 1);
 
   if (schema.type !== undefined) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];

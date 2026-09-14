@@ -18,9 +18,28 @@ export interface KitConfig {
 
 const ZERO = /^0x0{40}$/;
 
+/** The venue name rule the API applies to its `venue` parameter (VenueParam in the app): 1 to 32 letters, digits, _ or -. */
+export const VENUE_NAME = /^[A-Za-z0-9_-]{1,32}$/;
+/** The API's own words for a name outside VENUE_NAME, reused by the kit so both modes refuse it identically. */
+export const VENUE_MESSAGE = 'venue must be 1 to 32 letters, digits, _ or -';
+
+/**
+ * The venue a value names, read the way the API reads its `venue` parameter: unset, blank and `all` (in any case)
+ * mean every deployer and come back as null; anything else is the trimmed venue name, unchecked. Shared by
+ * configFromEnv (VERDICT_VENUE) and the tools (`venue` inputs, checkVenue in tools.ts), so the embedded engine and
+ * the hosted API give one value one meaning.
+ */
+export function normalizeVenue(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const v = value.trim();
+  if (v === '' || v.toLowerCase() === 'all') return null;
+  return v;
+}
+
 export function configFromEnv(env: Record<string, string | undefined> = process.env): KitConfig {
   const network = parseNetwork(env.VERDICT_NETWORK);
-  const venue = env.VERDICT_VENUE && env.VERDICT_VENUE.trim() !== '' ? env.VERDICT_VENUE.trim() : null;
+  const venue = normalizeVenue(env.VERDICT_VENUE);
+  if (venue !== null && !VENUE_NAME.test(venue)) throw new Error(`VERDICT_VENUE ${VENUE_MESSAGE}, got ${JSON.stringify(venue)}`);
   const address = env.VERDICT_BUILDER_ADDRESS?.trim();
   // The fee is validated whenever it is set, not only once an address is configured, so a bad value is
   // reported the moment an operator writes it rather than later when the address arrives.
@@ -44,13 +63,17 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
  * Validate a hosted API base URL: https only (or http on localhost, for tests), no trailing slash, no query, no
  * fragment, no credentials in the URL. Returns the URL as written, or null when the value is unset or blank (embedded
  * mode). `name` is the setting being parsed, for the error message: the environment variable or the CLI flag.
+ *
+ * The error message reaches stderr and hosted deployment logs, so it never repeats a part of the value that could
+ * carry a pasted secret: an http(s) value shows only scheme, host and path (never the userinfo, the query or the
+ * fragment); a value with another scheme shows only that scheme (its path is opaque and may hold anything); a value
+ * that is not a URL is shown only if it holds none of `?`, `#`, `@` and `:`.
  */
 export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL'): string | null {
   if (value === undefined) return null;
   const raw = value.trim();
   if (raw === '') return null;
-  // The value is echoed so a typo is easy to spot, except when it carries credentials: those never reach a log line.
-  const shown = raw.includes('@') ? '[not shown: the URL carries credentials]' : JSON.stringify(value);
+  let shown = /[?#@:]/.test(raw) ? '[not shown: not a URL, and it may carry a token]' : JSON.stringify(raw);
   const fail = (why: string): never => {
     throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only for localhost), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${shown}`);
   };
@@ -60,6 +83,7 @@ export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL')
   } catch {
     return fail('not a URL');
   }
+  shown = url.protocol === 'https:' || url.protocol === 'http:' ? JSON.stringify(`${url.protocol}//${url.host}${url.pathname}`) : `[not shown: scheme ${url.protocol.replace(/:$/, '')}, not http(s)]`;
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))) return fail('scheme not allowed');
   if (url.username !== '' || url.password !== '') return fail('credentials in the URL');
   if (url.search !== '' || raw.includes('?')) return fail('query string');

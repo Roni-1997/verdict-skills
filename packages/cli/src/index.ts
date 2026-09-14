@@ -18,7 +18,7 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo] [--cloid 0x<32 hex>]
 
 Options: --pretty indents the JSON. --api <url> answers markets, market, compare, fair-value, hedges and opportunities from the hosted Verdict API at <url> (https://hyperverdict.xyz/api/v1 in production; the same as VERDICT_API_URL, which the flag overrides); book, quote, positions, builder-status and the payload commands run locally either way. Without either, the embedded engine runs.
-Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE, VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP, VERDICT_API_URL (hosted mode, see --api).
+Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE (a deployer venue; unset, blank or all: every deployer), VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP, VERDICT_API_URL (hosted mode, see --api).
 Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare and opportunities call, so never set it on a hosted server.
 Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
 compare, fair-value, hedges and opportunities run the Verdict app's cross-venue engine (Polymarket, Kalshi, Deribit are read, never traded).

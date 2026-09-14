@@ -59,7 +59,7 @@ Recorded from the mainnet fixtures (outcome 1210) on 2026-09-13. Values are as r
 
 | Exit | stderr | Meaning | Do |
 |---|---|---|---|
-| 1 | `{"error":"bad_input",...}` | `<outcome>` missing or not a nonnegative integer. | Fix the argument. |
+| 1 | `{"error":"bad_input",...}` | `<outcome>` missing, not a nonnegative integer, or over 9 digits (no market can have such an index). | Fix the argument. |
 | 2 | `{"error":"not_found",...}` | No market with that index on the configured network. | Do not retry. Run `verdict markets` and pick from it. Check `VERDICT_NETWORK`: testnet and mainnet indices differ. |
 | 3 | `{"error":"upstream",...}` | Info endpoint failed or drifted. | Retry once, then report the JSON. |
 
