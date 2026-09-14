@@ -17,10 +17,10 @@ Read only. No account, no key, no confirmation. Nothing about the two-message ru
 | Setting | Value | Meaning |
 |---|---|---|
 | `VERDICT_API_URL` | unset | Embedded engine, the default. |
-| `VERDICT_API_URL` | `https://hyperverdict.xyz/api/v1` | Hosted mode against production. https only; no trailing slash, query or fragment. `http://localhost...` is accepted for tests only. A malformed value is exit 4 `not_configured`; the message shows scheme, host and path only, never a query, fragment or userinfo, so a pasted token does not reach a log. The kit follows no redirect from that host. |
-| `--api <url>` | same rules | CLI flag, one command; overrides the variable. A malformed value is exit 1 `bad_input`. |
+| `VERDICT_API_URL` | `https://hyperverdict.xyz/api/v1` | Hosted mode against production. https only, written in normal form (lowercase scheme and host, no default port, no `.` or `..` segments); no trailing slash, query or fragment. `http://` on the loopback interface (`localhost`, `127.0.0.1`, `[::1]`) is accepted for tests only. A malformed value is exit 4 `not_configured`; the message names the scheme and host only, never the path, query, fragment or userinfo, and a value that is not a URL is not shown at all, so a token pasted into the variable does not reach a log. The kit follows no redirect from that host. |
+| `--api <url>` | same rules | CLI flag, one command; overrides the variable. A malformed value is exit 1 `bad_input`, and so is a blank one (a flag without a URL is most often an unset shell variable): to run one command on the embedded engine, run it with `VERDICT_API_URL` unset or blank instead. |
 
-The kit puts `net` (from `VERDICT_NETWORK`) and `venue` (from `VERDICT_VENUE`, `all` when unset) on every request, so the API's own defaults (mainnet, every deployer) never apply. Testnet stays the default. The API holds no keys, takes no credentials, and the kit sends none: no header, no token, no account.
+The kit puts `net` (from `VERDICT_NETWORK`) on every request and `venue` (from `VERDICT_VENUE`, `all` when unset) on `markets` and `opportunities`, the two routes whose contract takes it, so the API's own defaults (mainnet, every deployer) never apply. A `markets` or `opportunities` body must then name the network and venue that were sent, and a body addressed by `<outcome>` must be about that outcome; otherwise the command exits 3 with `"kind":"schema"`, so a host that does not honour `net` (a proxy that drops the query string, a copy of the app with other defaults) cannot hand a testnet caller mainnet data. Testnet stays the default. The API holds no keys, takes no credentials, and the kit sends none: no header, no token, no account.
 
 Venue, read the same way in both modes: `VERDICT_VENUE` or `--venue` unset, blank or `all` (any case) means every deployer, and `markets` and `opportunities` then report `venue: null`; a name is 1 to 32 letters, digits, `_` or `-` (the API's rule), checked before any request. A name outside the rule is exit 1 `bad_input` from `--venue` and exit 4 `not_configured` from `VERDICT_VENUE`, in embedded mode too, so the engine never answers what the API would refuse.
 
@@ -29,10 +29,10 @@ Venue, read the same way in both modes: `VERDICT_VENUE` or `--venue` unset, blan
 | Command | Hosted mode | Embedded mode |
 |---|---|---|
 | `markets [--venue] [--include-expired]` | `GET /markets?net=&venue=&includeExpired=` | Hyperliquid info in process |
-| `market <outcome>` | `GET /market?net=&venue=&outcome=` | Hyperliquid info in process |
-| `compare <outcome>` | `GET /compare?net=&venue=&outcome=` | the engine in process (Hyperliquid, Polymarket, Kalshi, Deribit) |
-| `fair-value <outcome>` | `GET /fair-value?net=&venue=&outcome=` | the engine in process |
-| `hedges <outcome>` | `GET /hedges?net=&venue=&outcome=` | the engine in process |
+| `market <outcome>` | `GET /market?net=&outcome=` | Hyperliquid info in process |
+| `compare <outcome>` | `GET /compare?net=&outcome=` | the engine in process (Hyperliquid, Polymarket, Kalshi, Deribit) |
+| `fair-value <outcome>` | `GET /fair-value?net=&outcome=` | the engine in process |
+| `hedges <outcome>` | `GET /hedges?net=&outcome=` | the engine in process |
 | `opportunities [--limit <1..8>]` | `GET /opportunities?net=&venue=&limit=` | the engine in process |
 | `book`, `quote`, `positions`, `builder-status` | local: Hyperliquid info, unchanged | the same |
 | `approve-builder-fee-payload`, `build-order` | local: the unsigned payload is built in process, unchanged | the same |
@@ -56,7 +56,7 @@ Cold times are the app's own measurements of 2026-09-14 against live Hyperliquid
 | 1 | `{"error":"bad_input","message":...}` | Bad `<outcome>` (not a nonnegative integer, or over 9 digits), `--venue` (outside 1 to 32 letters, digits, `_` or `-`), `--limit` or `--api` value, all checked before any request, or the API refused a parameter (its message is passed through). | Fix the argument. |
 | 2 | `{"error":"not_found","message":"no outcome market with index N on <network>"}` | The API knows no market with that index on that network. | Do not retry. Run `verdict markets` and pick from it; check `VERDICT_NETWORK`. |
 | 3 | `{"error":"upstream","kind":"http","message":...}` | 429 (rate limited; the message names the wait), a 5xx from the API, a 404 that is not the API's own body (a wrong base URL; the message names it), or a redirect (never followed; the message names the target host: set the URL to the final address). | Retry once after a few seconds (after N s on a 429; not at all on a redirect), then stop and report the JSON. |
-| 3 | `{"error":"upstream","kind":"schema","message":...}` | The API answered with a body that is not JSON or does not match the result schema. | Retry once, then report the JSON. |
+| 3 | `{"error":"upstream","kind":"schema","message":...}` | The API answered with a body that is not JSON, does not match the result schema, is about another network, venue or outcome than the one requested, or is over 16 MiB. | Retry once, then report the JSON; if it repeats, check `VERDICT_API_URL` (the message names it). |
 | 3 | `{"error":"upstream","kind":"network","message":...}` | Connection failure, or the 30 s budget ran out. | Retry once, then report the JSON. |
 | 4 | `{"error":"not_configured","message":"VERDICT_API_URL must be ..."}` or `"VERDICT_VENUE venue must be ..."` | Malformed `VERDICT_API_URL` or `VERDICT_VENUE`. | Do not retry. Tell the user how the value must look. |
 

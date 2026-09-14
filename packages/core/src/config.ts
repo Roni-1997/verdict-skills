@@ -56,26 +56,29 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   return { network, venue, builder, apiUrl };
 }
 
-/** Hosts that may be reached over plain http: a test server on the loopback interface, nothing else. */
+/** Hosts that may be reached over plain http: a test server on the loopback interface (localhost, 127.0.0.1, [::1]), nothing else. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
- * Validate a hosted API base URL: https only (or http on localhost, for tests), no trailing slash, no query, no
- * fragment, no credentials in the URL. Returns the URL as written, or null when the value is unset or blank (embedded
- * mode). `name` is the setting being parsed, for the error message: the environment variable or the CLI flag.
+ * Validate a hosted API base URL: https only (or http on the loopback interface, for tests), written in its normal
+ * form (lowercase scheme and host, no default port, no `.` or `..` segments, no backslash, no percent-encoding), with
+ * no trailing slash, no query, no fragment and no credentials. Returns the URL as written, or null when the value is
+ * unset or blank (embedded mode). `name` is the setting being parsed, for the error message: the environment variable
+ * or the CLI flag.
  *
  * The error message reaches stderr and hosted deployment logs, so it never repeats a part of the value that could
- * carry a pasted secret: an http(s) value shows only scheme, host and path (never the userinfo, the query or the
- * fragment); a value with another scheme shows only that scheme (its path is opaque and may hold anything); a value
- * that is not a URL is shown only if it holds none of `?`, `#`, `@` and `:`.
+ * carry a pasted secret: an http(s) value shows its scheme and host only (never the path, which is where a URL of
+ * another service keeps a token, and never the userinfo, the query or the fragment); a value with another scheme shows
+ * only that scheme (its path is opaque and may hold anything); a value that is not a URL at all, which is what an API
+ * key pasted into the wrong variable looks like, is not shown.
  */
 export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL'): string | null {
   if (value === undefined) return null;
   const raw = value.trim();
   if (raw === '') return null;
-  let shown = /[?#@:]/.test(raw) ? '[not shown: not a URL, and it may carry a token]' : JSON.stringify(raw);
+  let shown = '[not shown: not a URL]';
   const fail = (why: string): never => {
-    throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only for localhost), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${shown}`);
+    throw new Error(`${name} must be an https:// URL without a trailing slash, query or fragment (http:// only on localhost, 127.0.0.1 or [::1]), e.g. https://hyperverdict.xyz/api/v1; ${why}, got ${shown}`);
   };
   let url: URL;
   try {
@@ -83,13 +86,19 @@ export function parseApiUrl(value: string | undefined, name = 'VERDICT_API_URL')
   } catch {
     return fail('not a URL');
   }
-  shown = url.protocol === 'https:' || url.protocol === 'http:' ? JSON.stringify(`${url.protocol}//${url.host}${url.pathname}`) : `[not shown: scheme ${url.protocol.replace(/:$/, '')}, not http(s)]`;
+  shown = url.protocol === 'https:' || url.protocol === 'http:' ? `${url.protocol}//${url.host}/[path not shown]` : `[not shown: scheme ${url.protocol.replace(/:$/, '')}, not http(s)]`;
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))) return fail('scheme not allowed');
   if (url.username !== '' || url.password !== '') return fail('credentials in the URL');
   if (url.search !== '' || raw.includes('?')) return fail('query string');
   if (url.hash !== '' || raw.includes('#')) return fail('fragment');
   if (raw.endsWith('/')) return fail('trailing slash');
   if (/\s/.test(raw)) return fail('whitespace');
+  if (url.pathname.includes('%')) return fail('percent-encoding in the path');
+  // The URL parser lowercases the scheme and host, drops a default port, resolves . and .. segments and turns a
+  // backslash into a slash; a value that differs from that normal form is refused rather than silently requested
+  // as something else.
+  const normal = url.pathname === '/' ? url.origin : `${url.origin}${url.pathname}`;
+  if (raw !== normal) return fail('not in normal form (lowercase scheme and host, no default port, no . or .. segments, no backslash)');
   return raw;
 }
 

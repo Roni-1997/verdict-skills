@@ -94,31 +94,34 @@ function apiFetch(handler: (url: URL) => Response | Promise<Response>, seen: See
   }) as typeof fetch;
 }
 
-/** Serves the recorded mainnet bodies: /markets filtered to the venue asked for (`all` is every deployer, as on the API). */
-function mainnetApi(url: URL): Response {
-  const route = url.pathname.replace(/^\/api\/v1/, '');
-  const venue = url.searchParams.get('venue') ?? 'all';
-  if (route === '/markets') {
-    const all = recordedBody(must(okFiles('/markets').find((f) => f.query.net === 'mainnet' && f.query.venue === 'all'), 'mainnet markets')) as { markets: { venue: string }[] };
-    if (venue === 'all') return json(all);
-    const markets = all.markets.filter((m) => m.venue === venue);
-    return json({ network: 'mainnet', venue, count: markets.length, markets });
-  }
-  if (route === '/opportunities') return json(recordedBody(must(okFiles('/opportunities').find((f) => f.query.net === 'mainnet'), 'mainnet opportunities')));
-  return recordedApi(url);
+/** The recorded 200 body for a route on a network (the every-deployer one for mainnet /markets and /opportunities). */
+function recordedFor(route: string, net: string, outcome?: string | null): unknown {
+  const files = okFiles(route).filter((f) => f.query.net === net);
+  const f = outcome === undefined ? (files.find((x) => x.query.venue === 'all') ?? files[0]) : files.find((x) => x.query.outcome === outcome);
+  return recordedBody(must(f, `recorded ${net} ${route}${outcome === undefined ? '' : ` outcome ${outcome}`}`));
 }
 
-/** Serves the recorded testnet bodies by route and outcome, the recorded error bodies otherwise. */
+/**
+ * Serves the recorded production bodies the way the API does: by `net` (the production default, mainnet, when absent),
+ * /markets filtered to the venue asked for (`all` is every deployer, reported as venue null), /opportunities for the
+ * venue asked for, the outcome routes by outcome, the recorded error bodies otherwise.
+ */
 function recordedApi(url: URL): Response {
   const route = url.pathname.replace(/^\/api\/v1/, '');
+  const net = url.searchParams.get('net') ?? 'mainnet';
+  const venue = url.searchParams.get('venue') ?? 'all';
   const outcome = url.searchParams.get('outcome');
-  const byOutcome = (files: RecordedFile[]) => files.find((f) => f.query.outcome === outcome && f.query.net === 'testnet');
-  const notFound = json({ error: 'not_found', message: `no outcome market with index ${outcome} on testnet` }, 404);
+  const byOutcome = (files: RecordedFile[]) => files.find((f) => f.query.outcome === outcome && f.query.net === net);
+  const notFound = json({ error: 'not_found', message: `no outcome market with index ${outcome} on ${net}` }, 404);
   switch (route) {
-    case '/markets':
-      return json(recordedBody(must(okFiles('/markets').find((f) => f.query.net === 'testnet'), 'testnet markets')));
+    case '/markets': {
+      const all = recordedFor(route, net) as { markets: { venue: string }[] };
+      if (venue === 'all') return json({ ...all, venue: null, count: all.markets.length });
+      const markets = all.markets.filter((m) => m.venue === venue);
+      return json({ ...all, venue, count: markets.length, markets });
+    }
     case '/opportunities':
-      return json(recordedBody(must(okFiles('/opportunities').find((f) => f.query.net === 'testnet'), 'testnet opportunities')));
+      return json({ ...(recordedFor(route, net) as object), venue: venue === 'all' ? null : venue });
     case '/market':
     case '/compare':
     case '/fair-value':
@@ -171,7 +174,7 @@ describe('hosted tools: every request is an anonymous GET carrying net and venue
     expect(url.searchParams.get('venue')).toBe('all');
     expect(url.searchParams.get('limit')).toBe('3');
   });
-  it('get_market, compare_market, fair_value and find_hedges address the market by outcome and still carry net and venue', async () => {
+  it('get_market, compare_market, fair_value and find_hedges address the market by outcome and carry net, never venue (their contract declares none)', async () => {
     const seen: Seen[] = [];
     const tools = hosted(seen);
     const m = await tools.get_market({ outcome: BTC_OUTCOME });
@@ -192,8 +195,30 @@ describe('hosted tools: every request is an anonymous GET carrying net and venue
       expect(s.method).toBe('GET');
       expect(s.url.searchParams.get('outcome')).toBe(String(BTC_OUTCOME));
       expect(s.url.searchParams.get('net')).toBe('testnet');
-      expect(s.url.searchParams.get('venue')).toBe('at');
+      expect(s.url.searchParams.has('venue')).toBe(false);
     }
+  });
+  it('every request carries exactly the parameters the pinned OpenAPI declares for its route: net everywhere, venue on /markets and /opportunities only', async () => {
+    const seen: Seen[] = [];
+    const tools = hosted(seen);
+    await tools.list_markets({ includeExpired: true });
+    await tools.get_market({ outcome: BTC_OUTCOME });
+    await tools.compare_market({ outcome: BTC_OUTCOME });
+    await tools.fair_value({ outcome: BTC_OUTCOME });
+    await tools.find_hedges({ outcome: BTC_OUTCOME });
+    await tools.opportunities({ limit: 2 });
+    expect(seen).toHaveLength(6);
+    const declared = (route: string) => (openapi.paths[route] as { get: { parameters: { $ref: string }[] } }).get.parameters.map((x) => x.$ref.replace('#/components/parameters/', '')).sort();
+    for (const s of seen) {
+      const route = s.url.pathname.replace(/^\/api\/v1/, '');
+      expect([...s.url.searchParams.keys()].sort(), route).toEqual(declared(route));
+      expect(s.url.searchParams.get('net'), route).toBe('testnet');
+    }
+    expect(seen.filter((s) => s.url.searchParams.has('venue')).map((s) => s.url.pathname)).toEqual(['/api/v1/markets', '/api/v1/opportunities']);
+    // Without includeExpired the /markets request is a subset of the declared parameters.
+    seen.length = 0;
+    await tools.list_markets({});
+    expect([...must(seen[0], 'request').url.searchParams.keys()].sort()).toEqual(['net', 'venue']);
   });
   it('opportunities sends the limit, defaulting to the engine maximum, and returns the typed scan', async () => {
     const seen: Seen[] = [];
@@ -240,13 +265,109 @@ describe('hosted tools: every request is an anonymous GET carrying net and venue
     expect((e as UpstreamError).kind).toBe('schema');
     expect((e as UpstreamError).message).toContain(`above the ${REMOTE_MAX_BODY_BYTES}-byte limit; not read`);
   });
+  it('a body without Content-Length is read through a counter that stops past the limit and cancels the stream, so an endless answer is refused', async () => {
+    // Spaces are JSON whitespace: only the size can refuse this body, never its content.
+    const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const e = await hosted([], () => new Response(endless, { status: 200, headers: { 'content-type': 'application/json' } }))
+      .list_markets({})
+      .catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(UpstreamError);
+    expect((e as UpstreamError).kind).toBe('schema');
+    expect((e as UpstreamError).message).toContain(`above the ${REMOTE_MAX_BODY_BYTES}-byte limit`);
+    expect((e as UpstreamError).message).toContain('not read further');
+    expect(pulled).toBeLessThanOrEqual(REMOTE_MAX_BODY_BYTES / chunk.byteLength + 4);
+    expect(cancelled).toBe(true);
+    // A body of exactly the limit is read and judged on its content.
+    const exact = await hosted([], () => new Response(new Uint8Array(REMOTE_MAX_BODY_BYTES).fill(0x20), { status: 200 })).list_markets({}).catch((x: unknown) => x);
+    expect((exact as UpstreamError).message).toContain('not JSON');
+  });
+});
+
+describe('hosted tools: a body that passes the schema but answers another network, venue or outcome is refused', () => {
+  const refused = async (p: Promise<unknown>, what: string): Promise<UpstreamError> => {
+    const e = await p.catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(UpstreamError);
+    expect((e as UpstreamError).kind).toBe('schema');
+    expect((e as UpstreamError).message).toContain(`answered about ${what}`);
+    expect((e as UpstreamError).message).toContain('did not honour the request');
+    expect((e as UpstreamError).message).toContain(API);
+    return e as UpstreamError;
+  };
+  it('a testnet configuration fed a mainnet /markets body gets an UpstreamError schema, not a mainnet list', async () => {
+    const e = await refused(hosted([], () => json(recordedFor('/markets', 'mainnet')), { ...testnetAt, venue: null }).list_markets({}), 'network');
+    expect(e.detail).toEqual({ what: 'network', expected: 'testnet', got: 'mainnet' });
+    const e2 = await refused(hosted([], () => json(recordedFor('/markets', 'mainnet')), { ...testnetAt, venue: 'skew' }).list_markets({ venue: 'all' }), 'network');
+    expect(e2.detail).toMatchObject({ what: 'network' });
+  });
+  it('a mainnet /opportunities body for a testnet caller is refused before the venue is even looked at', async () => {
+    const e = await refused(hosted([], () => json(recordedFor('/opportunities', 'mainnet')), testnetAt).opportunities({ limit: 2 }), 'network');
+    expect(e.detail).toEqual({ what: 'network', expected: 'testnet', got: 'mainnet' });
+  });
+  it('a body for every deployer when one venue was sent, or for one venue when all were, is refused on /markets and /opportunities', async () => {
+    const mainnetSkew: KitConfig = { ...testnetAt, network: 'mainnet', venue: 'skew' };
+    const e = await refused(hosted([], () => json(recordedFor('/markets', 'mainnet')), mainnetSkew).list_markets({}), 'venue');
+    expect(e.detail).toEqual({ what: 'venue', expected: 'skew', got: null });
+    // The venue named on the call, not only the configured one, is what the body must answer.
+    const e2 = await refused(hosted([], () => json(recordedFor('/markets', 'mainnet')), { ...mainnetSkew, venue: null }).list_markets({ venue: 'out' }), 'venue');
+    expect(e2.detail).toEqual({ what: 'venue', expected: 'out', got: null });
+    // all sent, a one-venue body returned.
+    const e3 = await refused(hosted([], () => json(recordedFor('/markets', 'testnet')), { ...testnetAt, venue: null }).list_markets({}), 'venue');
+    expect(e3.detail).toEqual({ what: 'venue', expected: null, got: 'at' });
+    const e4 = await refused(hosted([], () => json(recordedFor('/opportunities', 'mainnet')), { ...mainnetSkew, venue: 'out' }).opportunities({}), 'venue');
+    expect(e4.detail).toEqual({ what: 'venue', expected: 'out', got: null });
+    const e5 = await refused(hosted([], () => json(recordedFor('/opportunities', 'testnet')), { ...testnetAt, venue: null }).opportunities({ limit: 1 }), 'venue');
+    expect(e5.detail).toEqual({ what: 'venue', expected: null, got: 'at' });
+  });
+  it('a body about another outcome than the one sent is refused on all four outcome routes', async () => {
+    for (const [tool, route] of [
+      ['get_market', '/market'],
+      ['compare_market', '/compare'],
+      ['fair_value', '/fair-value'],
+      ['find_hedges', '/hedges'],
+    ] as const) {
+      const body = recordedFor(route, 'testnet', String(BTC_OUTCOME));
+      const tools = hosted([], () => json(body));
+      const e = await refused((tools[tool] as (i: { outcome: number }) => Promise<unknown>)({ outcome: BTC_OUTCOME + 1 }), 'outcome');
+      expect(e.detail, tool).toEqual({ what: 'outcome', expected: BTC_OUTCOME + 1, got: BTC_OUTCOME });
+      // The same body for the outcome it is about passes.
+      const ok = (await (tools[tool] as (i: { outcome: number }) => Promise<unknown>)({ outcome: BTC_OUTCOME })) as { outcome?: number; market?: { outcome: number } };
+      expect(ok.outcome ?? ok.market?.outcome, tool).toBe(BTC_OUTCOME);
+    }
+  });
+  it('the matching bodies pass: the recorded production bodies answer the network, venue and outcome they were recorded for', async () => {
+    for (const f of recorded.files.filter((x) => x.status === 200)) {
+      const config: KitConfig = { ...testnetAt, network: f.query.net as KitConfig['network'], venue: f.query.venue === undefined || f.query.venue === 'all' ? null : f.query.venue };
+      const tools = hosted([], () => json(recordedBody(f)), config);
+      const outcome = f.query.outcome === undefined ? undefined : Number(f.query.outcome);
+      const call: Record<string, () => Promise<unknown>> = {
+        '/markets': () => tools.list_markets({}),
+        '/opportunities': () => tools.opportunities({}),
+        '/market': () => tools.get_market({ outcome: must(outcome, 'outcome') }),
+        '/compare': () => tools.compare_market({ outcome: must(outcome, 'outcome') }),
+        '/fair-value': () => tools.fair_value({ outcome: must(outcome, 'outcome') }),
+        '/hedges': () => tools.find_hedges({ outcome: must(outcome, 'outcome') }),
+      };
+      await expect(must(call[f.route], f.route)(), f.file).resolves.toBeTruthy();
+    }
+  });
 });
 
 describe('venue: one meaning in both modes', () => {
   const mainnetOut: KitConfig = { network: 'mainnet', venue: 'out', builder: null, apiUrl: API };
   const hl = () => new InfoClient({ network: 'mainnet', fetch: fixtureFetch() });
   const embedded = (config: KitConfig = mainnetOut) => createTools({ ...config, apiUrl: null }, hl());
-  const hostedOn = (seen: Seen[], config: KitConfig = mainnetOut) => createRemoteTools(config, { apiUrl: API, fetch: apiFetch(mainnetApi, seen) });
+  const hostedOn = (seen: Seen[], config: KitConfig = mainnetOut) => createRemoteTools(config, { apiUrl: API, fetch: apiFetch(recordedApi, seen) });
   const venuesOf = (r: { markets: { venue: string | null }[] }) => new Set(r.markets.map((m) => m.venue));
 
   it('normalizeVenue and checkVenue: unset, blank and all (any case) are every deployer; a name is trimmed; a name outside the API rule is bad_input with the API words', () => {
@@ -581,7 +702,7 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       expect(() => configFromEnv({ VERDICT_API_URL: bad }), bad).toThrow(/VERDICT_API_URL/);
     }
     expect(() => parseApiUrl('nope', '--api')).toThrow(/^--api must be/);
-    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1/')).toThrow(/got "https:\/\/hyperverdict\.xyz\/api\/v1\/"/);
+    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1/')).toThrow(/trailing slash, got https:\/\/hyperverdict\.xyz\/\[path not shown\]$/);
     // A URL that carries credentials is refused without echoing them.
     const withSecret = (() => {
       try {
@@ -594,11 +715,20 @@ describe('configuration: VERDICT_API_URL and --api', () => {
     expect(withSecret).toContain('credentials in the URL');
     expect(withSecret).not.toContain('s3cretvalue');
     expect(withSecret).not.toContain('operator');
-    expect(withSecret).toContain('got "https://hyperverdict.xyz/api/v1"');
+    expect(withSecret).toContain('got https://hyperverdict.xyz/[path not shown]');
     expect(() => parseApiUrl('https://x/')).toThrow(/trailing slash/);
     expect(() => parseApiUrl('https://x?y')).toThrow(/query string/);
   });
-  it('never echoes a query string, a fragment or a non-URL that could carry a token, in the message that reaches logs', () => {
+  it('rejects a value that is not in its normal form rather than requesting something else, and keeps accepting non-default ports', () => {
+    for (const odd of ['HTTPS://hyperverdict.xyz/api/v1', 'https://HyperVerdict.xyz/api/v1', 'https://hyperverdict.xyz:443/api/v1', 'http://localhost:80/api/v1', 'https:///api', 'https://hyperverdict.xyz/api/v1/..', 'https://hyperverdict.xyz/api/v1/.', 'https://hyperverdict.xyz/api/./v1', 'https://hyperverdict.xyz/api/v1\\']) {
+      expect(() => parseApiUrl(odd), odd).toThrow(/not in normal form/);
+    }
+    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1%2F')).toThrow(/percent-encoding in the path/);
+    expect(() => parseApiUrl('https://hyperverdict.xyz/api/v1%2Fmarkets')).toThrow(/percent-encoding in the path/);
+    expect(parseApiUrl('https://hyperverdict.xyz:8443/api/v1')).toBe('https://hyperverdict.xyz:8443/api/v1');
+    expect(parseApiUrl('http://localhost:8787')).toBe('http://localhost:8787');
+  });
+  it('never echoes a query string, a fragment, a path, or a value that is not a URL, in the message that reaches logs', () => {
     const messageFor = (value: string, name?: string): string => {
       try {
         parseApiUrl(value, name);
@@ -617,6 +747,19 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       ['operator:SECRETghi@hyperverdict.xyz/api/v1', 'scheme not allowed', 'SECRETghi'],
       ['ftp://operator:SECRETmno@hyperverdict.xyz/api/v1', 'scheme not allowed', 'SECRETmno'],
       ['hyperverdict.xyz/api/v1#SECRETjkl', 'not a URL', 'SECRETjkl'],
+      // An API key pasted as the whole value: not a URL, holds none of ? # @ :, and must still not be shown.
+      ['sk_live_abcdef0123456789', 'not a URL', 'sk_live_abcdef0123456789'],
+      ['vk9f8a7b6c5d4e3f', 'not a URL', 'vk9f8a7b6c5d4e3f'],
+      // A URL missing its scheme: not a URL to the parser, and not shown (the host here is not the message's own example).
+      ['api.other-host.example/v1/tok_SECRETpqr', 'not a URL', 'other-host.example'],
+      // A token in the path: the path is never shown, whatever the rule that refused the value.
+      ['https://hyperverdict.xyz/api/v1/tok_SECRETPATH/', 'trailing slash', 'tok_SECRETPATH'],
+      ['https://hyperverdict.xyz/tok_SECRETPATH2/api/v1/', 'trailing slash', 'tok_SECRETPATH2'],
+      ['http://hyperverdict.xyz/tok_SECRETPATH3', 'scheme not allowed', 'tok_SECRETPATH3'],
+      ['https://hyperverdict.xyz/api/v1/tok_SECRETPATH4 x', 'whitespace', 'tok_SECRETPATH4'],
+      ['https://hyperverdict.xyz/api/v1/tok_SECRETPATH5%2F', 'percent-encoding', 'tok_SECRETPATH5'],
+      ['https://hyperverdict.xyz/api/v1/tok_SECRETPATH6/..', 'not in normal form', 'tok_SECRETPATH6'],
+      ['https://user:pw@hyperverdict.xyz/tok_SECRETPATH7', 'credentials in the URL', 'tok_SECRETPATH7'],
     ];
     for (const [value, why, secret] of cases) {
       const message = messageFor(value, '--api');
@@ -625,10 +768,13 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       expect(message, value).not.toContain(secret);
       expect(message, value).not.toContain('apikey');
     }
-    // What is shown once the value parses is scheme, host and path only; a plain typo without those characters is shown whole.
-    expect(messageFor('https://hyperverdict.xyz/api/v1?apikey=SECRET123')).toContain('got "https://hyperverdict.xyz/api/v1"');
-    expect(messageFor('hyperverdict.xyz/api/v1')).toContain('got "hyperverdict.xyz/api/v1"');
-    expect(messageFor('hyperverdict.xyz/api/v1?apikey=SECRETdef')).toContain('got [not shown: not a URL, and it may carry a token]');
+    // What is shown once the value parses is scheme and host only; a value that is not a URL is not shown at all.
+    expect(messageFor('https://hyperverdict.xyz/api/v1?apikey=SECRET123')).toContain('got https://hyperverdict.xyz/[path not shown]');
+    expect(messageFor('https://hyperverdict.xyz/api/v1/tok_SECRETPATH/')).toMatch(/got https:\/\/hyperverdict\.xyz\/\[path not shown\]$/);
+    expect(messageFor('http://127.0.0.1:8787/api/v1/')).toContain('got http://127.0.0.1:8787/[path not shown]');
+    expect(messageFor('hyperverdict.xyz/api/v1')).toMatch(/got \[not shown: not a URL\]$/);
+    expect(messageFor('sk_live_abcdef0123456789')).toMatch(/not a URL, got \[not shown: not a URL\]$/);
+    expect(messageFor('hyperverdict.xyz/api/v1?apikey=SECRETdef')).toContain('got [not shown: not a URL]');
     expect(messageFor('operator:SECRETghi@hyperverdict.xyz/api/v1')).toContain('got [not shown: scheme operator, not http(s)]');
     // Through the faces: the CLI's stderr JSON and the configuration error carry the same redaction.
     return (async () => {
@@ -636,6 +782,12 @@ describe('configuration: VERDICT_API_URL and --api', () => {
       expect(cli.exitCode).toBe(1);
       expect(cli.stderr).not.toContain('SECRET123');
       expect(cli.stderr).toContain('query string');
+      const token = await runCli(['markets', '--api', 'sk_live_abcdef0123456789'], { network: 'testnet', venue: 'at', builder: null, apiUrl: null });
+      expect(token.exitCode).toBe(1);
+      expect(token.stderr).not.toContain('sk_live');
+      expect(token.stderr).toContain('not a URL');
+      expect(() => configFromEnv({ VERDICT_API_URL: 'sk_live_abcdef0123456789' })).toThrow(/VERDICT_API_URL must be/);
+      expect(() => configFromEnv({ VERDICT_API_URL: 'sk_live_abcdef0123456789' })).not.toThrow(/sk_live/);
       expect(() => configFromEnv({ VERDICT_API_URL: 'https://hyperverdict.xyz/api/v1#token=SECRET456' })).toThrow(/fragment/);
       expect(() => configFromEnv({ VERDICT_API_URL: 'https://hyperverdict.xyz/api/v1#token=SECRET456' })).not.toThrow(/SECRET456/);
     })();
@@ -796,6 +948,22 @@ describe('faces: --api and VERDICT_API_URL', () => {
     expect(r.exitCode, r.stderr).toBe(0);
     expect(served).toHaveLength(1);
   });
+  it('CLI --api "" is bad_input with exit 1 and runs nothing: a flag without a URL never silently falls back to the embedded engine', async () => {
+    served.length = 0;
+    const untouched = new Proxy({} as Tools, { get: () => () => Promise.reject(new Error('no tool may run')) });
+    for (const blank of ['', '   ']) {
+      const r = await runCli(['market', '1', '--api', blank], { ...embeddedConfig, apiUrl: base }, untouched);
+      expect(r.exitCode, blank).toBe(1);
+      const err = JSON.parse(r.stderr) as { error: string; message: string };
+      expect(err.error).toBe('bad_input');
+      expect(err.message).toContain('--api was given without a URL');
+      expect(err.message).toContain('VERDICT_API_URL unset or blank');
+      expect(r.stdout).toBe('');
+    }
+    expect(served).toHaveLength(0);
+    // A blank VERDICT_API_URL is still embedded mode: the two settings keep their meanings.
+    expect(configFromEnv({ VERDICT_API_URL: '' }).apiUrl).toBeNull();
+  });
   it('the CLI honours VERDICT_API_URL from the environment and reports a malformed value as not_configured with exit 4', async () => {
     served.length = 0;
     const r = await runCli(['market', String(BTC_OUTCOME)], configFromEnv({ VERDICT_NETWORK: 'testnet', VERDICT_VENUE: 'at', VERDICT_API_URL: base }));
@@ -820,6 +988,7 @@ describe('faces: --api and VERDICT_API_URL', () => {
     const help = await runCli(['--help']);
     expect(help.stdout).toContain('--api <url>');
     expect(help.stdout).toContain('VERDICT_API_URL');
+    expect(help.stdout).toContain('A blank --api is refused');
     expect(help.stdout).not.toMatch(/^ {2}verdict --api/m);
   });
   it('MCP: createServer over a configuration with apiUrl serves the six tools from the API and says so in its instructions', async () => {
