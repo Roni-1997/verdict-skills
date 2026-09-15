@@ -808,9 +808,11 @@ describe('hosted tools: error mapping', () => {
   });
 });
 
-describe('hosted tools: the other six tools run locally, unchanged', () => {
+describe('hosted tools: the other eleven tools run locally, unchanged', () => {
   const fixture = (name: string): unknown => readJson(`tests/fixtures/${name}.json`);
   const APPROVED = '0x00000000000000000000000000000000000000a1';
+  const TRADER = '0xa98361b7c825e8ee9434b433d58d6126d2ccd04e';
+  const MAKER = '0x876fa87b4d3818f437f38f1263bee508d7672d85';
   const routes: Record<string, unknown> = {
     outcomeMeta: fixture('mainnet_outcomeMeta'),
     outcomeTemplates: fixture('mainnet_outcomeTemplates'),
@@ -818,12 +820,26 @@ describe('hosted tools: the other six tools run locally, unchanged', () => {
     'l2Book:#12101': fixture('mainnet_l2Book_12101'),
     spotClearinghouseState: fixture('testnet_spotClearinghouseState_subdeployer'),
     [`maxBuilderFee:${APPROVED}`]: 10,
+    'recentTrades:#12100': fixture('mainnet_recentTrades_12100'),
+    'candleSnapshot:#12100': fixture('mainnet_candleSnapshot_12100_1h'),
+    [`userFills:${TRADER}`]: fixture('testnet_userFills_trader'),
+    [`frontendOpenOrders:${MAKER}`]: fixture('testnet_frontendOpenOrders_maker'),
+    [`orderStatus:${MAKER}:55896593277`]: fixture('testnet_orderStatus_maker_open'),
   };
   const hlLog: string[] = [];
   const hlFetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, string | undefined>;
     const type = body.type ?? '';
-    const key = type === 'l2Book' ? `l2Book:${body.coin ?? ''}` : type === 'maxBuilderFee' ? `maxBuilderFee:${body.user ?? ''}` : type;
+    const key =
+      type === 'l2Book' || type === 'recentTrades'
+        ? `${type}:${body.coin ?? ''}`
+        : type === 'candleSnapshot'
+          ? `candleSnapshot:${(body.req as unknown as { coin: string } | undefined)?.coin ?? ''}`
+          : type === 'maxBuilderFee' || type === 'userFills' || type === 'frontendOpenOrders'
+            ? `${type}:${body.user ?? ''}`
+            : type === 'orderStatus'
+              ? `orderStatus:${body.user ?? ''}:${String(body.oid)}`
+              : type;
     hlLog.push(key);
     return key in routes ? json(routes[key]) : new Response('null', { status: 404 });
   }) as typeof fetch;
@@ -833,7 +849,7 @@ describe('hosted tools: the other six tools run locally, unchanged', () => {
   const remote = createRemoteTools(config, { apiUrl: API, fetch: apiFetch(recordedApi, apiSeen), client });
   const embedded = createTools({ ...config, apiUrl: null }, client);
 
-  it('orderbook, quote, positions, builder_status, approve_builder_fee_payload and build_order give the embedded results and make no API call', async () => {
+  it('orderbook, quote, positions, the trade and order tools, builder_status, approve_builder_fee_payload and build_order give the embedded results and make no API call', async () => {
     const same = async <K extends (typeof LOCAL_TOOLS)[number]>(name: K, input: Parameters<Tools[K]>[0]) => {
       const a = await (remote[name] as (i: unknown) => Promise<unknown>)(input);
       const b = await (embedded[name] as (i: unknown) => Promise<unknown>)(input);
@@ -844,6 +860,14 @@ describe('hosted tools: the other six tools run locally, unchanged', () => {
     await same('quote', { outcome: 1210, side: 'yes', action: 'buy', size: 10 });
     await same('positions', { address: '0x2bd816e68b18d1dd6327266f273f0658f20467dc' });
     await same('builder_status', { address: APPROVED });
+    await same('recent_trades', { outcome: 1210 });
+    await same('fills', { address: TRADER });
+    await same('open_orders', { address: MAKER });
+    await same('order_status', { address: MAKER, oid: 55896593277 });
+    // candles stamps the call time into its window, so the two results are compared without it.
+    const [ca, cb] = await Promise.all([remote.candles({ outcome: 1210, side: 'yes', interval: '1h', lookbackMinutes: 1440 }), embedded.candles({ outcome: 1210, side: 'yes', interval: '1h', lookbackMinutes: 1440 })]);
+    expect({ ...ca, startTime: 0, endTime: 0 }).toEqual({ ...cb, startTime: 0, endTime: 0 });
+    expect(ca.count).toBe(24);
     const built = (await same('build_order', { outcome: 1210, side: 'yes', action: 'buy', price: '0.02', size: '3' })) as { action: { orders: { b: boolean }[]; builder: { b: string; f: number } } };
     expect(built.action.builder).toEqual({ b: '0x00000000000000000000000000000000000000b1', f: 10 });
     // The approval payload carries a fresh nonce, so compare everything but that.
@@ -1222,7 +1246,7 @@ describe('faces: --api and VERDICT_API_URL', () => {
     expect(missing.isError).toBe(true);
     expect(JSON.parse((missing.content as { text: string }[])[0]?.text ?? '')).toMatchObject({ error: 'not_found' });
     const { tools: names } = await client.listTools();
-    expect(names).toHaveLength(12);
+    expect(names).toHaveLength(17);
   });
   it('MCP --http: /healthz reports the mode and the API base URL, and the listen line names them', async () => {
     const hostedCfg = configFromEnv({ VERDICT_NETWORK: 'testnet', VERDICT_VENUE: 'at', VERDICT_API_URL: base });

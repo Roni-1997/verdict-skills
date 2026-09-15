@@ -75,8 +75,8 @@ describe('SKILL.md frontmatter', () => {
 });
 
 describe('every CLI command has a table row and a reference', () => {
-  it('reads twelve commands out of USAGE, the four cross-venue ones included', () => {
-    expect(usageCommands).toEqual(['markets', 'market', 'book', 'quote', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'builder-status', 'approve-builder-fee-payload', 'build-order']);
+  it('reads seventeen commands out of USAGE: the four cross-venue ones and the five trade and order ones included', () => {
+    expect(usageCommands).toEqual(['markets', 'market', 'book', 'quote', 'recent-trades', 'candles', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'fills', 'open-orders', 'order-status', 'builder-status', 'approve-builder-fee-payload', 'build-order']);
   });
   for (const cmd of usageCommands) {
     it(`maps "${cmd}" to a CLI invocation, an MCP tool and references/${cmd}.md`, () => {
@@ -95,7 +95,7 @@ describe('every CLI command has a table row and a reference', () => {
   it('lists exactly the read-only commands as read only', () => {
     const section = must(/## Read-only commands\n\n([^\n]+)/.exec(skill)?.[1], 'read-only list');
     const readOnly = Object.entries(TOOL_DOCS).filter(([, doc]) => doc.readOnly).length;
-    for (const cmd of ['markets', 'market', 'book', 'quote', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'builder-status']) expect(section).toContain(`\`${cmd}\``);
+    for (const cmd of ['markets', 'market', 'book', 'quote', 'recent-trades', 'candles', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'fills', 'open-orders', 'order-status', 'builder-status']) expect(section).toContain(`\`${cmd}\``);
     expect(section.match(/`[a-z-]+`/g)).toHaveLength(readOnly);
     expect(section).not.toContain('build-order');
     expect(section).not.toContain('approve-builder-fee-payload');

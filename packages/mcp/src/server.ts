@@ -1,7 +1,7 @@
 // The MCP face: every tool is a thin call into @verdict/core. No keys, no signing, no LLM.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { TOOL_DOCS, ToolError, UpstreamError, configFromEnv, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
+import { CANDLE_INTERVALS, MAX_LOOKBACK_MINUTES, TOOL_DOCS, ToolError, UpstreamError, configFromEnv, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
 
 export const SERVER_NAME = 'verdict';
 export const SERVER_VERSION = '0.0.0';
@@ -9,6 +9,7 @@ export const SERVER_VERSION = '0.0.0';
 const Address = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 20-byte hex address');
 const Side = z.union([z.literal(0), z.literal(1), z.string()]).describe('yes | no | 0 | 1 | a side name');
 const Action = z.enum(['buy', 'sell']);
+const Cloid = z.string().regex(/^0x[0-9a-fA-F]{32}$/, 'a client order id: 0x followed by 32 hex characters');
 
 function ok(result: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }], structuredContent: result as Record<string, unknown> };
@@ -34,7 +35,7 @@ async function run(fn: () => Promise<unknown>) {
 
 /** The instructions line for hosted mode: which tools the API answers and that the server still holds no keys. */
 export function hostedInstructions(apiUrl: string): string {
-  return `Hosted mode: list_markets, get_market, compare_market, fair_value, find_hedges and opportunities are answered by the Verdict API at ${apiUrl}; orderbook, quote, positions, builder_status and the two payload tools run in this process against Hyperliquid. The server holds no keys and signs nothing in either mode.`;
+  return `Hosted mode: list_markets, get_market, compare_market, fair_value, find_hedges and opportunities are answered by the Verdict API at ${apiUrl}; orderbook, quote, positions, recent_trades, candles, fills, open_orders, order_status, builder_status and the two payload tools run in this process against Hyperliquid. The server holds no keys and signs nothing in either mode.`;
 }
 
 export function createServer(config: KitConfig = configFromEnv(), tools: Tools = toolsFromConfig(config)): McpServer {
@@ -102,6 +103,44 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
     'positions',
     { description: TOOL_DOCS.positions.description, inputSchema: { address: Address }, annotations: annot('positions') },
     (input) => run(() => tools.positions(input)),
+  );
+  server.registerTool(
+    'recent_trades',
+    { description: TOOL_DOCS.recent_trades.description, inputSchema: { outcome: z.number().int().nonnegative(), side: Side.optional() }, annotations: annot('recent_trades') },
+    (input) => run(() => tools.recent_trades(input)),
+  );
+  server.registerTool(
+    'candles',
+    {
+      description: TOOL_DOCS.candles.description,
+      inputSchema: {
+        outcome: z.number().int().nonnegative(),
+        side: Side,
+        interval: z.enum(CANDLE_INTERVALS).describe("one of Hyperliquid's candle intervals"),
+        lookbackMinutes: z.number().int().min(1).max(MAX_LOOKBACK_MINUTES).describe('window ending now, in minutes'),
+      },
+      annotations: annot('candles'),
+    },
+    (input) => run(() => tools.candles(input)),
+  );
+  server.registerTool(
+    'fills',
+    { description: TOOL_DOCS.fills.description, inputSchema: { address: Address }, annotations: annot('fills') },
+    (input) => run(() => tools.fills(input)),
+  );
+  server.registerTool(
+    'open_orders',
+    { description: TOOL_DOCS.open_orders.description, inputSchema: { address: Address }, annotations: annot('open_orders') },
+    (input) => run(() => tools.open_orders(input)),
+  );
+  server.registerTool(
+    'order_status',
+    {
+      description: TOOL_DOCS.order_status.description,
+      inputSchema: { address: Address, oid: z.union([z.number().int().nonnegative(), Cloid]).describe('order id, or client order id as 0x + 32 hex') },
+      annotations: annot('order_status'),
+    },
+    (input) => run(() => tools.order_status(input)),
   );
   server.registerTool(
     'builder_status',

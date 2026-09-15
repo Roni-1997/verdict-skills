@@ -1,6 +1,6 @@
 // The CLI face: one command per tool, JSON on stdout, never interactive. Agents run this; people can too.
 import { parseArgs } from 'node:util';
-import { ToolError, UpstreamError, configFromEnv, parseApiUrl, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
+import { CANDLE_INTERVALS, ToolError, UpstreamError, configFromEnv, parseApiUrl, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
 
 export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command line (JSON output, no prompts)
 
@@ -8,19 +8,25 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict market <outcome>
   verdict book <outcome>
   verdict quote <outcome> --side yes|no --action buy|sell --size <tokens>
+  verdict recent-trades <outcome> [--side yes|no]
+  verdict candles <outcome> --side yes|no --interval <1m|3m|5m|15m|30m|1h|2h|4h|8h|12h|1d|3d|1w|1M> --lookback <minutes>
   verdict compare <outcome>
   verdict fair-value <outcome>
   verdict hedges <outcome>
   verdict opportunities [--limit <1..8>]
   verdict positions <address>
+  verdict fills <address>
+  verdict open-orders <address>
+  verdict order-status <address> <oid>
   verdict builder-status <address>
   verdict approve-builder-fee-payload
   verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo] [--cloid 0x<32 hex>]
 
-Options: --pretty indents the JSON. --api <url> answers markets, market, compare, fair-value, hedges and opportunities from the hosted Verdict API at <url> (https://hyperverdict.xyz/api/v1 in production; the same as VERDICT_API_URL, which the flag overrides); book, quote, positions, builder-status and the payload commands run locally either way. Without either, the embedded engine runs. A blank --api is refused (exit 1): to run one command on the embedded engine, run it with VERDICT_API_URL unset or blank.
+Options: --pretty indents the JSON. --api <url> answers markets, market, compare, fair-value, hedges and opportunities from the hosted Verdict API at <url> (https://hyperverdict.xyz/api/v1 in production; the same as VERDICT_API_URL, which the flag overrides); book, quote, recent-trades, candles, positions, fills, open-orders, order-status, builder-status and the payload commands run locally either way. Without either, the embedded engine runs. A blank --api is refused (exit 1): to run one command on the embedded engine, run it with VERDICT_API_URL unset or blank.
 Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE (a deployer venue; unset, blank or all: every deployer), VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP, VERDICT_API_URL (hosted mode, see --api).
 Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare and opportunities call, so never set it on a hosted server.
 Exit codes: 0 ok, 1 usage, 2 not found, 3 upstream error, 4 not configured.
+recent-trades reads one side (YES unless --side is given): the YES and NO coins print the same fills at p and 1 - p. candles is exit 2 for a side that has never traded (Hyperliquid keeps no candles for it). <oid> is an order id or a client order id (0x + 32 hex).
 compare, fair-value, hedges and opportunities run the Verdict app's cross-venue engine (Polymarket, Kalshi, Deribit are read, never traded).
 A low-confidence match is reported with its caveat and reasons; the price gap is omitted, never printed as a bare number.
 approve-builder-fee-payload and build-order print UNSIGNED payloads. Show the confirmation lines and wait for an explicit yes before signing.
@@ -42,6 +48,8 @@ const OPTIONS = {
   tif: { type: 'string' },
   cloid: { type: 'string' },
   limit: { type: 'string' },
+  interval: { type: 'string' },
+  lookback: { type: 'string' },
   api: { type: 'string' },
   pretty: { type: 'boolean', default: false },
   help: { type: 'boolean', default: false },
@@ -97,7 +105,7 @@ export async function runCli(argv: readonly string[], config?: KitConfig, tools?
     return { exitCode: 1, stdout: '', stderr: `${e instanceof Error ? e.message : String(e)}\n\n${USAGE}` };
   }
   const { values, positionals } = parsed;
-  const [cmd, arg] = positionals;
+  const [cmd, arg, arg2] = positionals;
   if (values.help || !cmd) return { exitCode: values.help ? 0 : 1, stdout: values.help ? USAGE : '', stderr: values.help ? '' : USAGE };
   const emit = (v: unknown) => `${values.pretty ? JSON.stringify(v, null, 2) : JSON.stringify(v)}\n`;
   let apiOverride: string | undefined;
@@ -143,6 +151,27 @@ export async function runCli(argv: readonly string[], config?: KitConfig, tools?
       }
       case 'positions':
         return { exitCode: 0, stdout: emit(await resolved.positions({ address: need(arg, 'address') })), stderr: '' };
+      case 'recent-trades':
+        return { exitCode: 0, stdout: emit(await resolved.recent_trades({ outcome: outcomeArg(arg), side: values.side })), stderr: '' };
+      case 'candles': {
+        const interval = need(values.interval, 'interval');
+        if (!(CANDLE_INTERVALS as readonly string[]).includes(interval)) throw new ToolError(`--interval must be one of ${CANDLE_INTERVALS.join(', ')}, got ${JSON.stringify(interval.slice(0, 16))}`, 'bad_input');
+        const lookbackRaw = need(values.lookback, 'lookback');
+        const lookback = Number(lookbackRaw);
+        if (!/^\d+$/.test(lookbackRaw) || !Number.isInteger(lookback)) throw new ToolError(`--lookback must be a whole number of minutes, got ${JSON.stringify(lookbackRaw.slice(0, 16))}`, 'bad_input');
+        return { exitCode: 0, stdout: emit(await resolved.candles({ outcome: outcomeArg(arg), side: need(values.side, 'side'), interval, lookbackMinutes: lookback })), stderr: '' };
+      }
+      case 'fills':
+        return { exitCode: 0, stdout: emit(await resolved.fills({ address: need(arg, 'address') })), stderr: '' };
+      case 'open-orders':
+        return { exitCode: 0, stdout: emit(await resolved.open_orders({ address: need(arg, 'address') })), stderr: '' };
+      case 'order-status': {
+        if (arg2 === undefined || arg2 === '') throw new ToolError('<oid> is required: an order id, or a client order id as 0x followed by 32 hex characters', 'bad_input');
+        const oidRaw = arg2;
+        // A run of digits is an order id; anything else is handed over as a client order id and checked by the tool.
+        const oid = /^\d+$/.test(oidRaw) ? Number(oidRaw) : oidRaw;
+        return { exitCode: 0, stdout: emit(await resolved.order_status({ address: need(arg, 'address'), oid })), stderr: '' };
+      }
       case 'builder-status':
         return { exitCode: 0, stdout: emit(await resolved.builder_status({ address: need(arg, 'address') })), stderr: '' };
       case 'approve-builder-fee-payload':

@@ -1,7 +1,7 @@
 // Read-only Hyperliquid info client. No signing lives here, on purpose (GOAL.md hard rules).
 import type { z } from 'zod';
 import { networkConfig, type Network, type NetworkConfig } from '../network.js';
-import { AllMids, L2Book, MaxBuilderFee, OutcomeMeta, OutcomeTemplates, SpotClearinghouseState, SpotMetaAndAssetCtxs } from './schemas.js';
+import { AllMids, CandleSnapshot, FrontendOpenOrders, L2Book, MaxBuilderFee, OpenOrders, OrderStatus, OutcomeMeta, OutcomeTemplates, RecentTrades, SpotClearinghouseState, SpotMetaAndAssetCtxs, UserFills } from './schemas.js';
 
 export interface InfoClientOptions {
   readonly network?: Network;
@@ -121,5 +121,35 @@ export class InfoClient {
   /** Mid price of every coin, used for the underlying reference mids (BTC, ETH, SOL, HYPE) of hedges. */
   allMids() {
     return this.post({ type: 'allMids' }, AllMids);
+  }
+
+  /** The venue's most recent prints of one coin, newest first. An unknown coin is HTTP 500 upstream, so callers resolve the market first. */
+  recentTrades(coin: string) {
+    return this.post({ type: 'recentTrades', coin }, RecentTrades);
+  }
+
+  /** Candles of one coin over a window, oldest first; `[]` for a coin that never traded. An interval outside Hyperliquid's set is HTTP 422 upstream, so callers check it first. */
+  candleSnapshot(req: { coin: string; interval: string; startTime: number; endTime: number }) {
+    return this.post({ type: 'candleSnapshot', req }, CandleSnapshot);
+  }
+
+  /** The address's most recent fills across every coin, newest first, at most 2,000. */
+  userFills(user: string) {
+    return this.post({ type: 'userFills', user }, UserFills);
+  }
+
+  /** Resting orders with type, time in force and client id. */
+  frontendOpenOrders(user: string) {
+    return this.post({ type: 'frontendOpenOrders', user }, FrontendOpenOrders);
+  }
+
+  /** Resting orders in the plain form (no type, time in force or client id): the fallback when frontendOpenOrders is unavailable. */
+  openOrders(user: string) {
+    return this.post({ type: 'openOrders', user }, OpenOrders);
+  }
+
+  /** One order by its id, or by its client order id as a `0x` + 32 hex string. */
+  orderStatus(user: string, oid: number | string) {
+    return this.post({ type: 'orderStatus', user, oid }, OrderStatus);
   }
 }

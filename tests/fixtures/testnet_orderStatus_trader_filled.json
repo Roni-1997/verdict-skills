@@ -1,0 +1,25 @@
+{
+ "status": "order",
+ "order": {
+  "order": {
+   "coin": "#104741",
+   "side": "B",
+   "limitPx": "0.756",
+   "sz": "0.0",
+   "oid": 60123639947,
+   "timestamp": 1789409230191,
+   "triggerCondition": "N/A",
+   "isTrigger": false,
+   "triggerPx": "0.0",
+   "children": [],
+   "isPositionTpsl": false,
+   "reduceOnly": false,
+   "orderType": "Limit",
+   "origSz": "15.0",
+   "tif": "Ioc",
+   "cloid": "0xa638f7c5c92a6ac186872360e3086040"
+  },
+  "status": "filled",
+  "statusTimestamp": 1789409230191
+ }
+}

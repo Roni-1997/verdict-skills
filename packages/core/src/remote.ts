@@ -1,12 +1,12 @@
 // Hosted mode. The Verdict API (GET https://hyperverdict.xyz/api/v1, contract pinned under packages/core/api-contract)
-// serves six of the twelve tools with bodies that match this kit's results field for field; createRemoteTools answers
+// serves six of the seventeen tools with bodies that match this kit's results field for field; createRemoteTools answers
 // list_markets, get_market, compare_market, fair_value, find_hedges and opportunities from it and validates every body
 // with the same Zod result schemas the embedded tools return through. So a hosted MCP server needs neither the engine's
 // venue fetches nor Hyperliquid's catalogue for those, and the API's error slugs come back as the kit's own errors:
 // bad_input and not_found as ToolError, 429, 5xx and a network or timeout failure as UpstreamError.
-// The other six tools (orderbook, quote, positions, builder_status, approve_builder_fee_payload, build_order) keep
-// running locally through createTools, unchanged: books and balances are read from Hyperliquid directly and payloads
-// are built in process. Every request here is an anonymous GET to the configured base URL and nowhere else: a redirect
+// The other eleven tools (orderbook, quote, positions, recent_trades, candles, fills, open_orders, order_status,
+// builder_status, approve_builder_fee_payload, build_order) keep running locally through createTools, unchanged: books,
+// balances, trades, candles, fills and orders are read from Hyperliquid directly and payloads are built in process. Every request here is an anonymous GET to the configured base URL and nowhere else: a redirect
 // is refused rather than followed (it could leave the https host parseApiUrl accepted), a body larger than
 // REMOTE_MAX_BODY_BYTES is refused (unread when the server declares its length, otherwise the read stops at the
 // limit), and the API holds no keys and this module sends none. A body that passes its schema is also checked against
@@ -27,7 +27,7 @@ import { ToolError, type ToolOptions, type Tools, checkLimit, checkOutcome, chec
 /** The tools the API serves; every other tool runs locally in hosted mode too. */
 export const REMOTE_TOOLS = ['list_markets', 'get_market', 'compare_market', 'fair_value', 'find_hedges', 'opportunities'] as const satisfies readonly (keyof Tools)[];
 export type RemoteToolName = (typeof REMOTE_TOOLS)[number];
-export const LOCAL_TOOLS = ['orderbook', 'quote', 'positions', 'builder_status', 'approve_builder_fee_payload', 'build_order'] as const satisfies readonly (keyof Tools)[];
+export const LOCAL_TOOLS = ['orderbook', 'quote', 'positions', 'recent_trades', 'candles', 'fills', 'open_orders', 'order_status', 'builder_status', 'approve_builder_fee_payload', 'build_order'] as const satisfies readonly (keyof Tools)[];
 
 /** Route under the API base per remote tool. */
 export const REMOTE_ROUTES: Record<RemoteToolName, string> = {
@@ -272,7 +272,7 @@ export function createRemoteTools(config: KitConfig, opts: RemoteToolsOptions): 
 }
 
 export interface ToolsFromConfigOptions {
-  /** Hyperliquid client for the local tools (every tool in embedded mode, the six local ones in hosted mode). */
+  /** Hyperliquid client for the local tools (every tool in embedded mode, the eleven local ones in hosted mode). */
   readonly client?: InfoClient;
   /** Embedded mode: the cross-venue engine's fetch budget and scan size. */
   readonly engine?: EngineOptions;

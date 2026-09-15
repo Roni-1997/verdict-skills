@@ -15,6 +15,22 @@ import {
   type OpportunitiesResult,
   opportunities as scanOpportunities,
 } from './crossvenue.js';
+import {
+  CANDLE_INTERVALS,
+  type CandleInterval,
+  type CandlesResult,
+  candles as readCandles,
+  type FillsResult,
+  fills as readFills,
+  isCandleInterval,
+  MAX_LOOKBACK_MINUTES,
+  type OpenOrdersResult,
+  openOrders as readOpenOrders,
+  type OrderStatusResult,
+  orderStatus as lookupOrder,
+  type RecentTradesResult,
+  recentTrades as readRecentTrades,
+} from './data.js';
 import { InfoClient } from './hl/client.js';
 import { type Catalog, getMarket, listMarkets, loadCatalog, type Market, marketFromCatalog } from './markets.js';
 import { networkConfig } from './network.js';
@@ -44,6 +60,11 @@ export interface Tools {
   find_hedges(input: { outcome: number }): Promise<FindHedgesResult>;
   opportunities(input: { limit?: number | undefined }): Promise<OpportunitiesResult>;
   positions(input: { address: string }): Promise<{ address: string; positions: OutcomePosition[] }>;
+  recent_trades(input: { outcome: number; side?: SideInput | undefined }): Promise<RecentTradesResult>;
+  candles(input: { outcome: number; side: SideInput; interval: string; lookbackMinutes: number }): Promise<CandlesResult>;
+  fills(input: { address: string }): Promise<FillsResult>;
+  open_orders(input: { address: string }): Promise<OpenOrdersResult>;
+  order_status(input: { address: string; oid: number | string }): Promise<OrderStatusResult>;
   builder_status(input: { address: string }): Promise<{ address: string; builder: string; approvedMaxTenthsBp: number; requiredTenthsBp: number; approved: boolean; nextStep: string }>;
   approve_builder_fee_payload(input: Record<string, never>): Promise<ReturnType<typeof approveBuilderFeePayload> & { confirmation: string[] }>;
   build_order(input: { outcome: number; side: SideInput; action: 'buy' | 'sell'; price: string; size: string; tif?: TimeInForce | undefined; cloid?: `0x${string}` | undefined }): Promise<BuiltOrder>;
@@ -86,6 +107,45 @@ export function checkLimit(limit: number | undefined): number {
     throw new ToolError(`limit must be an integer between 1 and ${OPPORTUNITIES_ENGINE_MAX} (the engine ranks at most ${OPPORTUNITIES_ENGINE_MAX} markets per scan)`, 'bad_input');
   }
   return n;
+}
+
+/** A 20-byte hex address, the form every Hyperliquid `user` field takes. */
+export const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** A client order id: 16 bytes as `0x` + 32 hex characters, the form build_order accepts and orderStatus looks up. */
+export const CLOID = /^0x[0-9a-fA-F]{32}$/;
+
+/**
+ * The address the trade and order tools read. Checked before any request (Hyperliquid answers HTTP 422 to anything
+ * else, as an upstream error). The message repeats no part of the value: a key pasted where an address belongs is
+ * exactly what a malformed address looks like, and the message reaches stderr and transcripts.
+ */
+export function checkAddress(address: string): string {
+  const a = typeof address === 'string' ? address.trim() : '';
+  if (!ADDRESS.test(a)) throw new ToolError(`address must be 0x followed by 40 hex characters (a 20-byte address); got a ${typeof address === 'string' ? `${address.length}-character` : typeof address} value, not repeated here`, 'bad_input');
+  return a;
+}
+
+/** One of Hyperliquid's candle intervals (CANDLE_INTERVALS); anything else would be HTTP 422 upstream. */
+export function checkInterval(interval: string): CandleInterval {
+  if (typeof interval !== 'string' || !isCandleInterval(interval)) {
+    throw new ToolError(`interval must be one of ${CANDLE_INTERVALS.join(', ')} (Hyperliquid's candle intervals), got ${JSON.stringify(String(interval).slice(0, 16))}`, 'bad_input');
+  }
+  return interval;
+}
+
+/** The candle lookback: an integer number of minutes from 1 to MAX_LOOKBACK_MINUTES. */
+export function checkLookback(minutes: number): number {
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_LOOKBACK_MINUTES) {
+    throw new ToolError(`lookbackMinutes must be an integer between 1 and ${MAX_LOOKBACK_MINUTES} (366 days), got ${String(minutes)}`, 'bad_input');
+  }
+  return minutes;
+}
+
+/** An order id (a nonnegative safe integer) or a client order id (`0x` + 32 hex characters), the two forms orderStatus looks up. */
+export function checkOid(oid: number | string): number | string {
+  if (typeof oid === 'number' && Number.isSafeInteger(oid) && oid >= 0) return oid;
+  if (typeof oid === 'string' && CLOID.test(oid)) return oid;
+  throw new ToolError(`oid must be a nonnegative integer order id, or a client order id as 0x followed by 32 hex characters, got ${JSON.stringify(String(oid).slice(0, 40))}`, 'bad_input');
 }
 
 export function resolveSide(market: Market, side: SideInput): 0 | 1 {
@@ -175,6 +235,45 @@ export function createTools(config: KitConfig, client: InfoClient = new InfoClie
 
     async positions(input) {
       return { address: input.address, positions: await readPositions(client, input.address) };
+    },
+
+    async recent_trades(input) {
+      const m = await requireMarket(input.outcome);
+      const side = input.side === undefined ? 0 : resolveSide(m, input.side);
+      return readRecentTrades(client, m, side);
+    },
+
+    async candles(input) {
+      checkOutcome(input.outcome);
+      const interval = checkInterval(input.interval);
+      const lookback = checkLookback(input.lookbackMinutes);
+      const m = await requireMarket(input.outcome);
+      const side = resolveSide(m, input.side);
+      const r = await readCandles(client, m, side, interval, lookback);
+      if (r.count === 0) {
+        throw new ToolError(
+          `no candles for ${r.coin} (outcome ${m.outcome}, side ${side}) at ${interval} over the last ${lookback} minutes on ${config.network}: Hyperliquid keeps candles for an outcome coin from its first trade on, and answers an empty list for a coin that has never traded or a window before that trade`,
+          'not_found',
+        );
+      }
+      return r;
+    },
+
+    async fills(input) {
+      return readFills(client, checkAddress(input.address));
+    },
+
+    async open_orders(input) {
+      return readOpenOrders(client, checkAddress(input.address));
+    },
+
+    async order_status(input) {
+      const address = checkAddress(input.address);
+      const oid = checkOid(input.oid);
+      const r = await lookupOrder(client, address, oid);
+      if (r.kind === 'unknown') throw new ToolError(`no order ${String(oid)} for ${address} on ${config.network} (Hyperliquid answered unknownOid)`, 'not_found');
+      if (r.kind === 'not_outcome') throw new ToolError(`order ${String(oid)} of ${address} on ${config.network} is on ${r.coin} (status ${r.status}), not an outcome market; the kit reads outcome orders only`, 'not_found');
+      return r.result;
     },
 
     async builder_status(input) {
@@ -278,6 +377,36 @@ export const TOOL_DOCS: Record<keyof Tools, { title: string; description: string
   positions: {
     title: 'Positions',
     description: 'Outcome-token balances held by an address. Read only.',
+    readOnly: true,
+  },
+  recent_trades: {
+    title: 'Recent trades',
+    description:
+      "Hyperliquid's most recent prints on one side of a market (YES unless a side is given), newest first: time, price, size, whether the taker bought, transaction hash and trade id. The YES and NO coins print the same fills (same hash, price p on YES is 1 - p on NO, taker side flipped), so one side is read. Read only. No account needed.",
+    readOnly: true,
+  },
+  candles: {
+    title: 'Candles',
+    description:
+      "Open, high, low, close, volume and trade count per bucket for one side of a market over a lookback in minutes, oldest first, at one of Hyperliquid's intervals: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M. Hyperliquid keeps candles for an outcome coin from its first trade on; a coin that has never traded has none, and the tool answers not_found with that reason rather than an empty series. About the most recent 5,000 candles of a window at most. Read only.",
+    readOnly: true,
+  },
+  fills: {
+    title: 'Fills',
+    description:
+      "The outcome-market fills of an address, newest first, out of Hyperliquid's most recent 2,000 fills across every coin: market and side, buy or sell, price, size, fee and builder fee when the order carried a builder code, order id, client order id, transaction hash. Lifecycle events Hyperliquid books as fills (Split Outcome, Merge Outcome, Settlement and the like) are carried with their dir word. Read only. Any address can be read; no key is involved.",
+    readOnly: true,
+  },
+  open_orders: {
+    title: 'Open orders',
+    description:
+      'Resting orders of an address on outcome markets, newest first: market and side, buy or sell, limit price, remaining and original size, order type, time in force, client order id. Read from frontendOpenOrders; when that endpoint is unavailable the plain openOrders list is read and the result says so (type, time in force and client id are then null). Read only.',
+    readOnly: true,
+  },
+  order_status: {
+    title: 'Order status',
+    description:
+      "One order of an address by order id (integer) or client order id (0x + 32 hex): Hyperliquid's lifecycle status (open, filled, canceled, triggered, rejected, ...), when it was reached, and the order itself. An id the address never had, or an order on a perp or spot coin rather than an outcome market, is not_found with the reason. Read only.",
     readOnly: true,
   },
   builder_status: {

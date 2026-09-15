@@ -18,7 +18,16 @@ function fakeFetch(routes: Record<string, unknown>): typeof fetch {
   return (async (_url: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, string | undefined>;
     const type = body.type ?? '';
-    const key = type === 'l2Book' ? `l2Book:${body.coin ?? ''}` : type === 'maxBuilderFee' ? `maxBuilderFee:${body.user ?? ''}` : type;
+    const key =
+      type === 'l2Book' || type === 'recentTrades'
+        ? `${type}:${body.coin ?? ''}`
+        : type === 'candleSnapshot'
+          ? `candleSnapshot:${(body.req as unknown as { coin: string } | undefined)?.coin ?? ''}`
+          : type === 'maxBuilderFee' || type === 'userFills' || type === 'frontendOpenOrders' || type === 'openOrders'
+            ? `${type}:${body.user ?? ''}`
+            : type === 'orderStatus'
+              ? `orderStatus:${body.user ?? ''}:${String(body.oid)}`
+              : type;
     if (!(key in routes)) return new Response('null', { status: 404 });
     return new Response(JSON.stringify(routes[key]), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
@@ -26,6 +35,9 @@ function fakeFetch(routes: Record<string, unknown>): typeof fetch {
 
 const APPROVED = '0x00000000000000000000000000000000000000a1';
 const UNAPPROVED = '0x00000000000000000000000000000000000000a2';
+/** Public testnet addresses from recentTrades output (tests/fixtures/record.py); their fills and orders are replayed here as data, whatever the configured network. */
+const TRADER = '0xa98361b7c825e8ee9434b433d58d6126d2ccd04e';
+const MAKER = '0x876fa87b4d3818f437f38f1263bee508d7672d85';
 
 const routes = {
   outcomeMeta: fixture('mainnet_outcomeMeta'),
@@ -35,6 +47,13 @@ const routes = {
   spotClearinghouseState: fixture('testnet_spotClearinghouseState_subdeployer'),
   [`maxBuilderFee:${APPROVED}`]: 10,
   [`maxBuilderFee:${UNAPPROVED}`]: 0,
+  'recentTrades:#12100': fixture('mainnet_recentTrades_12100'),
+  'candleSnapshot:#12100': fixture('mainnet_candleSnapshot_12100_1h'),
+  [`userFills:${TRADER}`]: fixture('testnet_userFills_trader'),
+  [`frontendOpenOrders:${MAKER}`]: fixture('testnet_frontendOpenOrders_maker'),
+  [`orderStatus:${MAKER}:55896593277`]: fixture('testnet_orderStatus_maker_open'),
+  [`orderStatus:${MAKER}:1`]: fixture('testnet_orderStatus_maker_unknown'),
+  [`orderStatus:${TRADER}:0xa638f7c5c92a6ac186872360e3086040`]: fixture('testnet_orderStatus_trader_filled'),
 };
 
 const config: KitConfig = { network: 'mainnet', venue: 'out', builder: { address: '0x00000000000000000000000000000000000000b1', feeTenthsBp: 10 }, apiUrl: null };
@@ -122,6 +141,57 @@ describe('CLI face', () => {
     } finally {
       restore();
     }
+  });
+  it('recent-trades reads YES by default, candles takes an interval from the venue set and a whole number of minutes', async () => {
+    const trades = await runCli(['recent-trades', '1210'], config, tools);
+    expect(trades.exitCode, trades.stderr).toBe(0);
+    expect(JSON.parse(trades.stdout)).toMatchObject({ outcome: 1210, side: 0, coin: '#12100', count: 10 });
+    expect((await runCli(['recent-trades', '1210', '--side', 'maybe'], config, tools)).exitCode).toBe(1);
+    const candles = await runCli(['candles', '1210', '--side', 'yes', '--interval', '1h', '--lookback', '1440'], config, tools);
+    expect(candles.exitCode, candles.stderr).toBe(0);
+    const c = JSON.parse(candles.stdout) as { interval: string; count: number; candles: { open: number }[] };
+    expect(c.interval).toBe('1h');
+    expect(c.count).toBe(24);
+    expect(c.candles[0]?.open).toBe(0.01851);
+    for (const bad of [
+      ['candles', '1210', '--side', 'yes', '--interval', '7m', '--lookback', '60'],
+      ['candles', '1210', '--side', 'yes', '--interval', '1h', '--lookback', 'abc'],
+      ['candles', '1210', '--side', 'yes', '--interval', '1h', '--lookback', '1.5'],
+      ['candles', '1210', '--side', 'yes', '--lookback', '60'],
+      ['candles', '1210', '--interval', '1h', '--lookback', '60'],
+    ]) {
+      const r = await runCli(bad, config, tools);
+      expect(r.exitCode, bad.join(' ')).toBe(1);
+      expect(JSON.parse(r.stderr)).toMatchObject({ error: 'bad_input' });
+    }
+    expect((await runCli(['candles', '1210', '--side', 'yes', '--interval', '7m', '--lookback', '60'], config, tools)).stderr).toContain('--interval');
+    expect((await runCli(['candles', '1210', '--side', 'yes', '--interval', '1h', '--lookback', 'abc'], config, tools)).stderr).toContain('--lookback');
+  });
+  it('fills, open-orders and order-status read an address; a malformed address is exit 1 and not echoed; an unknown order is exit 2', async () => {
+    const fills = await runCli(['fills', TRADER], config, tools);
+    expect(fills.exitCode, fills.stderr).toBe(0);
+    expect(JSON.parse(fills.stdout)).toMatchObject({ address: TRADER, scanned: 328, count: 56 });
+    const bad = await runCli(['fills', '0x123'], config, tools);
+    expect(bad.exitCode).toBe(1);
+    expect(JSON.parse(bad.stderr)).toMatchObject({ error: 'bad_input' });
+    expect(bad.stderr).not.toContain('0x123');
+    expect((await runCli(['fills'], config, tools)).exitCode).toBe(1);
+    const orders = await runCli(['open-orders', MAKER], config, tools);
+    expect(orders.exitCode, orders.stderr).toBe(0);
+    expect(JSON.parse(orders.stdout)).toMatchObject({ address: MAKER, source: 'frontendOpenOrders', count: 1 });
+    const open = await runCli(['order-status', MAKER, '55896593277'], config, tools);
+    expect(open.exitCode, open.stderr).toBe(0);
+    expect(JSON.parse(open.stdout)).toMatchObject({ oid: 55896593277, status: 'open', order: { coin: '#104740', tif: 'Gtc' } });
+    const byCloid = await runCli(['order-status', TRADER, '0xa638f7c5c92a6ac186872360e3086040'], config, tools);
+    expect(byCloid.exitCode, byCloid.stderr).toBe(0);
+    expect(JSON.parse(byCloid.stdout)).toMatchObject({ oid: '0xa638f7c5c92a6ac186872360e3086040', status: 'filled' });
+    const unknown = await runCli(['order-status', MAKER, '1'], config, tools);
+    expect(unknown.exitCode).toBe(2);
+    expect(JSON.parse(unknown.stderr)).toMatchObject({ error: 'not_found' });
+    const missing = await runCli(['order-status', MAKER], config, tools);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain('<oid> is required');
+    expect((await runCli(['order-status', MAKER, 'abc'], config, tools)).exitCode).toBe(1);
   });
   it('reports builder approval status with a next step', async () => {
     const yes = JSON.parse((await runCli(['builder-status', APPROVED], config, tools)).stdout) as { approved: boolean };
@@ -242,13 +312,19 @@ describe('MCP face', () => {
     await Promise.all([server.connect(a), client.connect(b)]);
     return { server, client };
   }
-  it('exposes the twelve tools with read-only annotations on the read tools', async () => {
+  it('exposes the seventeen tools with read-only annotations on the read tools', async () => {
     const { client } = await connect();
     const { tools: listed } = await client.listTools();
     const names = listed.map((t) => t.name).sort();
-    expect(names).toEqual(['approve_builder_fee_payload', 'build_order', 'builder_status', 'compare_market', 'fair_value', 'find_hedges', 'get_market', 'list_markets', 'opportunities', 'orderbook', 'positions', 'quote']);
+    expect(names).toEqual(['approve_builder_fee_payload', 'build_order', 'builder_status', 'candles', 'compare_market', 'fair_value', 'fills', 'find_hedges', 'get_market', 'list_markets', 'open_orders', 'opportunities', 'order_status', 'orderbook', 'positions', 'quote', 'recent_trades']);
     const byName = new Map(listed.map((t) => [t.name, t]));
     expect(byName.get('quote')?.annotations?.readOnlyHint).toBe(true);
+    for (const name of ['recent_trades', 'candles', 'fills', 'open_orders', 'order_status']) {
+      expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
+      expect(byName.get(name)?.description, name).toContain('Read only');
+    }
+    const candles = byName.get('candles')?.inputSchema as { properties?: { interval?: { enum?: string[] } } } | undefined;
+    expect(candles?.properties?.interval?.enum).toEqual(['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '8h', '12h', '1d', '3d', '1w', '1M']);
     expect(byName.get('build_order')?.annotations?.readOnlyHint).toBe(false);
     expect(byName.get('build_order')?.description).toContain('wait for an explicit yes');
   });
@@ -265,6 +341,28 @@ describe('MCP face', () => {
     expect(missing.isError).toBe(true);
     const text = (missing.content as { type: string; text: string }[])[0]?.text ?? '';
     expect(JSON.parse(text)).toMatchObject({ error: 'not_found' });
+  });
+  it('the trade and order tools answer structured content; an interval outside the venue set never reaches the tool', async () => {
+    const { client } = await connect();
+    const trades = await client.callTool({ name: 'recent_trades', arguments: { outcome: 1210 } });
+    expect(trades.isError).toBeFalsy();
+    expect(trades.structuredContent).toMatchObject({ coin: '#12100', side: 0, count: 10 });
+    const candles = await client.callTool({ name: 'candles', arguments: { outcome: 1210, side: 'yes', interval: '1h', lookbackMinutes: 1440 } });
+    expect(candles.isError).toBeFalsy();
+    expect(candles.structuredContent).toMatchObject({ interval: '1h', count: 24 });
+    // The MCP input schema is the venue's interval list, so a bad interval is refused by the SDK before the tool runs (an error result or a JSON-RPC error, by SDK version).
+    const refused = await client.callTool({ name: 'candles', arguments: { outcome: 1210, side: 'yes', interval: '7m', lookbackMinutes: 60 } }).then((r) => r.isError === true, () => true);
+    expect(refused).toBe(true);
+    const fills = await client.callTool({ name: 'fills', arguments: { address: TRADER } });
+    expect(fills.structuredContent).toMatchObject({ count: 56 });
+    const orders = await client.callTool({ name: 'open_orders', arguments: { address: MAKER } });
+    expect(orders.structuredContent).toMatchObject({ source: 'frontendOpenOrders', count: 1 });
+    const status = await client.callTool({ name: 'order_status', arguments: { address: TRADER, oid: '0xa638f7c5c92a6ac186872360e3086040' } });
+    expect(status.isError).toBeFalsy();
+    expect(status.structuredContent).toMatchObject({ status: 'filled', order: { tif: 'Ioc' } });
+    const unknown = await client.callTool({ name: 'order_status', arguments: { address: MAKER, oid: 1 } });
+    expect(unknown.isError).toBe(true);
+    expect(JSON.parse((unknown.content as { text: string }[])[0]?.text ?? '')).toMatchObject({ error: 'not_found' });
   });
 });
 
