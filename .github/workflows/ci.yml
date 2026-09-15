@@ -29,8 +29,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: check
         env:
-          # The engine and API contract checks compare the pinned copies against GitHub through the gh CLI.
+          # The engine and API contract pins point at Roni-1997/verdict, which is private, so this
+          # workflow's token cannot read it (HTTP 404). The recorded sha256 leg still runs here;
+          # the GitHub comparison runs on every maintainer machine with access (pnpm run check).
           GH_TOKEN: ${{ github.token }}
+          CHECK_ENGINE_OFFLINE: '1'
         run: pnpm run check
       - name: bench:static
         run: pnpm run bench:static

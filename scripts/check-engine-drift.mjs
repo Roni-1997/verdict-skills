@@ -80,6 +80,7 @@ for (const f of upstream.files) {
     const kind = e instanceof GithubFetchError ? e.kind : 'error';
     const message = e instanceof Error ? e.message : String(e);
     if (kind === 'unavailable') unavailable = message;
+    else if (kind === 'not_found' && offlineAllowed) process.stdout.write(`skip  ${f.upstream}@${upstream.commit.slice(0, 12)}: not readable by this GitHub account (HTTP 404); the recorded sha256 above is the guard here, and a run with access to ${upstream.repo} performs the GitHub comparison\n`);
     else if (kind === 'not_found') fail(`${f.upstream}@${upstream.commit}: not found on GitHub (HTTP 404): the pinned commit or path does not exist in ${upstream.repo}, or this gh account cannot see the repository. Not skippable. ${message}`);
     else fail(`${f.upstream}@${upstream.commit}: GitHub comparison failed: ${message}`);
   }
