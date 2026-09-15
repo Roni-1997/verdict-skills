@@ -166,6 +166,17 @@ describe('api contract pin', () => {
       expect(r.stdout).toContain('api contract: 1 problem(s)');
     }
   });
+  it('a private upstream this account cannot read fails by default and is skipped, saying so, only under CHECK_ENGINE_OFFLINE=1', () => {
+    const dir = fakeGh('unreadable');
+    const closed = check(dir, false);
+    expect(closed.status, closed.stdout).toBe(1);
+    expect(closed.stdout).toContain('FAIL  GitHub comparison could not run: repository Roni-1997/verdict is not readable by this GitHub account (HTTP 404 on the repository itself)');
+    const open = check(dir, true);
+    expect(open.status, open.stdout).toBe(0);
+    expect(open.stdout).toContain('skip  GitHub comparison skipped (CHECK_ENGINE_OFFLINE=1): repository Roni-1997/verdict is not readable by this GitHub account');
+    expect(open.stdout).toContain('api contract: no drift');
+    expect(open.stdout).not.toContain('compared against GitHub');
+  });
   it('gh offline or not authenticated fails by default and is skipped, saying so, only under CHECK_ENGINE_OFFLINE=1', () => {
     for (const mode of ['offline', 'unauthenticated'] as const) {
       const dir = fakeGh(mode);

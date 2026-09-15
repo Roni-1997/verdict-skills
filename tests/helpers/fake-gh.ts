@@ -12,7 +12,7 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 /** The pin records whose files the fake serves: the engine's and the API contract's. */
 export const PIN_RECORDS = ['packages/engine/UPSTREAM.json', 'packages/core/api-contract/UPSTREAM.json'] as const;
 
-export type FakeGhMode = 'serve' | 'not_found' | 'offline' | 'unauthenticated';
+export type FakeGhMode = 'serve' | 'not_found' | 'unreadable' | 'offline' | 'unauthenticated';
 
 /** Returns the directory to put on PATH (alone, so the real gh is never reached). */
 export function fakeGh(mode: FakeGhMode, records: readonly string[] = PIN_RECORDS): string {
@@ -31,7 +31,15 @@ export function fakeGh(mode: FakeGhMode, records: readonly string[] = PIN_RECORD
       "const sha = createHash('sha1').update('blob ' + bytes.length + '\\0').update(bytes).digest('hex');",
       "process.stdout.write(JSON.stringify({ encoding: 'base64', content: bytes.toString('base64'), sha }));",
     ].join('\n'),
-    not_found: "process.stderr.write('gh: No commit found for the ref 0000000000000000000000000000000000000000 (HTTP 404)\\n'); process.exit(1);",
+    // A readable repository whose pinned commit or path does not exist: the repository probe (`gh api repos/<repo>`)
+    // succeeds, only the contents call is 404. Never skipped by the checks.
+    not_found: [
+      "if (!/\\/contents\\//.test(process.argv[3] ?? '')) { process.stdout.write('Roni-1997/verdict\\n'); process.exit(0); }",
+      "process.stderr.write('gh: No commit found for the ref 0000000000000000000000000000000000000000 (HTTP 404)\\n'); process.exit(1);",
+    ].join('\n'),
+    // A private repository this account cannot see: GitHub answers 404 to everything, the repository probe included.
+    // The checks classify this as unavailable, so CHECK_ENGINE_OFFLINE=1 may skip it.
+    unreadable: "process.stderr.write('gh: Not Found (HTTP 404)\\n'); process.exit(1);",
     offline: "process.stderr.write('error connecting to api.github.com\\ncheck your internet connection or https://githubstatus.com\\n'); process.exit(1);",
     unauthenticated: "process.stderr.write('To get started with GitHub CLI, please run:  gh auth login\\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.\\n'); process.exit(4);",
   };
