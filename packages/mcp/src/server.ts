@@ -6,7 +6,7 @@ import { registerPrompts } from './prompts.js';
 import { MARKET_URI_TEMPLATE, MARKETS_URI, registerResources } from './resources.js';
 
 export const SERVER_NAME = 'verdict';
-export const SERVER_VERSION = '0.0.0';
+export const SERVER_VERSION = '0.1.0';
 
 const Address = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 20-byte hex address');
 const Side = z.union([z.literal(0), z.literal(1), z.string()]).describe('yes | no | 0 | 1 | a side name');

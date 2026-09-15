@@ -1,13 +1,41 @@
 {
-  "name": "verdict",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@verdict/cli",
+  "version": "0.1.0",
+  "private": false,
   "description": "Verdict CLI: markets, settlement rules, books, quotes, builder codes and unsigned orders for HIP-4 outcome markets",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Roni-1997/verdict-skills.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Roni-1997/verdict-skills#readme",
   "type": "module",
-  "bin": { "verdict": "./dist/bin.js" },
+  "bin": {
+    "verdict": "./dist/bin.js"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
-  "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@verdict/core": "workspace:*" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@verdict/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }
