@@ -1,0 +1,36 @@
+name: CI
+
+# Every push to master and every pull request runs the kit's full check: engine pin drift, API
+# contract drift, types, lint, tests, and the static skill bench. Branch protection on master
+# requires this job to pass before a merge.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: check
+        env:
+          # The engine and API contract checks compare the pinned copies against GitHub through the gh CLI.
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm run check
+      - name: bench:static
+        run: pnpm run bench:static
