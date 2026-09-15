@@ -42,7 +42,8 @@ function argValue(flag) {
 /**
  * Why a GitHub read failed. 'unavailable': gh is not installed, not authenticated, or the network is down; an
  * environmental condition the drift check may skip under CHECK_ENGINE_OFFLINE=1. 'not_found': HTTP 404, the pinned
- * commit or path does not exist (or the account cannot see the repository); never skipped. 'error': anything else.
+ * commit or path does not exist in a repository this account can read; never skipped. A 404 on the repository
+ * itself (private repository, no access) is classified 'unavailable' instead. 'error': anything else.
  */
 export class GithubFetchError extends Error {
   constructor(kind, message) {
@@ -66,7 +67,17 @@ export function fetchGithubFile(repo, path, commit, { timeoutMs = 20_000 } = {})
   }
   if (res.status !== 0) {
     const detail = (res.stderr.trim() || res.stdout.trim() || `exit ${res.status}`).split('\n')[0];
-    if (GH_NOT_FOUND.test(detail)) throw new GithubFetchError('not_found', detail);
+    if (GH_NOT_FOUND.test(detail)) {
+      // A 404 means one of two things: the pinned commit or path does not exist (a real drift failure),
+      // or this account cannot see the repository at all, which GitHub also answers with 404 for private
+      // repositories. Probe the repository itself to tell them apart: unreadable is an environmental
+      // condition (skippable under CHECK_ENGINE_OFFLINE=1), a missing path in a readable repository is not.
+      const probe = spawnSync('gh', ['api', `repos/${repo}`, '--jq', '.full_name'], { encoding: 'utf8', timeout: timeoutMs });
+      if (probe.status !== 0 && GH_NOT_FOUND.test((probe.stderr || probe.stdout || '').trim())) {
+        throw new GithubFetchError('unavailable', `repository ${repo} is not readable by this GitHub account (HTTP 404 on the repository itself)`);
+      }
+      throw new GithubFetchError('not_found', detail);
+    }
     if (GH_UNAVAILABLE.test(detail)) throw new GithubFetchError('unavailable', `gh not authenticated or offline: ${detail}`);
     throw new GithubFetchError('error', `gh api failed for ${path}: ${detail}`);
   }
