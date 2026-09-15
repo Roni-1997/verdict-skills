@@ -1,16 +1,36 @@
 {
   "name": "@verdict/engine",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "private": false,
   "description": "The Verdict app's cross-venue research engine: three files byte for byte from Roni-1997/verdict at a pinned commit, checked by hash on every pnpm run check (see UPSTREAM.json); no engine code is written here (GOAL.md success criteria: a pinned, verified copy counts as imported; a hand-edited one does not)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Roni-1997/verdict-skills.git",
+    "directory": "packages/engine"
+  },
+  "homepage": "https://github.com/Roni-1997/verdict-skills#readme",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "files": ["dist", "UPSTREAM.json"],
+  "files": [
+    "dist",
+    "UPSTREAM.json",
+    "README.md"
+  ],
   "scripts": {
     "build": "node ../../scripts/build-engine.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

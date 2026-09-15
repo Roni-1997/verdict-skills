@@ -69,6 +69,21 @@ Cross-venue results (`compare`, `opportunities`) come with the engine's resoluti
 
 They never prompt, never need an account or a key, and need no confirmation. Run them freely to answer questions. `fills`, `open-orders`, `order-status` and `positions` read public data of any address; nothing about the address is needed beyond the address itself. `recent-trades` reads one side (YES unless `--side` is given) because the YES and NO coins print the same fills at p and 1 - p; `candles` is exit 2 for a side that has never traded, since Hyperliquid keeps no candles for it. `builder-status` needs `VERDICT_BUILDER_ADDRESS` in the environment (exit 4 otherwise) but still no key. `compare`, `fair-value`, `hedges` and `opportunities` read Polymarket, Kalshi and Deribit through the engine and trade on none of them.
 
+## MCP prompts and resources
+
+The MCP face (`verdict-mcp`) registers, next to the tools in the table above, four prompts and two resources. The CLI has no equivalent: a prompt is a sequence of the commands above and a resource is one command's JSON.
+
+| Prompt or resource | What it is |
+|---|---|
+| `scan_and_compare` (`limit` 1 to 8, optional) | `opportunities`, then `compare_market` on the rank 1 market. Read tools only. |
+| `market_brief` (`outcome`) | `get_market`, `orderbook`, `recent_trades`, `compare_market`, `fair_value`, `find_hedges` for one market, as one screen. Read tools only. |
+| `hedge_check` (`address`) | `positions`, then `find_hedges` for each held outcome, direction for YES and the opposite for NO. Read tools only. |
+| `prepare_order` (`outcome`, `side`, `action`, `size`, optional `price`) | `quote`, then `build_order`; the text ends at the confirmation lines and repeats the two-message rule below. The payload stays unsigned; the yes comes in a new message or the flow stops. |
+| `verdict://markets` | `list_markets` as JSON for the configured network and venue. |
+| `verdict://market/{outcome}` | `get_market` as JSON for one outcome index. |
+
+A prompt runs nothing by itself: you call the tools it names, in order, and every rule in this file applies to each step. A low-confidence match stays a caveat and never a bare number, and `prepare_order` follows the two-message rule exactly as `build-order` does.
+
 ## Signable commands: the two-message rule
 
 Applies to `build-order` and `approve-builder-fee-payload`. Both return unsigned payloads; they sign nothing and send nothing. The rule governs what happens around them.

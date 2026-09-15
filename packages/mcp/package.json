@@ -1,16 +1,30 @@
 {
   "name": "@verdict/mcp",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "private": false,
   "description": "Verdict MCP server: the core tool module over stdio and streamable HTTP",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Roni-1997/verdict-skills.git",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/Roni-1997/verdict-skills#readme",
   "type": "module",
   "bin": {
     "verdict-mcp": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json"
@@ -19,5 +33,11 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@verdict/core": "workspace:*",
     "zod": "3.25.76"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

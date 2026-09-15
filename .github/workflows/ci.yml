@@ -1,7 +1,7 @@
 name: CI
 
 # Every push to master and every pull request runs the kit's full check: engine pin drift, API
-# contract drift, types, lint, tests, and the static skill bench. Branch protection on master
+# contract drift, types, lint, the release check, tests, and the static skill bench. Branch protection on master
 # requires this job to pass before a merge.
 on:
   push:

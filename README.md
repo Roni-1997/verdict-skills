@@ -5,9 +5,9 @@ shipped three ways from the same code:
 
 | Face | Package | For |
 |---|---|---|
-| CLI | `packages/cli` (`verdict` on npm) | scripts, bots, and the skill file below |
+| CLI | `packages/cli` (`@verdict/cli`, binary `verdict`) | scripts, bots, and the skill file below |
 | Skill | `skills/verdict/SKILL.md` | Claude Code, Codex, OpenClaw, Hermes and any SKILL.md agent |
-| MCP server | `packages/mcp` | Claude Desktop, Cursor, hosted agents, over stdio or streamable HTTP |
+| MCP server | `packages/mcp` (`@verdict/mcp`, binary `verdict-mcp`) | Claude Desktop, Cursor, hosted agents, over stdio or streamable HTTP |
 
 Every face calls the same functions in `packages/core`. The goal, the rules and the success
 criteria are in [GOAL.md](GOAL.md). The milestone that this repository implements is Phase 11
@@ -122,6 +122,24 @@ bash <repo>/skills/verdict/scripts/install.sh --claude-md
 
 `bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it and removes from `CLAUDE.md` only a verbatim copy of that block. Both are idempotent and never prompt. The installer's only network access is `pnpm install --frozen-lockfile`, which fetches the repository's lockfile-pinned npm dependencies from the npm registry (registry.npmjs.org, integrity-checked against `pnpm-lock.yaml`); it fetches no scripts and pipes nothing from the network into a shell. Neither script replaces or removes a launcher or a skill directory it did not write (its launchers carry a marker comment, its skill copy carries `.repo-dir`). An agent runs either only after the user has said yes ([setup.md](skills/verdict/references/setup.md)).
 
+### MCP prompts and resources
+
+The MCP server also registers four prompts and two read-only resources next to the seventeen tools. A prompt is a deterministic instruction sequence rendered with the configured network and venue: it names the tools to call, in order, and the client runs them; the server runs nothing on a prompt's behalf. Prompt arguments travel as strings and are checked before any text is rendered: `outcome` is 1 to 9 digits, `address` is `0x` plus 40 hex characters, `size` is a positive whole number, `limit` is 1 to 8, `side` is `yes` or `no`, `action` is `buy` or `sell`, `price` is a decimal strictly between 0 and 1 with at most 5 decimals.
+
+| Prompt | Arguments | Sequence |
+|---|---|---|
+| `scan_and_compare` | `limit` (optional, default 8) | `opportunities` with the limit, then `compare_market` on the rank 1 market; a gap is reported only where the tool printed one, always with the confidence and reasons. Read tools only. |
+| `market_brief` | `outcome` | `get_market`, `orderbook`, `recent_trades`, `compare_market`, `fair_value`, `find_hedges` for one market, written as one screen with the settlement rule verbatim. Read tools only. |
+| `hedge_check` | `address` | `positions` for the address, then `find_hedges` for every held outcome, with the direction for YES and the opposite for NO. Read tools only; never a perp or spot order. |
+| `prepare_order` | `outcome`, `side`, `action`, `size`, `price` (optional; without it the quote's worst price) | `quote`, then `build_order`; show the confirmation lines, ask "Confirm or abort?", and end the message. The text repeats the two-message rule in full: the payload is unsigned, only a yes in a new message continues, and the agent signs nothing. |
+
+| Resource | Returns |
+|---|---|
+| `verdict://markets` | The `list_markets` result for the configured network and venue as `application/json`: every live market with its settlement rule, compact JSON, a few hundred markets at most. |
+| `verdict://market/{outcome}` | The `get_market` result for one outcome index as `application/json`: sides, coins, asset ids, settlement rule, expiry, fee scale. A malformed index is a JSON-RPC invalid-params error (`bad_input`), an unknown one `not_found`. |
+
+Both resources need no account; the resource template has no list callback, so `resources/list` stays one entry and the template is found through `resources/templates/list`. The face tests in `tests/faces.test.ts` list and render every prompt and read both resources over an in-memory transport against recorded fixtures.
+
 ### Hosted, streamable HTTP
 
 ```bash
@@ -152,11 +170,11 @@ The API's contract is pinned the way the engine is: `packages/core/api-contract/
 packages/engine the Verdict app's cross-venue engine, byte for byte at a pinned commit (UPSTREAM.json)
 packages/core   the tool module: Hyperliquid client, schemas, tools, trade and order data, engine snapshot adapter, venue payload schemas, hosted-mode tools over the API
 packages/core/api-contract  the Verdict API's OpenAPI document, byte for byte at a pinned app commit (UPSTREAM.json)
-packages/cli    the verdict CLI, JSON by default and --pretty to indent, no prompts
-packages/mcp    the MCP server, stdio and streamable HTTP, thin over core
+packages/cli    the verdict CLI (@verdict/cli), JSON by default and --pretty to indent, no prompts
+packages/mcp    the MCP server (@verdict/mcp), stdio and streamable HTTP, thin over core
 skills/verdict  SKILL.md, references per command and for setup and signing, install and uninstall scripts
 bench           Crypto Skill Bench: how to run it against the skill, the score to beat, dated reports
-scripts         sync-engine, check-engine-drift and build-engine for the pinned engine; sync-api-contract and check-api-contract for the pinned API contract; bench.sh runs the benchmark and skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
+scripts         sync-engine, check-engine-drift and build-engine for the pinned engine; sync-api-contract and check-api-contract for the pinned API contract; release-check verifies the four packages are publishable; bench.sh runs the benchmark and skill-static-check.mjs is its static pre-flight plus safety-rubric text checks
 tests           fixtures recorded from testnet, mainnet, the venues and the production API, tool tests, contract tests, skill and bench tests
 ```
 
@@ -213,9 +231,29 @@ the call only (reference counted across concurrent calls) and restored afterward
 validated by `InfoClient` and pass through untouched. Tests replay recorded venue payloads from
 `tests/fixtures/engine` with the clock frozen at the recording time (`tests/fixtures/record_engine.py`).
 
+## Publishing
+
+Nothing is published yet. The four workspace packages are prepared for npm under the `@verdict` scope, all at version `0.1.0`, MIT, public access, Node 22 or later, with `dist` and a `README.md` as their only files:
+
+| Package | Directory | Contents |
+|---|---|---|
+| `@verdict/engine` | `packages/engine` | the pinned engine copy, plus `UPSTREAM.json` |
+| `@verdict/core` | `packages/core` | the tool module; depends on `@verdict/engine` |
+| `@verdict/cli` | `packages/cli` | the `verdict` binary; depends on `@verdict/core` |
+| `@verdict/mcp` | `packages/mcp` | the `verdict-mcp` binary; depends on `@verdict/core` |
+
+Workspace dependencies are declared as `workspace:*`; pnpm rewrites them to the published version on publish, so the packages must go out together and in dependency order, which `pnpm -r publish` does. For maintainers, from a clean checkout of `master` with `pnpm run check` green:
+
+```sh
+pnpm run release:check
+pnpm -r publish --access public
+```
+
+`release:check` builds every package and verifies the metadata above, the `dist` entry points, the `bin` files, the `workspace:*` declarations and that the MCP server reports the package version; it is part of `pnpm run check`. `pnpm -r publish --dry-run --no-git-checks` shows the file list of each tarball without contacting the registry's publish endpoint. Publishing needs an npm account with publish rights to the `@verdict` scope (`npm login`, then `npm access list packages @verdict` to confirm); the kit never runs it, and no token belongs in this repository. Once published, the install lines in the per-package READMEs (`npx @verdict/cli`, `npx @verdict/mcp`) replace the clone-and-build steps above.
+
 ## Toolchain
 
 Node 22, pnpm 10.34.5, strict TypeScript (same flags as the Verdict app), Zod on every input,
 output and upstream response, Vitest, Biome lint. `pnpm run check` (engine drift, API contract, types,
-lint, tests) must be green before any commit that changes code. Live checks against Hyperliquid, the
+lint, release check, tests) must be green before any commit that changes code. Live checks against Hyperliquid, the
 venues and GitHub run with `VERDICT_LIVE=1 pnpm vitest run tests/live.test.ts`.

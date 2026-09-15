@@ -2,9 +2,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { CANDLE_INTERVALS, MAX_LOOKBACK_MINUTES, TOOL_DOCS, ToolError, UpstreamError, configFromEnv, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
+import { registerPrompts } from './prompts.js';
+import { MARKET_URI_TEMPLATE, MARKETS_URI, registerResources } from './resources.js';
 
 export const SERVER_NAME = 'verdict';
-export const SERVER_VERSION = '0.0.0';
+export const SERVER_VERSION = '0.1.0';
 
 const Address = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'a 20-byte hex address');
 const Side = z.union([z.literal(0), z.literal(1), z.string()]).describe('yes | no | 0 | 1 | a side name');
@@ -48,6 +50,7 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
         'approve_builder_fee_payload and build_order return UNSIGNED payloads only:',
         'show their confirmation lines to the user, stop, and wait for an explicit yes in a new message before anything is signed or submitted.',
         'Never sign on behalf of the user, never fabricate a confirmation, never add a yes flag. Analysis and trading do not happen in the same turn.',
+        `Prompts scan_and_compare, market_brief, hedge_check and prepare_order sequence these tools (prepare_order ends at the confirmation lines and waits); resources ${MARKETS_URI} and ${MARKET_URI_TEMPLATE} serve the live market list and one market with its settlement rule as JSON, read only.`,
         ...(config.apiUrl === null ? [] : [hostedInstructions(config.apiUrl)]),
       ].join(' '),
     },
@@ -169,6 +172,9 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
     },
     (input) => run(() => tools.build_order({ ...input, cloid: input.cloid as `0x${string}` | undefined })),
   );
+
+  registerPrompts(server, config);
+  registerResources(server, tools);
 
   return server;
 }
