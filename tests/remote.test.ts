@@ -868,7 +868,16 @@ describe('hosted tools: the other eleven tools run locally, unchanged', () => {
     const [ca, cb] = await Promise.all([remote.candles({ outcome: 1210, side: 'yes', interval: '1h', lookbackMinutes: 1440 }), embedded.candles({ outcome: 1210, side: 'yes', interval: '1h', lookbackMinutes: 1440 })]);
     expect({ ...ca, startTime: 0, endTime: 0 }).toEqual({ ...cb, startTime: 0, endTime: 0 });
     expect(ca.count).toBe(24);
-    const built = (await same('build_order', { outcome: 1210, side: 'yes', action: 'buy', price: '0.02', size: '3' })) as { action: { orders: { b: boolean }[]; builder: { b: string; f: number } } };
+    // build_order stamps a millisecond nonce, so the two results are compared without it (the
+    // remote and embedded calls can straddle a millisecond boundary, as one CI run showed).
+    const strip = (r: unknown) => {
+      const o = r as { nonce?: number; action?: { nonce?: number } };
+      return { ...o, nonce: 0, action: o.action ? { ...o.action, nonce: 0 } : o.action };
+    };
+    const ra = await remote.build_order({ outcome: 1210, side: 'yes', action: 'buy', price: '0.02', size: '3' });
+    const rb = await embedded.build_order({ outcome: 1210, side: 'yes', action: 'buy', price: '0.02', size: '3' });
+    expect(strip(ra), 'build_order').toEqual(strip(rb));
+    const built = ra as unknown as { action: { orders: { b: boolean }[]; builder: { b: string; f: number } } };
     expect(built.action.builder).toEqual({ b: '0x00000000000000000000000000000000000000b1', f: 10 });
     // The approval payload carries a fresh nonce, so compare everything but that.
     const a = await remote.approve_builder_fee_payload({});
