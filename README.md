@@ -122,6 +122,24 @@ bash <repo>/skills/verdict/scripts/install.sh --claude-md
 
 `bash <repo>/skills/verdict/scripts/uninstall.sh` reverses it and removes from `CLAUDE.md` only a verbatim copy of that block. Both are idempotent and never prompt. The installer's only network access is `pnpm install --frozen-lockfile`, which fetches the repository's lockfile-pinned npm dependencies from the npm registry (registry.npmjs.org, integrity-checked against `pnpm-lock.yaml`); it fetches no scripts and pipes nothing from the network into a shell. Neither script replaces or removes a launcher or a skill directory it did not write (its launchers carry a marker comment, its skill copy carries `.repo-dir`). An agent runs either only after the user has said yes ([setup.md](skills/verdict/references/setup.md)).
 
+### MCP prompts and resources
+
+The MCP server also registers four prompts and two read-only resources next to the seventeen tools. A prompt is a deterministic instruction sequence rendered with the configured network and venue: it names the tools to call, in order, and the client runs them; the server runs nothing on a prompt's behalf. Prompt arguments travel as strings and are checked before any text is rendered: `outcome` is 1 to 9 digits, `address` is `0x` plus 40 hex characters, `size` is a positive whole number, `limit` is 1 to 8, `side` is `yes` or `no`, `action` is `buy` or `sell`, `price` is a decimal strictly between 0 and 1 with at most 5 decimals.
+
+| Prompt | Arguments | Sequence |
+|---|---|---|
+| `scan_and_compare` | `limit` (optional, default 8) | `opportunities` with the limit, then `compare_market` on the rank 1 market; a gap is reported only where the tool printed one, always with the confidence and reasons. Read tools only. |
+| `market_brief` | `outcome` | `get_market`, `orderbook`, `recent_trades`, `compare_market`, `fair_value`, `find_hedges` for one market, written as one screen with the settlement rule verbatim. Read tools only. |
+| `hedge_check` | `address` | `positions` for the address, then `find_hedges` for every held outcome, with the direction for YES and the opposite for NO. Read tools only; never a perp or spot order. |
+| `prepare_order` | `outcome`, `side`, `action`, `size`, `price` (optional; without it the quote's worst price) | `quote`, then `build_order`; show the confirmation lines, ask "Confirm or abort?", and end the message. The text repeats the two-message rule in full: the payload is unsigned, only a yes in a new message continues, and the agent signs nothing. |
+
+| Resource | Returns |
+|---|---|
+| `verdict://markets` | The `list_markets` result for the configured network and venue as `application/json`: every live market with its settlement rule, compact JSON, a few hundred markets at most. |
+| `verdict://market/{outcome}` | The `get_market` result for one outcome index as `application/json`: sides, coins, asset ids, settlement rule, expiry, fee scale. A malformed index is a JSON-RPC invalid-params error (`bad_input`), an unknown one `not_found`. |
+
+Both resources need no account; the resource template has no list callback, so `resources/list` stays one entry and the template is found through `resources/templates/list`. The face tests in `tests/faces.test.ts` list and render every prompt and read both resources over an in-memory transport against recorded fixtures.
+
 ### Hosted, streamable HTTP
 
 ```bash

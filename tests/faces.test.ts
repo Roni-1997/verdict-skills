@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { InfoClient, createTools, type KitConfig } from '../packages/core/src/index.js';
 import { runCli } from '../packages/cli/src/index.js';
 import { INTERNAL_ERROR_RESPONSE, type RequestHandlerOptions, createRequestHandler, parseJsonBody } from '../packages/mcp/src/http.js';
+import { TWO_MESSAGE_RULE } from '../packages/mcp/src/prompts.js';
 import { createServer } from '../packages/mcp/src/server.js';
 
 const fixture = (name: string): unknown => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
@@ -363,6 +364,123 @@ describe('MCP face', () => {
     const unknown = await client.callTool({ name: 'order_status', arguments: { address: MAKER, oid: 1 } });
     expect(unknown.isError).toBe(true);
     expect(JSON.parse((unknown.content as { text: string }[])[0]?.text ?? '')).toMatchObject({ error: 'not_found' });
+  });
+});
+
+describe('MCP prompts and resources', () => {
+  async function connect() {
+    const server = createServer(config, tools);
+    const client = new Client({ name: 'test', version: '0' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(a), client.connect(b)]);
+    return { server, client };
+  }
+  it('lists the four prompts with their argument schemas and names them, and the resources, in the instructions', async () => {
+    const { client } = await connect();
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map((p) => p.name).sort()).toEqual(['hedge_check', 'market_brief', 'prepare_order', 'scan_and_compare']);
+    const args = (name: string) => Object.fromEntries((prompts.find((p) => p.name === name)?.arguments ?? []).map((a) => [a.name, a.required]));
+    expect(args('scan_and_compare')).toEqual({ limit: false });
+    expect(args('market_brief')).toEqual({ outcome: true });
+    expect(args('hedge_check')).toEqual({ address: true });
+    expect(args('prepare_order')).toEqual({ outcome: true, side: true, action: true, size: true, price: false });
+    for (const p of prompts) {
+      expect(p.description, p.name).toBeTruthy();
+      for (const a of p.arguments ?? []) expect(a.description, `${p.name}.${a.name}`).toBeTruthy();
+    }
+    const instructions = client.getInstructions() ?? '';
+    for (const name of ['scan_and_compare', 'market_brief', 'hedge_check', 'prepare_order', 'verdict://markets', 'verdict://market/{outcome}']) expect(instructions).toContain(name);
+  });
+  it('renders each prompt with sample arguments naming the tools in order; prepare_order carries the two-message rule and never says to sign', async () => {
+    const { client } = await connect();
+    const text = async (name: string, args: Record<string, string>) => {
+      const r = await client.getPrompt({ name, arguments: args });
+      expect(r.messages).toHaveLength(1);
+      const c = r.messages[0]?.content as { type: string; text: string };
+      expect(c.type).toBe('text');
+      return c.text;
+    };
+    const scan = await text('scan_and_compare', { limit: '3' });
+    expect(scan).toContain('opportunities with limit 3');
+    expect(scan.indexOf('opportunities')).toBeLessThan(scan.indexOf('compare_market'));
+    expect(scan).toContain('mainnet, venue out');
+    expect(scan).toContain('Never subtract two prices yourself');
+    expect(await text('scan_and_compare', {})).toContain('opportunities with limit 8');
+    const brief = await text('market_brief', { outcome: '1210' });
+    let last = -1;
+    for (const tool of ['get_market', 'orderbook', 'recent_trades', 'compare_market', 'fair_value', 'find_hedges']) {
+      const i = brief.indexOf(tool);
+      expect(i, tool).toBeGreaterThan(last);
+      last = i;
+    }
+    expect(brief).toContain('market 1210');
+    expect(brief).toContain('settlement rule verbatim');
+    const hedge = await text('hedge_check', { address: TRADER });
+    expect(hedge).toContain(`positions with address ${TRADER}`);
+    expect(hedge.indexOf('positions')).toBeLessThan(hedge.indexOf('find_hedges'));
+    expect(hedge).toContain('never build a perp or spot order');
+    const order = await text('prepare_order', { outcome: '1210', side: 'yes', action: 'buy', size: '250' });
+    expect(order.indexOf('Call quote')).toBeLessThan(order.indexOf('Call build_order'));
+    expect(order).toContain('buy 250 YES on market 1210');
+    expect(order).toContain('size "250"');
+    expect(order).toContain("the quote's worstPrice");
+    expect(order).toContain(TWO_MESSAGE_RULE);
+    for (const phrase of ['UNSIGNED', 'END YOUR MESSAGE', 'NEW message', 'Never fabricate the confirmation', 'no yes flag', 'cents per $1,000', 'builder address', 'settlement rule']) {
+      expect(order, phrase).toContain(phrase);
+    }
+    // The prompt repeats that nothing is signed; it never instructs the agent to sign or submit.
+    expect(order).not.toMatch(/\b(then|now|and|please|may|can|should) sign\b|\bsign (it|the (order|payload|action)|and submit)\b|\bsubmit (it|the order)\b/i);
+    const priced = await text('prepare_order', { outcome: '1210', side: 'no', action: 'sell', size: '3', price: '0.97' });
+    expect(priced).toContain('sell 3 NO on market 1210');
+    expect(priced).toContain('price "0.97"');
+  });
+  it('refuses a malformed prompt argument before any text is rendered', async () => {
+    const { client } = await connect();
+    const bad: [string, Record<string, string>][] = [
+      ['market_brief', { outcome: '12a' }],
+      ['market_brief', { outcome: '1234567890' }],
+      ['market_brief', {}],
+      ['hedge_check', { address: '0x1234' }],
+      ['hedge_check', { address: `${TRADER}0` }],
+      ['prepare_order', { outcome: '1210', side: 'yes', action: 'buy', size: '0' }],
+      ['prepare_order', { outcome: '1210', side: 'yes', action: 'buy', size: '2.5' }],
+      ['prepare_order', { outcome: '1210', side: 'maybe', action: 'buy', size: '1' }],
+      ['prepare_order', { outcome: '1210', side: 'yes', action: 'hold', size: '1' }],
+      ['prepare_order', { outcome: '1210', side: 'yes', action: 'buy', size: '1', price: '1.5' }],
+      ['prepare_order', { outcome: '1210', side: 'yes', action: 'buy', size: '1', price: '0.000000' }],
+      ['scan_and_compare', { limit: '9' }],
+      ['scan_and_compare', { limit: '0' }],
+      ['scan_and_compare', { limit: 'all' }],
+    ];
+    for (const [name, args] of bad) await expect(client.getPrompt({ name, arguments: args }), `${name} ${JSON.stringify(args)}`).rejects.toThrow(/Invalid arguments/);
+  });
+  it('serves the market list and one market as JSON resources, read through the stubbed client, and the template resolves an outcome', async () => {
+    const { client } = await connect();
+    const { resources } = await client.listResources();
+    expect(resources).toEqual([expect.objectContaining({ uri: 'verdict://markets', name: 'markets', mimeType: 'application/json' })]);
+    const { resourceTemplates } = await client.listResourceTemplates();
+    expect(resourceTemplates).toEqual([expect.objectContaining({ uriTemplate: 'verdict://market/{outcome}', name: 'market', mimeType: 'application/json' })]);
+    const list = await client.readResource({ uri: 'verdict://markets' });
+    expect(list.contents).toHaveLength(1);
+    const listContent = list.contents[0] as { uri: string; mimeType?: string; text?: string };
+    expect(listContent.uri).toBe('verdict://markets');
+    expect(listContent.mimeType).toBe('application/json');
+    const parsed = JSON.parse(listContent.text ?? '') as { network: string; venue: string | null; count: number; markets: unknown[] };
+    expect(parsed).toEqual(await tools.list_markets({}));
+    expect(parsed.network).toBe('mainnet');
+    expect(parsed.venue).toBe('out');
+    expect(parsed.count).toBe(parsed.markets.length);
+    const one = await client.readResource({ uri: 'verdict://market/1210' });
+    const oneContent = one.contents[0] as { uri: string; mimeType?: string; text?: string };
+    expect(oneContent.uri).toBe('verdict://market/1210');
+    expect(oneContent.mimeType).toBe('application/json');
+    const market = JSON.parse(oneContent.text ?? '') as { outcome: number; settlementRule: string | null };
+    expect(market.outcome).toBe(1210);
+    expect(market).toHaveProperty('settlementRule');
+    expect(market).toEqual(await tools.get_market({ outcome: 1210 }));
+    await expect(client.readResource({ uri: 'verdict://market/999999' })).rejects.toThrow(/not_found/);
+    await expect(client.readResource({ uri: 'verdict://market/abc' })).rejects.toThrow(/bad_input/);
+    await expect(client.readResource({ uri: 'verdict://nothing' })).rejects.toThrow(/not found/);
   });
 });
 
