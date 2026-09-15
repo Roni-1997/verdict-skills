@@ -70,6 +70,20 @@ describe('schemas accept the recorded fixtures', () => {
     expect(hlSchemas.SpotClearinghouseState.safeParse(fixture('testnet_spotClearinghouseState_subdeployer')).success).toBe(true);
     expect(hlSchemas.MaxBuilderFee.safeParse(fixture('mainnet_maxBuilderFee_sample')).success).toBe(true);
   });
+  it('recentTrades, candleSnapshot, userFills, frontendOpenOrders, openOrders, orderStatus (recorded 2026-09-15, testnet and mainnet)', () => {
+    for (const name of ['testnet_recentTrades_104740', 'testnet_recentTrades_104741', 'testnet_recentTrades_113510', 'mainnet_recentTrades_12100']) expect(hlSchemas.RecentTrades.safeParse(fixture(name)).success, name).toBe(true);
+    for (const name of ['testnet_candleSnapshot_104741_1h', 'testnet_candleSnapshot_113510_1h', 'mainnet_candleSnapshot_12100_1h']) expect(hlSchemas.CandleSnapshot.safeParse(fixture(name)).success, name).toBe(true);
+    expect(hlSchemas.UserFills.safeParse(fixture('testnet_userFills_trader')).success).toBe(true);
+    for (const name of ['testnet_frontendOpenOrders_maker', 'testnet_frontendOpenOrders_trader']) expect(hlSchemas.FrontendOpenOrders.safeParse(fixture(name)).success, name).toBe(true);
+    expect(hlSchemas.OpenOrders.safeParse(fixture('testnet_openOrders_maker')).success).toBe(true);
+    for (const name of ['testnet_orderStatus_maker_open', 'testnet_orderStatus_trader_filled', 'testnet_orderStatus_maker_unknown']) expect(hlSchemas.OrderStatus.safeParse(fixture(name)).success, name).toBe(true);
+    // The empty answers are what the venue gives for a coin that never traded, recorded as such, not written by hand.
+    expect(fixture('testnet_recentTrades_113510')).toEqual([]);
+    expect(fixture('testnet_candleSnapshot_113510_1h')).toEqual([]);
+    // Candles exist for outcome coins on both networks once the coin has traded: #104741 (testnet) and #12100 (mainnet).
+    expect((fixture('testnet_candleSnapshot_104741_1h') as unknown[]).length).toBeGreaterThan(0);
+    expect((fixture('mainnet_candleSnapshot_12100_1h') as unknown[]).length).toBeGreaterThan(0);
+  });
 });
 
 describe('markets: settlement rule text from the template', () => {

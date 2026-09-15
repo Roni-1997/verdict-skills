@@ -4,5 +4,137 @@
   "testnet": "https://api.hyperliquid-testnet.xyz/info",
   "mainnet": "https://api.hyperliquid.xyz/info"
  },
- "note": "Recorded with tests/fixtures/record.py; do not edit by hand."
+ "note": "Recorded with tests/fixtures/record.py; do not edit by hand. Entries under \"fixtures\" were recorded with --only or carry a time window and are dated one by one.",
+ "fixtures": {
+  "mainnet_candleSnapshot_12100_1h": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "mainnet",
+   "request": {
+    "type": "candleSnapshot",
+    "req": {
+     "coin": "#12100",
+     "interval": "1h",
+     "startTime": 1789409264016,
+     "endTime": 1789495664016
+    }
+   }
+  },
+  "mainnet_recentTrades_12100": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "mainnet",
+   "request": {
+    "type": "recentTrades",
+    "coin": "#12100"
+   }
+  },
+  "testnet_candleSnapshot_104741_1h": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "candleSnapshot",
+    "req": {
+     "coin": "#104741",
+     "interval": "1h",
+     "startTime": 1788890864016,
+     "endTime": 1789495664016
+    }
+   }
+  },
+  "testnet_candleSnapshot_113510_1h": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "candleSnapshot",
+    "req": {
+     "coin": "#113510",
+     "interval": "1h",
+     "startTime": 1788890864016,
+     "endTime": 1789495664016
+    }
+   }
+  },
+  "testnet_frontendOpenOrders_maker": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "frontendOpenOrders",
+    "user": "0x876fa87b4d3818f437f38f1263bee508d7672d85"
+   }
+  },
+  "testnet_frontendOpenOrders_trader": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "frontendOpenOrders",
+    "user": "0xa98361b7c825e8ee9434b433d58d6126d2ccd04e"
+   }
+  },
+  "testnet_openOrders_maker": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "openOrders",
+    "user": "0x876fa87b4d3818f437f38f1263bee508d7672d85"
+   }
+  },
+  "testnet_orderStatus_maker_open": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "orderStatus",
+    "user": "0x876fa87b4d3818f437f38f1263bee508d7672d85",
+    "oid": 55896593277
+   }
+  },
+  "testnet_orderStatus_maker_unknown": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "orderStatus",
+    "user": "0x876fa87b4d3818f437f38f1263bee508d7672d85",
+    "oid": 1
+   }
+  },
+  "testnet_orderStatus_trader_filled": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "orderStatus",
+    "user": "0xa98361b7c825e8ee9434b433d58d6126d2ccd04e",
+    "oid": 60123639947
+   }
+  },
+  "testnet_recentTrades_104740": {
+   "recorded_at": "2026-09-15T18:15:35Z",
+   "source": "testnet",
+   "request": {
+    "type": "recentTrades",
+    "coin": "#104740"
+   }
+  },
+  "testnet_recentTrades_104741": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "recentTrades",
+    "coin": "#104741"
+   }
+  },
+  "testnet_recentTrades_113510": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "recentTrades",
+    "coin": "#113510"
+   }
+  },
+  "testnet_userFills_trader": {
+   "recorded_at": "2026-09-15T18:07:44Z",
+   "source": "testnet",
+   "request": {
+    "type": "userFills",
+    "user": "0xa98361b7c825e8ee9434b433d58d6126d2ccd04e"
+   }
+  }
+ }
 }

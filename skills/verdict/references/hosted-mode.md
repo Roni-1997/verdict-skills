@@ -34,7 +34,7 @@ Venue, read the same way in both modes: `VERDICT_VENUE` or `--venue` unset, blan
 | `fair-value <outcome>` | `GET /fair-value?net=&outcome=` | the engine in process |
 | `hedges <outcome>` | `GET /hedges?net=&outcome=` | the engine in process |
 | `opportunities [--limit <1..8>]` | `GET /opportunities?net=&venue=&limit=` | the engine in process |
-| `book`, `quote`, `positions`, `builder-status` | local: Hyperliquid info, unchanged | the same |
+| `book`, `quote`, `recent-trades`, `candles`, `positions`, `fills`, `open-orders`, `order-status`, `builder-status` | local: Hyperliquid info, unchanged | the same |
 | `approve-builder-fee-payload`, `build-order` | local: the unsigned payload is built in process, unchanged | the same |
 
 Every body is validated against the same result schemas the embedded commands return through. A body that does not match is exit 3 with `"kind":"schema"`, never shown as data; so is a body that breaks what its route documents: `markets` with a `count` that is not the number of markets or a market of another venue in a filtered list, `opportunities` with more items than `--limit` or a `limit` other than the one sent, a `count` or `unpricedCount` that does not match its items, ranks that are not 1 to n in order, or an unpriced market before a priced one. `<outcome>`, `--venue` and `--limit` are checked before any request, with the same messages as in embedded mode: `<outcome>` is a nonnegative integer of at most 9 digits (the API's rule; a longer index can name no market and is exit 1 `bad_input` in both modes, never exit 2), `--limit` is 1 to 8.

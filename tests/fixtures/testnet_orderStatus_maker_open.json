@@ -1,0 +1,25 @@
+{
+ "status": "order",
+ "order": {
+  "order": {
+   "coin": "#104740",
+   "side": "B",
+   "limitPx": "0.3",
+   "sz": "333.0",
+   "oid": 55896593277,
+   "timestamp": 1783065593537,
+   "triggerCondition": "N/A",
+   "isTrigger": false,
+   "triggerPx": "0.0",
+   "children": [],
+   "isPositionTpsl": false,
+   "reduceOnly": false,
+   "orderType": "Limit",
+   "origSz": "333.0",
+   "tif": "Gtc",
+   "cloid": null
+  },
+  "status": "open",
+  "statusTimestamp": 1783065593537
+ }
+}

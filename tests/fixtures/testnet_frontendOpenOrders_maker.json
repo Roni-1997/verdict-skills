@@ -1,0 +1,38 @@
+[
+ {
+  "coin": "#104740",
+  "side": "B",
+  "limitPx": "0.3",
+  "sz": "156.0",
+  "oid": 55896593277,
+  "timestamp": 1783065593537,
+  "triggerCondition": "N/A",
+  "isTrigger": false,
+  "triggerPx": "0.0",
+  "children": [],
+  "isPositionTpsl": false,
+  "reduceOnly": false,
+  "orderType": "Limit",
+  "origSz": "333.0",
+  "tif": "Gtc",
+  "cloid": null
+ },
+ {
+  "coin": "@1357",
+  "side": "A",
+  "limitPx": "0.69",
+  "sz": "30.0",
+  "oid": 43383781171,
+  "timestamp": 1763450549332,
+  "triggerCondition": "N/A",
+  "isTrigger": false,
+  "triggerPx": "0.0",
+  "children": [],
+  "isPositionTpsl": false,
+  "reduceOnly": false,
+  "orderType": "Limit",
+  "origSz": "30.0",
+  "tif": "Alo",
+  "cloid": null
+ }
+]

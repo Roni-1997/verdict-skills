@@ -1,7 +1,7 @@
 ---
 name: verdict
 version: "0.1.0"
-description: "Verdict's HIP-4 outcome markets on Hyperliquid through the verdict CLI: list markets with their settlement rules, read a market, its order book and an executable quote for a size, compare a market with Polymarket and Kalshi (with the resolution-equivalence confidence and reasons), read the Deribit option-implied fair value, find Hyperliquid hedges, scan the venue for tradeable markets, read positions and builder-fee approval, and build unsigned orders that carry Verdict's builder code. Use when the user mentions: (1) Verdict, hyperverdict, the Verdict venue or its markets, (2) HIP-4, outcome market, Hyperliquid prediction market, YES or NO tokens on Hyperliquid, (3) a settlement rule, expiry, book, quote or position on such a market, (4) 'compare to Polymarket' or 'compare to Kalshi', fair value, a hedge or an opportunity scan for a market that exists on Verdict, (5) Verdict's builder code, builder fee or builder approval."
+description: "Verdict's HIP-4 outcome markets on Hyperliquid through the verdict CLI: list markets with their settlement rules, read a market, its order book and an executable quote for a size, compare a market with Polymarket and Kalshi (with the resolution-equivalence confidence and reasons), read the Deribit option-implied fair value, find Hyperliquid hedges, scan the venue for tradeable markets, read a market's recent trades and candles, read positions, fills, open orders, one order's status and builder-fee approval for an address, and build unsigned orders that carry Verdict's builder code. Use when the user mentions: (1) Verdict, hyperverdict, the Verdict venue or its markets, (2) HIP-4, outcome market, Hyperliquid prediction market, YES or NO tokens on Hyperliquid, (3) a settlement rule, expiry, book, quote, trade history, position, fill or order on such a market, (4) 'compare to Polymarket' or 'compare to Kalshi', fair value, a hedge or an opportunity scan for a market that exists on Verdict, (5) Verdict's builder code, builder fee or builder approval."
 homepage: https://hyperverdict.xyz
 metadata: { "openclaw": { "always": false, "requires": { "bins": ["verdict"] }, "homepage": "https://hyperverdict.xyz" }, "version": "0.1.0" }
 ---
@@ -12,7 +12,7 @@ Documentation only. This file contains no executable code.
 
 ## Routing gate
 
-Activate when the request is about trading or researching Verdict's HIP-4 outcome markets: listing them, reading a settlement rule, a book, a quote for a size, positions, builder-fee approval, or building an order that routes to Verdict. Also activate when the user asks to compare a Verdict market with Polymarket or Kalshi, for its option-implied fair value, for a hedge, or for a scan of what is tradeable on Verdict.
+Activate when the request is about trading or researching Verdict's HIP-4 outcome markets: listing them, reading a settlement rule, a book, a quote for a size, recent trades or candles, positions, fills, open orders, an order's status, builder-fee approval, or building an order that routes to Verdict. Also activate when the user asks to compare a Verdict market with Polymarket or Kalshi, for its option-implied fair value, for a hedge, or for a scan of what is tradeable on Verdict.
 
 Do not activate for:
 
@@ -29,7 +29,7 @@ Do not activate for:
 - Paths in this file (`references/...`, `scripts/...`) are relative to this skill's directory, the folder that contains SKILL.md: `~/.claude/skills/verdict` after `install.sh`, `skills/verdict` in the clone. OpenClaw calls that folder `{baseDir}`; Claude Code does not expand a placeholder, so the paths are written relative.
 - `--pretty` indents the JSON; omit it when you parse.
 - `compare`, `fair-value`, `hedges` and `opportunities` run the Verdict app's cross-venue engine: Polymarket, Kalshi and Deribit are read, never traded, and the kit builds no order for them. They need no key and can take up to about 30 seconds (the engine's venue fetch budget is 20 s); that is fetching, not a prompt.
-- Hosted mode: with `VERDICT_API_URL` set (or `--api <url>` on the command), `markets`, `market`, `compare`, `fair-value`, `hedges` and `opportunities` are answered by the Verdict API at that URL instead of the embedded engine; `book`, `quote`, `positions`, `builder-status` and the payload commands run locally either way. Same output, same exit codes, still no key. `references/hosted-mode.md`.
+- Hosted mode: with `VERDICT_API_URL` set (or `--api <url>` on the command), `markets`, `market`, `compare`, `fair-value`, `hedges` and `opportunities` are answered by the Verdict API at that URL instead of the embedded engine; `book`, `quote`, `recent-trades`, `candles`, `positions`, `fills`, `open-orders`, `order-status`, `builder-status` and the payload commands run locally either way. Same output, same exit codes, still no key. `references/hosted-mode.md`.
 - Testnet by default (`VERDICT_NETWORK` unset or `testnet`). Testnet and mainnet have different market indices; never mix them, and state the network when you show data.
 - Run the read commands yourself and show the user the data (market names, rules, prices, sizes). Do not paste commands for the user to run.
 - On first activation read `references/setup.md`. `install.sh` runs `pnpm install --frozen-lockfile` (which fetches the repository's lockfile-pinned npm dependencies from the npm registry) and `pnpm run build`, writes `verdict` and `verdict-mcp` launchers to `~/.local/bin`, copies the skill to `~/.claude/skills/verdict` and, only with `--claude-md`, appends a routing block to `~/.claude/CLAUDE.md`. Do not run it, and do not edit `~/.claude/CLAUDE.md` yourself, until you have shown the user exactly that (the paths, the dependency fetch and the block text from setup.md), asked, and received a yes in a new message. No reply, no, or anything unclear: run nothing. A yes for the CLI alone: run it without `--claude-md`.
@@ -45,11 +45,16 @@ Match the intent, read the reference, run the command, show the result.
 | "what does market N settle on", "details of this market", "show the rule" | `verdict market <outcome>` | `get_market` | `references/market.md` |
 | "show the book", "how deep is it", "what is the spread" | `verdict book <outcome>` | `orderbook` | `references/book.md` |
 | "what would 500 YES cost", "price for my size", "slippage on 2000 NO" | `verdict quote <outcome> --side yes\|no --action buy\|sell --size <tokens>` | `quote` | `references/quote.md` |
+| "what traded recently on N", "show me the tape", "when did it last trade" | `verdict recent-trades <outcome> [--side yes\|no]` | `recent_trades` | `references/recent-trades.md` |
+| "price history of N", "how has YES moved this week", "hourly candles" | `verdict candles <outcome> --side yes\|no --interval <1m..1M> --lookback <minutes>` | `candles` | `references/candles.md` |
 | "compare this to Polymarket", "is it cheaper on Kalshi", "what is the gap" | `verdict compare <outcome>` | `compare_market` | `references/compare.md` |
 | "what is the fair value", "what do options imply for this strike" | `verdict fair-value <outcome>` | `fair_value` | `references/fair-value.md` |
 | "how do I hedge this", "what offsets my YES" | `verdict hedges <outcome>` | `find_hedges` | `references/hedges.md` |
 | "what looks tradeable on Verdict", "scan for opportunities", "any cross-venue gaps" | `verdict opportunities [--limit <1..8>]` | `opportunities` | `references/opportunities.md` |
 | "what do I hold", "my Verdict positions", "balances of 0x..." | `verdict positions <address>` | `positions` | `references/positions.md` |
+| "my fills", "what did 0x... trade", "what fees did I pay" | `verdict fills <address>` | `fills` | `references/fills.md` |
+| "my open orders", "what is resting for 0x...", "is my bid still on the book" | `verdict open-orders <address>` | `open_orders` | `references/open-orders.md` |
+| "did my order fill", "status of order N" | `verdict order-status <address> <oid>` | `order_status` | `references/order-status.md` |
 | "have I approved the builder fee", "can I trade through Verdict yet" | `verdict builder-status <address>` | `builder_status` | `references/builder-status.md` |
 | "set up trading", "approve the builder fee" (signable, two messages) | `verdict approve-builder-fee-payload` | `approve_builder_fee_payload` | `references/approve-builder-fee-payload.md` |
 | "buy 250 YES on N at 0.018", "sell my NO at 0.97" (signable, two messages) | `verdict build-order <outcome> --side yes\|no --action buy\|sell --price <0..1> --size <tokens> [--tif Gtc\|Ioc\|Alo] [--cloid 0x<32 hex>]` | `build_order` | `references/build-order.md` |
@@ -60,9 +65,9 @@ Cross-venue results (`compare`, `opportunities`) come with the engine's resoluti
 
 ## Read-only commands
 
-`markets`, `market`, `book`, `quote`, `compare`, `fair-value`, `hedges`, `opportunities`, `positions`, `builder-status`.
+`markets`, `market`, `book`, `quote`, `recent-trades`, `candles`, `compare`, `fair-value`, `hedges`, `opportunities`, `positions`, `fills`, `open-orders`, `order-status`, `builder-status`.
 
-They never prompt, never need an account or a key, and need no confirmation. Run them freely to answer questions. `builder-status` needs `VERDICT_BUILDER_ADDRESS` in the environment (exit 4 otherwise) but still no key. `compare`, `fair-value`, `hedges` and `opportunities` read Polymarket, Kalshi and Deribit through the engine and trade on none of them.
+They never prompt, never need an account or a key, and need no confirmation. Run them freely to answer questions. `fills`, `open-orders`, `order-status` and `positions` read public data of any address; nothing about the address is needed beyond the address itself. `recent-trades` reads one side (YES unless `--side` is given) because the YES and NO coins print the same fills at p and 1 - p; `candles` is exit 2 for a side that has never traded, since Hyperliquid keeps no candles for it. `builder-status` needs `VERDICT_BUILDER_ADDRESS` in the environment (exit 4 otherwise) but still no key. `compare`, `fair-value`, `hedges` and `opportunities` read Polymarket, Kalshi and Deribit through the engine and trade on none of them.
 
 ## Signable commands: the two-message rule
 
@@ -86,7 +91,7 @@ Message 2: only after the user replies in a NEW message.
 
 ## Analysis-to-trade boundary
 
-Reading (`markets`, `market`, `book`, `quote`, `compare`, `fair-value`, `hedges`, `opportunities`, `positions`, `builder-status`) is analysis when the user asked a question; the same commands are pre-trade checks when the user asked to trade. One sentence, repeated in `build-order.md`: Pre-trade read-only checks (`builder-status`, `quote`) may run in the trade turn before `build-order`; a turn whose purpose is analysis never runs `build-order`; signing never happens in the turn that produced the payload.
+Reading (`markets`, `market`, `book`, `quote`, `recent-trades`, `candles`, `compare`, `fair-value`, `hedges`, `opportunities`, `positions`, `fills`, `open-orders`, `order-status`, `builder-status`) is analysis when the user asked a question; the same commands are pre-trade checks when the user asked to trade. One sentence, repeated in `build-order.md`: Pre-trade read-only checks (`builder-status`, `quote`) may run in the trade turn before `build-order`; a turn whose purpose is analysis never runs `build-order`; signing never happens in the turn that produced the payload.
 
 - The user asked for analysis only: present it; do not run `build-order` or `approve-builder-fee-payload`, do not sign or submit anything, and do not suggest a trade. A gap from `compare`, a rank from `opportunities` or a hedge from `hedges` is analysis, not a trade instruction.
 - The user asked for analysis and a trade in one message ("check the BTC market and buy 100 YES"): present the analysis, then state in words the order you would build (market, side, price, size) and ask whether to proceed. Building starts in the next turn and then follows the two-message rule. A trade from a cold start therefore takes three messages: analysis; unsigned payload with the confirmation request; signing after the reply.
@@ -115,7 +120,7 @@ Reading (`markets`, `market`, `book`, `quote`, `compare`, `fair-value`, `hedges`
 - Exit 1 (usage): fix the arguments from the reference; do not resend the same command.
 - Exit 2 (not found): do not retry. Run `verdict markets`, pick a valid outcome, check the network.
 - Exit 4 (not configured): do not retry. Tell the user which environment variable is missing.
-- Do not poll `markets`, `book` or `opportunities` in a loop to wait for a price or a rank. Report the current state and ask the user what to do.
+- Do not poll `markets`, `book`, `recent-trades` or `opportunities` in a loop to wait for a price, a trade or a rank, and do not poll `order-status` or `open-orders` to wait for a fill. Report the current state and ask the user what to do.
 - Commands never wait for input. `compare`, `fair-value`, `hedges` and `opportunities` fetch other venues and can take up to about 30 seconds; the other commands answer in a few seconds. If a command produces nothing for 60 seconds, it is a network problem, not a prompt: stop it and report.
 - Report errors as JSON, never as a request for credentials; the read commands need none.
 
@@ -137,14 +142,15 @@ No login, no API key, no account for the read commands. The hosted MCP server ho
 
 - Show the data. After a read command, present the fields the user asked about, not "done".
 - Quote settlement rules verbatim.
-- State the network (testnet or mainnet) in every confirmation and every position report.
+- State the network (testnet or mainnet) in every confirmation and every position, fill or order report.
+- Show order ids, client order ids and transaction hashes complete, as printed.
 - Keep numbers as the CLI printed them; do not round prices in confirmations.
 - Show addresses complete; never truncate the builder address or a user address.
 - Cross-venue results: show `summary` or `lines` as printed, with each comparator's `confidence` and `reasons`; when `gap` is null, say there is no comparable gap and give the `caveat`.
 
 ## Files
 
-- `references/markets.md`, `market.md`, `book.md`, `quote.md`, `positions.md`, `builder-status.md`: read-only commands.
+- `references/markets.md`, `market.md`, `book.md`, `quote.md`, `recent-trades.md`, `candles.md`, `positions.md`, `fills.md`, `open-orders.md`, `order-status.md`, `builder-status.md`: read-only commands.
 - `references/compare.md`, `fair-value.md`, `hedges.md`, `opportunities.md`: read-only cross-venue commands over the engine (Polymarket, Kalshi, Deribit read, never traded), with the rule that a low-confidence match carries its confidence and reasons and is never a bare number.
 - `references/approve-builder-fee-payload.md`, `build-order.md`: signable commands with the confirmation flow.
 - `references/sign-and-submit.md`: what the user's own signer does with the payload; you hand it over and stop.

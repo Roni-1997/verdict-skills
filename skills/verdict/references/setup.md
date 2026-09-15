@@ -63,7 +63,7 @@ Load the verdict skill, not web search or memory, when the request involves:
 
 - Verdict, hyperverdict, the Verdict venue or its markets
 - HIP-4, outcome market, Hyperliquid prediction market, YES or NO on Hyperliquid
-- a settlement rule, order book, quote for a size, or positions on such a market
+- a settlement rule, order book, quote for a size, trade history, positions, fills or orders on such a market
 - "compare to Polymarket" or "compare to Kalshi" for a market that exists on Verdict
 - Verdict's builder code, builder fee or builder approval
 
@@ -71,7 +71,7 @@ Do not load it for general blockchain education, Hyperliquid perps or spot, or t
 
 ### Rules the skill enforces
 
-- Read commands (markets, market, book, quote, compare, fair-value, hedges, opportunities, positions, builder-status) run without asking and need no account. A Polymarket or Kalshi comparison is shown with its confidence and reasons, never as a bare number.
+- Read commands (markets, market, book, quote, recent-trades, candles, compare, fair-value, hedges, opportunities, positions, fills, open-orders, order-status, builder-status) run without asking and need no account. A Polymarket or Kalshi comparison is shown with its confidence and reasons, never as a bare number.
 - build-order and approve-builder-fee-payload return unsigned payloads. Show the market, the settlement rule text, side, price, size, the fee in cents per $1,000 and the builder address, end the message, and wait for a real reply in a new message before anything is signed. Never fabricate a confirmation.
 - Analysis and order building never happen in the same turn.
 - Nothing signs on a hosted server; keys stay local and in memory.
