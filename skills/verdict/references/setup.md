@@ -8,7 +8,7 @@ First activation. There is nothing to log into; read commands need no account an
 |---|---|
 | Node 22 | `.nvmrc` in the repository. A newer Node prints an engine warning and works. |
 | pnpm 10.34.5 | `corepack enable` or `npm install -g pnpm@10.34.5`. |
-| The repository | `Roni-1997/verdict-skills` is private; the user needs access. Nothing is published to npm yet. |
+| The repository | `Roni-1997/verdict-skills` is public: `git clone https://github.com/Roni-1997/verdict-skills.git`. Nothing is published to npm yet. |
 
 ## Install
 

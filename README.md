@@ -15,7 +15,7 @@ of the Verdict app's plan (`.planning/phases/11-cross-venue-engine/` in `Roni-19
 
 ## Status
 
-Private, in development, testnet only. Nothing here is released.
+Public, in development, testnet only. Nothing is published to npm yet; install from a clone as shown below.
 
 ## What the tools do
 
@@ -39,7 +39,13 @@ Payload tools, signed by the caller, never by the kit:
 
 ## Use it from an agent
 
-Nothing is published yet, so build once from a clone: `pnpm install && pnpm run build`. Replace `<repo>` below with the absolute path of the clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet; unset, blank or `all` means every deployer, and a name is 1 to 32 letters, digits, `_` or `-`), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000), and optionally `VERDICT_API_URL` for [hosted mode](#hosted-mode). The builder address is published by the owner; without it the read tools other than `builder_status` work, and `builder_status` and the two payload tools return `not_configured`.
+Nothing is published to npm yet, so build once from a clone:
+
+```sh
+git clone https://github.com/Roni-1997/verdict-skills.git && cd verdict-skills && pnpm install --frozen-lockfile && pnpm run build
+```
+
+Replace `<repo>` below with the absolute path of that clone. Every face reads the same variables (see `.env.example`): `VERDICT_NETWORK` (default `testnet`), `VERDICT_VENUE` (`at` on testnet; unset, blank or `all` means every deployer, and a name is 1 to 32 letters, digits, `_` or `-`), `VERDICT_BUILDER_ADDRESS` and `VERDICT_BUILDER_FEE_TENTHS_BP` (default `10`, which is 0.01%, 10 cents per $1,000), and optionally `VERDICT_API_URL` for [hosted mode](#hosted-mode). The builder address is published by the owner; without it the read tools other than `builder_status` work, and `builder_status` and the two payload tools return `not_configured`.
 
 | Face | Read tools | Unsigned payloads | Signing |
 |---|---|---|---|

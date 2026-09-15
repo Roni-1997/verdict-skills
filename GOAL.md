@@ -56,7 +56,7 @@ Measured from Hyperliquid's daily builder-fills files, by client, on testnet fir
   builds orders for them.
 - **No LLM in the kit.** Any prose layer is a client of the kit, not part of it.
 - **Testnet by default** until the owner flips the network for a release.
-- **This repository stays private** until the owner makes it public.
+- **This repository is public** (the owner made it public on 2026-09-14). Nothing in it may ever hold a key, a credential or a signed payload.
 
 ## Claude's role
 
