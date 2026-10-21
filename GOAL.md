@@ -1,5 +1,12 @@
 # Verdict agent kit: goal
 
+The original Hyperliquid contract below remains unchanged. The owner-requested Lighter
+extension exposes binary outcomes through separate `lighter_*` MCP tools and `verdict lighter`
+commands, with devnet defaults and explicit creator allowlists for unsigned SDK arguments.
+Hyperliquid's builder fields do not apply to Lighter. No Lighter integrator fee is configured;
+the caller supplies its own local signer, and no tool signs or sends. See the
+[Lighter skill](skills/verdict-lighter/SKILL.md).
+
 The kit is not a chatbot and it is not a wallet.
 
 Its purpose is to let any agent, bot or front end trade Verdict's HIP-4 outcome markets well,

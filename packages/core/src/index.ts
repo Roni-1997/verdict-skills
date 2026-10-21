@@ -67,3 +67,5 @@ export type { SideInput, ToolOptions, Tools } from './tools.js';
 export { LOCAL_TOOLS, REMOTE_DEFAULT_TIMEOUT_MS, REMOTE_MAX_BODY_BYTES, REMOTE_ROUTES, REMOTE_TOOLS, createRemoteTools, retryAfterSeconds, toolsFromConfig, toolsMode } from './remote.js';
 export type { RemoteToolName, RemoteToolsOptions, ToolsFromConfigOptions } from './remote.js';
 export { API_CONTRACT } from './api-contract.js';
+export { LIGHTER_INPUTS, LighterClient, LighterConfig, LighterMarket, createLighterTools, lighterConfigFromEnv, lighterTicks } from './lighter.js';
+export type { LighterClientOptions, LighterTools } from './lighter.js';

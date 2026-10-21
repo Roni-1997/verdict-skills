@@ -1,0 +1,13 @@
+{
+  "recorded_at": "2026-10-21",
+  "network": "mainnet",
+  "source": "Public GETs at https://mainnet.zklighter.elliot.ai/api/v1",
+  "requests": {
+    "events.json": "events?active=true&limit=100 (event 455 retained)",
+    "book.json": "orderBookOrders?market_id=4555&limit=100",
+    "trades.json": "recentTrades?market_id=4555&limit=10",
+    "tiers.json": "feeTiers?filter=bo",
+    "account.json": "account?by=index&value=761897"
+  },
+  "note": "No credentials or signed payloads. IDs in raw numeric fields can exceed JS precision; only validated safe IDs/strings are exposed."
+}

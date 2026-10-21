@@ -1,6 +1,7 @@
 // The CLI face: one command per tool, JSON on stdout, never interactive. Agents run this; people can too.
 import { parseArgs } from 'node:util';
 import { CANDLE_INTERVALS, ToolError, UpstreamError, configFromEnv, parseApiUrl, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
+import { runLighterCli } from './lighter.js';
 
 export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command line (JSON output, no prompts)
 
@@ -98,6 +99,7 @@ function errorResult(code: ToolError['code'], message: string): CliResult {
  * for tests.
  */
 export async function runCli(argv: readonly string[], config?: KitConfig, tools?: Tools): Promise<CliResult> {
+  if (argv[0] === 'lighter') return runLighterCli(argv.slice(1));
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
   try {
     parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true });

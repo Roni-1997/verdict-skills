@@ -15,6 +15,24 @@ of the Verdict app's plan (`.planning/phases/11-cross-venue-engine/` in `Roni-19
 
 ## Status
 
+### Lighter binary outcome adapter
+
+The kit also exposes Lighter binary outcomes through `verdict lighter <command>` and
+`verdict-mcp --lighter` (stdio or the existing `--http` transport). It shares the CLI/MCP
+architecture and keeps signing with the caller. The default Hyperliquid interface is unchanged.
+
+The nine Lighter tools cover market discovery/details, fresh books, executable YES/NO quotes,
+recent prints, public binary positions, fee tiers, and unsigned order/cancel preparation.
+Configure `LIGHTER_NETWORK=devnet|mainnet`; the default is devnet. Payload tools additionally
+require `LIGHTER_CREATORS` to identify the allowed market creators. No credentials are needed.
+
+See the [Lighter skill](skills/verdict-lighter/SKILL.md) and its
+[setup/signing contract](skills/verdict-lighter/references/setup.md) for client configuration,
+pagination, fee assumptions and the official SDK handoff. This is a binary-specific adapter,
+not a wrapper that routes binaries through the official agent kit's perp/spot commands.
+
+### Hyperliquid kit
+
 Public, in development, testnet only. Nothing is published to npm yet; install from a clone as shown below.
 
 ## What the tools do
