@@ -879,10 +879,15 @@ describe('hosted tools: the other eleven tools run locally, unchanged', () => {
     expect(strip(ra), 'build_order').toEqual(strip(rb));
     const built = ra as unknown as { action: { orders: { b: boolean }[]; builder: { b: string; f: number } } };
     expect(built.action.builder).toEqual({ b: '0x00000000000000000000000000000000000000b1', f: 10 });
-    // The approval payload carries a fresh nonce, so compare everything but that.
-    const a = await remote.approve_builder_fee_payload({});
-    const b = await embedded.approve_builder_fee_payload({});
-    expect({ ...a, action: { ...a.action, nonce: 0 } }).toEqual({ ...b, action: { ...b.action, nonce: 0 } });
+    // Approval repeats the nonce in action and typedData.message; fix time for both calls.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    try {
+      const a = await remote.approve_builder_fee_payload({});
+      const b = await embedded.approve_builder_fee_payload({});
+      expect(a).toEqual(b);
+    } finally {
+      clock.mockRestore();
+    }
     expect(apiSeen).toHaveLength(0);
     expect(hlLog).toContain('l2Book:#12100');
   });
