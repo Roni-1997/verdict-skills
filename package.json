@@ -19,7 +19,7 @@
     "check": "pnpm run check:engine && pnpm run check:api && pnpm run check:types && pnpm run check:lint && pnpm run release:check && pnpm run test",
     "sync:engine": "node scripts/sync-engine.mjs",
     "sync:api": "node scripts/sync-api-contract.mjs",
-    "bench:static": "node scripts/skill-static-check.mjs skills/verdict",
+    "bench:static": "node scripts/skill-static-check.mjs skills/verdict && node scripts/skill-static-check.mjs skills/verdict-lighter",
     "bench": "bash scripts/bench.sh"
   },
   "devDependencies": {

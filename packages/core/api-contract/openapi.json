@@ -3,7 +3,7 @@
   "info": {
     "title": "Verdict API",
     "version": "1.0.0",
-    "description": "Read-only JSON over Verdict's cross-venue engine: the live HIP-4 outcome markets on Hyperliquid, the same market on Polymarket and Kalshi with the resolution-equivalence verdict, the Deribit options-implied fair value, hedge legs and a ranked opportunity scan. Every body has the field names and semantics of the Verdict agent kit's tool results. Anonymous, rate limited per IP, no account needed. Guide: docs/api.md in the Roni-1997/verdict repository."
+    "description": "Read-only JSON over Verdict's cross-venue engine: the live HIP-4 outcome markets on Hyperliquid, the same market on Polymarket and Kalshi with the resolution-equivalence verdict, the Deribit options-implied fair value, hedge legs and a ranked opportunity scan. Every body has the field names and semantics of the Verdict agent kit's tool results. Anonymous, rate limited per IP, no account needed. Guide: docs/api/README.md in the Roni-1997/verdict repository."
   },
   "servers": [
     {

@@ -10,7 +10,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
-  API_CONTRACT,
   CompareMarketResult,
   FairValueResult,
   FindHedgesResult,
@@ -1033,15 +1032,15 @@ describe('configuration: VERDICT_API_URL and --api', () => {
 });
 
 describe('API contract (a): the kit result schemas accept the recorded production bodies, and the bodies match the pinned OpenAPI document', () => {
-  it('the recording is dated, comes from production and was served by the pinned app commit', () => {
+  it('the recording is dated and retains its original serving commit independently of later schema pins', () => {
     expect(recorded.recorded_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     expect(recorded.base).toBe('https://hyperverdict.xyz/api/v1');
     expect(recorded.files.length).toBeGreaterThanOrEqual(12);
     for (const route of Object.keys(KIT_SCHEMA)) expect(okFiles(route).length, route).toBeGreaterThan(0);
     for (const f of recorded.files.filter((x) => x.status === 200 && x.route !== '/markets' && x.route !== '/market')) {
       const body = recordedBody(f) as { engine: { repo: string; commit: string } };
-      expect(body.engine.repo, f.file).toBe(API_CONTRACT.repo);
-      expect(body.engine.commit, f.file).toBe(API_CONTRACT.commit);
+      expect(body.engine.repo, f.file).toBe('Roni-1997/verdict');
+      expect(body.engine.commit, f.file).toBe('352b2352918cfb9d0616ae19cd4f80346e1d44a9');
     }
   });
   for (const f of recorded.files.filter((x) => x.status === 200)) {

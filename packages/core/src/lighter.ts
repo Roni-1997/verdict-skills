@@ -97,6 +97,12 @@ export interface LighterClientOptions {
   now?: () => number;
 }
 
+class LighterHttpError extends ToolError {
+  constructor(path: string, readonly status: number) {
+    super(`Lighter ${path}: HTTP ${status}${status === 429 ? '; respect Retry-After before retrying' : ''}`, 'upstream');
+  }
+}
+
 export class LighterClient {
   readonly config: LighterConfig;
   readonly now: () => number;
@@ -112,7 +118,7 @@ export class LighterClient {
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
     try {
       const response = await this.fetcher(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) throw new ToolError(`Lighter ${path}: HTTP ${response.status}${response.status === 429 ? '; respect Retry-After before retrying' : ''}`, 'upstream');
+      if (!response.ok) throw new LighterHttpError(path, response.status);
       const reader = response.body?.getReader();
       if (!reader) throw new ToolError(`Lighter ${path}: empty response`, 'upstream');
       const chunks: Uint8Array[] = [];
@@ -246,8 +252,13 @@ export function createLighterTools(client = new LighterClient()) {
     },
     async fee_schedule(value: unknown) {
       input(LIGHTER_INPUTS.fee_schedule, value);
-      const tiers = await client.get('feeTiers', { filter: 'bo' }, FeeTiers);
-      return { ...context(), ...tiers, formula: 'shares * marketFee * bo_fee_rate * P * (1-P)', marketFeeUnit: 'events.taker_fee is percent: 1.0000 means coefficient 0.01', note: 'Binary tiers differ from perps/spot. This public tool cannot determine your account multiplier.' };
+      try {
+        const tiers = await client.get('feeTiers', { filter: 'bo' }, FeeTiers);
+        return { ...context(), available: true as const, ...tiers, formula: 'shares * marketFee * bo_fee_rate * P * (1-P)', marketFeeUnit: 'events.taker_fee is percent: 1.0000 means coefficient 0.01', note: 'Binary tiers differ from perps/spot. This public tool cannot determine your account multiplier.' };
+      } catch (e) {
+        if (config.network !== 'devnet' || !(e instanceof LighterHttpError) || e.status !== 404) throw e;
+        return { ...context(), available: false as const, bo_tiers: null, staking_tiers: null, reason: 'This devnet deployment does not expose binary fee tiers. Read the market fee fields; do not substitute mainnet tiers or infer an account discount.' };
+      }
     },
     async build_order(value: unknown) {
       const p = input(LIGHTER_INPUTS.build_order, value);

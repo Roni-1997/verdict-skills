@@ -1,14 +1,14 @@
 {
   "repo": "Roni-1997/verdict",
-  "commit": "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
-  "syncedAt": "2026-09-14T17:55:45.845Z",
+  "commit": "25d8ce2ab8c6e18e99e6c37fab27b83ea1105b74",
+  "syncedAt": "2026-10-21T23:02:07.382Z",
   "files": [
     {
       "local": "packages/core/api-contract/openapi.json",
       "upstream": "docs/api/openapi.json",
-      "bytes": 62581,
-      "gitBlobSha1": "f3efb4cf33f73ec07316580e625514d134909d0d",
-      "sha256": "714ce5f91f9129a3007ccb3746f3a2c3bf890a7c9115f85d16eab1b4582cb8b2"
+      "bytes": 62588,
+      "gitBlobSha1": "6ac04f58c39dc9e24106ec70d242269e5f6fa858",
+      "sha256": "59432d344f375ae9f3da173ee9a721e92a3003b5c44c2715c935522a43da7d61"
     }
   ]
 }

@@ -140,8 +140,22 @@ describe('Lighter binary outcomes using public response fixtures', () => {
   });
   it('reads current binary fee tiers without requiring a nonexistent code field', async () => {
     const { tools, calls } = harness();
-    expect((await tools.fee_schedule({})).bo_tiers[0]).toEqual({ name: 'bo_0', required_volume: 0, fee_rate: 1 });
+    const fees = await tools.fee_schedule({});
+    if (!fees.available) throw new Error('Mainnet fixture must supply fee tiers');
+    expect(fees.bo_tiers[0]).toEqual({ name: 'bo_0', required_volume: 0, fee_rate: 1 });
     expect(calls[0]?.searchParams.get('filter')).toBe('bo');
+  });
+  it('reports unavailable devnet tiers explicitly, without borrowing mainnet rates or masking other failures', async () => {
+    const requests: string[] = [];
+    const fetcher: typeof fetch = async (url) => { requests.push(String(url)); return new Response('Not Found', { status: 404 }); };
+    const devnet = createLighterTools(new LighterClient({ network: 'devnet', creators: [] }, { fetch: fetcher }));
+    expect(await devnet.fee_schedule({})).toMatchObject({ available: false, bo_tiers: null, staking_tiers: null });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain('devnet.zklighter.elliot.ai');
+    const mainnet = createLighterTools(new LighterClient({ network: 'mainnet', creators: [] }, { fetch: fetcher }));
+    await expect(mainnet.fee_schedule({})).rejects.toMatchObject({ code: 'upstream' });
+    const offline = createLighterTools(new LighterClient({ network: 'devnet', creators: [] }, { fetch: async () => new Response('unavailable', { status: 503 }) }));
+    await expect(offline.fee_schedule({})).rejects.toMatchObject({ code: 'upstream' });
   });
   it('reads public binary positions and recent fills; empty recent prints are supported', async () => {
     const { tools } = harness();
