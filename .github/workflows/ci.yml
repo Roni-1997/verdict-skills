@@ -27,6 +27,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Install pinned broker SDK environment
+        run: |
+          python3 -m pip install uv==0.9.26
+          uv venv --python 3.11 local-runner/.venv
+          uv pip sync --python local-runner/.venv/bin/python local-runner/requirements.lock
       - name: check
         env:
           # The engine and API contract pins point at Roni-1997/verdict, which is private, so this
@@ -38,3 +43,5 @@ jobs:
         run: pnpm run check
       - name: bench:static
         run: pnpm run bench:static
+      - name: Official SDK contract tests (ephemeral keys, mocked transports)
+        run: pnpm run check:broker:sdk

@@ -75,8 +75,8 @@ describe('SKILL.md frontmatter', () => {
 });
 
 describe('every CLI command has a table row and a reference', () => {
-  it('reads the seventeen HL commands and the strategy subcommand out of USAGE', () => {
-    expect(usageCommands).toEqual(['markets', 'market', 'book', 'quote', 'recent-trades', 'candles', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'fills', 'open-orders', 'order-status', 'builder-status', 'approve-builder-fee-payload', 'build-order', 'strategy']);
+  it('reads the seventeen HL commands plus strategy and execution out of USAGE', () => {
+    expect(usageCommands).toEqual(['markets', 'market', 'book', 'quote', 'recent-trades', 'candles', 'compare', 'fair-value', 'hedges', 'opportunities', 'positions', 'fills', 'open-orders', 'order-status', 'builder-status', 'approve-builder-fee-payload', 'build-order', 'strategy', 'execution']);
   });
   for (const cmd of usageCommands) {
     it(`maps "${cmd}" to a CLI invocation, an MCP tool and references/${cmd}.md`, () => {

@@ -1,0 +1,3 @@
+hyperliquid-python-sdk @ git+https://github.com/hyperliquid-dex/hyperliquid-python-sdk.git@2fdb18f9517675ea03695a0962bd19eece9c83f0
+lighter-sdk @ git+https://github.com/elliottech/lighter-python.git@56b3537cd311117a5a665d74db4c2cce7da155de
+polymarket-client @ git+https://github.com/Polymarket/py-sdk.git@7032ed06175b0bbea77b2d9e898bd9f252af2041

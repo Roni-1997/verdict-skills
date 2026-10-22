@@ -1,0 +1,130 @@
+# Local trading broker
+
+Agents prepare unsigned orders through `verdict execution` or `verdict-mcp --execution`.
+The operator runs this separate Python process in their own terminal. It uses the official
+SDKs to read accounts, sign, submit, reconcile and cancel individual orders on Hyperliquid,
+Lighter binary outcomes and Polymarket. Hosted CLI/MCP processes never receive credentials.
+
+Requires a clone of this repository, Node 22, Python 3.11, `uv`, and macOS or Linux. Install
+dependencies before a trading session, review the SDK pins, and build the Node packages:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run build
+uv venv --python 3.11 local-runner/.venv
+uv pip sync --python local-runner/.venv/bin/python local-runner/requirements.lock
+cd local-runner
+.venv/bin/python -m verdict_broker doctor
+```
+
+The example in `examples/execution/request.json` is synthetic and cannot pass live market
+checks. Replace all identities, accounts, current titles/rules, limits and fee reserves.
+Obtain actual market details using the existing `market` / `lighter market` commands or
+the credential-free `public-market` command (all three venues). Polymarket uses the official
+SDK `PublicClient.get_market(id=...)` / `get_order_book(asset_id=...)`.
+Use the Gamma numeric market ID; match the exact YES/NO token ID, or V2 position ID.
+Compare resolution sources, windows, cancellation/void behavior and payout rules manually.
+Matching titles or an apparent spread do not establish equivalent contracts.
+
+From the repository root, with **no secrets** in the agent's environment:
+
+```sh
+node packages/cli/dist/bin.js execution prepare --file examples/execution/request.json > proposal.json
+node packages/cli/dist/bin.js execution review --file proposal.json --pretty
+```
+
+The agent shows every confirmation line, ends its message and waits for a real new human
+reply. Then it hands the unchanged proposal to the operator. It does not drive the terminal
+that holds keys or answer the terminal's approval prompt. A digest identifies content; it
+is not proof of consent.
+
+In the operator's dedicated local shell only, configure credentials using their existing
+secret-management workflow. Do not write keys into examples, `.env` files, transcripts,
+proposals, MCP configuration or journals.
+
+| Venue | Operator environment | Requirements |
+|---|---|---|
+| HL | `VERDICT_HL_AGENT_PRIVATE_KEY` | Dedicated agent approved for the proposal account/network; existing builder approval. Main wallet keys are refused. `allInFeeBpsCap` is operator-declared: the kit cannot verify the HIP-4 all-in rate from perp/spot tiers. |
+| Lighter | `VERDICT_LIGHTER_API_PRIVATE_KEY` | API key matching the confirmed account and key index; creator is explicitly bound in the proposal. Devnet chain 300 and mainnet 304 are passed explicitly. |
+| Polymarket | `VERDICT_POLYMARKET_PRIVATE_KEY`, `VERDICT_POLYMARKET_DEPOSIT_WALLET`, `VERDICT_POLYMARKET_API_KEY`, `VERDICT_POLYMARKET_API_PASSPHRASE`, `VERDICT_POLYMARKET_API_SECRET` | Existing deployed deposit wallet and pre-existing API credentials/allowances. No automatic wallet deployment, credential creation, approvals or deposits. Owner/session keys retain the SDK's own order visibility rules. |
+
+Optional `VERDICT_NODE_BINARY` specifies an absolute Node 22 executable. Public Node child
+processes receive only explicitly selected non-secret configuration. Never export operator
+credentials into the shell that runs an agent or a hosted server.
+
+In the operator shell, from `local-runner`:
+
+```sh
+.venv/bin/python -m verdict_broker review --proposal ../proposal.json
+.venv/bin/python -m verdict_broker public-market --venue polymarket --network polygon --market-id 123
+.venv/bin/python -m verdict_broker account --proposal ../proposal.json --leg 0
+.venv/bin/python -m verdict_broker submit --proposal ../proposal.json
+.venv/bin/python -m verdict_broker status --proposal ../proposal.json
+.venv/bin/python -m verdict_broker cancel --proposal ../proposal.json --leg 0
+```
+
+Submit and cancel require an interactive terminal and the exact `APPROVE <digest>` reply.
+There is no bypass flag. Cancellation asks again and targets only the specified leg.
+Acknowledgement is not terminal cancellation: read status afterward. `account` runs the
+same read-only preflight and can block when the proposed order is no longer valid.
+
+Single orders support HL Ioc/Gtc/Alo, Lighter ioc/gtc/post_only and Polymarket
+FAK/FOK/GTC/GTD. Polymarket GTD needs a Unix-second expiration at least three minutes
+ahead at signing. SDK tick rounding that changes shares or worsens the limit is refused.
+Polymarket sizes must fit the pinned SDK's 0.01-share grid. Sells require available holdings;
+naked sells are disabled. Polymarket preflight requires no existing open orders, because
+raw balances do not subtract their reservations. On Lighter, existing opposite
+inventory or other open orders in the market block execution rather than silently netting
+or double-reserving them. Use dedicated accounts with **no external writers**.
+
+Pairs support all three combinations, with equal requested shares, immediate buy orders,
+explicit rule orientation and positive worst-limit conditional payoff after reserves.
+Every leg passes initial preflight before either order is attempted; each is refreshed
+again before its own send. A send deadline is checked after SDK signing/nonce reads,
+immediately before transport. Execution is sequential and non-atomic: first leg must reach a definitive terminal full
+fill, settlement confirmation where applicable, and the exact net inventory change before
+the second leg is preflighted and sent. Partial fills, unknown outcomes, fee-short shares,
+adverse depth or a second-leg failure leave exposure. Recovery is a new separately confirmed
+proposal. The runner never automatically resizes, unwinds or retries an order.
+
+Fee reserves are estimates, not venue-enforced ceilings. Lighter uses the undiscounted
+curve's global maximum across prices; Polymarket conservatively reserves `shares × rate`
+for a nonnegative exponent, using current CLOB metadata. These can exceed fees at the
+quoted limit. Rebates are never assumed. Polymarket BUY fees may reduce received shares;
+gross matched shares never count as net acquired inventory. MATCHED/MINED/RETRYING do not
+prove settlement. Both net balances must reconcile before a pair is reported complete.
+This initial policy does not automatically gross up a Polymarket BUY to offset fees paid
+in shares: a fee-short fill halts and requires a new confirmed recovery proposal.
+
+State defaults to `~/.local/state/verdict-broker`, or `--state-dir <private directory>`.
+It must be owned by the operator with mode 0700. Files are 0600, symlinks are refused,
+and accounts are locked across proposals. An unsigned intent and an attempt fence are
+fsynced before signing/transport. Journals contain public identifiers and normalized
+receipts, never signatures or auth. Protect and retain them: deleting state removes
+duplicate-attempt protection. A truncated/corrupt journal fails closed.
+
+Once an attempt exists, re-running submit only reconciles; it never sends either leg,
+even if the first filled and the second was never sent. Lighter's private lookup has
+bounded retention (10,000 active / 1,000 inactive within 24 hours). Missing orders remain
+unknown. A lost Polymarket response without an order ID cannot be resolved automatically:
+inspect the official account UI/history. Do not infer rejection or submit again. Status
+reports inventory changes, assumes no external writers, and makes no realized P&L claim.
+
+SDK internals used deliberately at the pins: HL `sign_l1_action`; Polymarket `_create`
+with supplied credentials and `validate_credentials=False`, followed by a read-only
+active-key check, to avoid automatic credential creation and wallet deployment; and the
+SDK's `/clob-markets` fee schema. Polymarket `SignedOrder.order_type` is an unsigned POST
+policy, so FAK/FOK replace only that field on the public dataclass; signed fields remain
+unchanged. Contract tests exercise the real pinned SDKs. Review these hooks before upgrading.
+
+Verification from the repository root:
+
+```sh
+pnpm run check
+VERDICT_BROKER_PYTHON=local-runner/.venv/bin/python pnpm run check:broker:sdk
+```
+
+The suite covers real CLI/MCP preparation, ephemeral-key SDK signing against mocks,
+partial/unknown execution, restart fences, locks, exact payloads and settlement/net-share
+accounting. It does **not** prove funded venue acceptance, private account permissions,
+geographic eligibility or profitable trading. No funded orders are placed by these tests.
