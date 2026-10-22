@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation, localcontext
 import re
 import time
 
-from .core import BrokerError
+from .core import BrokerError, load_proposal
 
 D = Decimal
 PLAIN = re.compile(r"\d{1,16}(?:\.\d{1,12})?\Z")
@@ -170,3 +170,39 @@ def quote_polymarket(snapshot, side, action, shares, *, limit_price=None, at=Non
                     "spread": text(ask - bid) if bid is not None and ask is not None else None}
     except (KeyError, TypeError) as e:
         raise BrokerError("Malformed public quote snapshot (values hidden)") from e
+
+
+def quote_proposal(path, index, *, snapshot=None, at=None, max_age_ms=5000):
+    """Research one immutable Polymarket leg; no account reads or trading authority."""
+    proposal = load_proposal(path)
+    payload = proposal["payload"]
+    if type(index) is not int or not 0 <= index < len(payload["legs"]):
+        raise BrokerError("An explicit in-range --leg is required for proposal quotes")
+    leg = payload["legs"][index]
+    if leg["venue"] != "polymarket":
+        raise BrokerError("Proposal quotes support the selected Polymarket leg only; other legs are not assessed")
+    live = snapshot is None
+    if live and at is not None:
+        raise BrokerError("--at applies only to saved snapshot replay")
+    now = int(time.time() * 1000) if at is None else at
+    if type(now) is not int or not payload["createdAt"] <= now < payload["expiresAt"]:
+        raise BrokerError("Proposal is outside its validity window at quote evaluation")
+    if live:
+        from .public import public_market
+        snapshot = public_market(leg["venue"], leg["network"], leg["marketId"])
+    try:
+        market = snapshot["market"]
+        if (snapshot["venue"] != leg["venue"] or snapshot["network"] != leg["network"]
+                or market["marketId"] != leg["marketId"] or market["assets"][leg["side"]] != leg["assetId"]
+                or market["title"] != leg["title"] or market["settlementRule"] != leg["settlementRule"]):
+            raise BrokerError("Public snapshot identity or terms differ from the proposal")
+    except (KeyError, TypeError) as e:
+        raise BrokerError("Missing proposal-bound snapshot identity or terms") from e
+    quote = quote_polymarket(snapshot, leg["side"], leg["action"], leg["shares"],
+                             limit_price=leg["limitPrice"], at=at, max_age_ms=max_age_ms)
+    # Capture/validation can cross expiry; the actual quote clock is authoritative.
+    if not payload["createdAt"] <= quote["evaluatedAt"] < payload["expiresAt"]:
+        raise BrokerError("Proposal is outside its validity window at quote evaluation")
+    return {**quote, "sourceMode": "live_capture" if live else "saved_snapshot",
+            "proposalDigest": proposal["digest"], "proposalLegIndex": index,
+            "otherLegs": "not_assessed", "authorization": "none"}

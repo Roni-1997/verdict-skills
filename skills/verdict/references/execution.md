@@ -15,6 +15,9 @@ For Polymarket size/depth research, the installed local runner also provides cre
 CLI quote commands. It reports partial depth, current curve fees, source clocks and
 limits, without claiming net received shares. See the runner guide for replay flags and
 fee-model limits. A quote is analysis, never permission to prepare or submit an order.
+For an existing unsigned proposal, `public-quote --proposal proposal.json --leg N` checks
+its exact selected Polymarket leg without hand-copying size, asset or limit. An explicit
+index is required. The other leg, net inventory and fee-reserve adequacy remain unassessed.
 
 ```sh
 verdict execution prepare --file request.json > proposal.json

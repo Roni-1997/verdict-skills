@@ -84,6 +84,23 @@ replays a saved capture at a historical time; it is refused for live quotes. Out
 the source and evaluation modes. Saved snapshots need `enableOrderBook` from the current
 capture format; recapture older files rather than assuming an unknown book is active.
 
+To check the exact Polymarket leg of an existing unsigned proposal, pass the proposal and
+an explicit zero-based index. The command derives the market, asset, side, action, shares
+and limit from the validated proposal. It rejects order-field overrides and mismatched
+market identities, titles or settlement rules. The proposal must be within its validity
+window at the quote's evaluation time. Historical replay does not renew an expired intent.
+
+```sh
+.venv/bin/python -m verdict_broker public-quote --proposal ../proposal.json --leg 1
+.venv/bin/python -m verdict_broker public-quote --proposal ../proposal.json --leg 1 --snapshot public.json --at 1792638000000
+```
+
+The report includes the original digest and selected leg index, without account details.
+Only that Polymarket leg's public depth is assessed. `otherLegs` remains `not_assessed`
+and `authorization` remains `none`. This command does not check private permissions,
+balances, fee-reserve adequacy, paired profit or net acquired inventory. It does not alter
+the proposal, create broker state or replace the operator's execution approval.
+
 `curveFeeUSDC` is unrounded `shares × rate × [price × (1-price)]^exponent`, summed at the
 prices actually walked, using current CLOB parameters rather than category defaults.
 Integer exponents 0..8 and bounded decimal/string fee parameters are supported; unsupported

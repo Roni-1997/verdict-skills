@@ -21,7 +21,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Local SDK trading broker; agents prepare unsigned proposals, operators approve here")
     parser.add_argument("command", choices=["review", "submit", "status", "cancel", "account", "doctor", "public-market", "public-quote"])
     parser.add_argument("--proposal", type=Path)
-    parser.add_argument("--leg", type=int, default=0, help="Zero-based leg for account/cancel")
+    parser.add_argument("--leg", type=int, help="Zero-based leg; required for proposal quotes, defaults to 0 for account/cancel")
     parser.add_argument("--venue", choices=["hl", "lighter", "polymarket"])
     parser.add_argument("--network", choices=["testnet", "devnet", "mainnet", "polygon"])
     parser.add_argument("--market-id")
@@ -34,24 +34,39 @@ def main(argv=None):
     parser.add_argument("--max-age-ms", type=int, default=5000)
     parser.add_argument("--state-dir", type=Path, default=Path.home() / ".local/state/verdict-broker")
     args = parser.parse_args(argv)
+    if args.command != "public-quote" and args.leg is None:
+        args.leg = 0
     # SDK DEBUG logs may contain signed transaction data. Never enable them here.
     logging.disable(logging.DEBUG)
     try:
         if args.command == "public-quote":
-            from .quotes import quote_polymarket
+            from .quotes import quote_polymarket, quote_proposal
+            if args.proposal is not None and any(value is not None for value in [args.venue, args.network, args.market_id, args.side, args.action, args.shares, args.limit_price]):
+                raise BrokerError("Proposal quotes derive all order fields; remove venue/network/market/side/action/shares/limit overrides")
+            if args.proposal is None and args.leg is not None:
+                raise BrokerError("--leg requires --proposal for public quotes")
             if args.snapshot is not None:
                 if args.venue is not None or args.network is not None or args.market_id is not None:
                     raise BrokerError("Use a saved snapshot or live venue/network/market arguments, not both")
                 if not args.snapshot.is_file() or args.snapshot.stat().st_size > 1_048_576:
                     raise BrokerError("Expected snapshot file of at most 1 MiB")
                 snapshot = json_load(args.snapshot.read_text())
+                if not isinstance(snapshot, dict):
+                    raise BrokerError("Saved public snapshot must be a JSON object")
             else:
-                if args.venue != "polymarket" or args.network != "polygon" or args.at is not None:
+                if args.at is not None:
+                    raise BrokerError("--at applies only to saved snapshot replay")
+                if args.proposal is None and (args.venue != "polymarket" or args.network != "polygon"):
                     raise BrokerError("Live quotes require --venue polymarket --network polygon; --at applies only to saved replay")
-                from .public import public_market
-                snapshot = public_market(args.venue, args.network, args.market_id)
-            result = quote_polymarket(snapshot, args.side, args.action, args.shares, limit_price=args.limit_price, at=args.at, max_age_ms=args.max_age_ms)
-            result["sourceMode"] = "saved_snapshot" if args.snapshot is not None else "live_capture"
+                snapshot = None
+            if args.proposal is not None:
+                result = quote_proposal(args.proposal, args.leg, snapshot=snapshot, at=args.at, max_age_ms=args.max_age_ms)
+            else:
+                if snapshot is None:
+                    from .public import public_market
+                    snapshot = public_market(args.venue, args.network, args.market_id)
+                result = quote_polymarket(snapshot, args.side, args.action, args.shares, limit_price=args.limit_price, at=args.at, max_age_ms=args.max_age_ms)
+                result["sourceMode"] = "saved_snapshot" if args.snapshot is not None else "live_capture"
         elif args.command == "public-market":
             from .public import public_market
             result = public_market(args.venue, args.network, args.market_id)

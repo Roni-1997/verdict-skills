@@ -6,7 +6,7 @@ universal lock. No funded orders, private account reads or production credential
 | Check | Result |
 |---|---|
 | Full TypeScript suite, public venue reads and installer E2E | 452 passed, zero skipped |
-| Local broker and public quote suite, including the real built Node validation boundary | 44 passed |
+| Local broker and public quote suite, including the real built Node validation boundary | 54 passed |
 | Installed official SDK contract suite | 26 passed |
 | Types, lint, engine/API provenance and release checks | Passed |
 | Both static skill checks | Passed |
@@ -50,6 +50,13 @@ fixes for string fee exponents and disabled order books. A real credential-free 
 completed for 10 YES shares on market 559651. Its fee schedule was zero; positive fee curves
 are covered by fixtures, not funded acceptance. Quotes report unrounded research economics
 and never claim verified net inventory or authorize execution.
+
+Proposal-bound quotes add 10 tests for exact asset and terms binding, canonical digest
+validation, explicit leg selection, immutable limits, validity windows, partial depth,
+conflicting CLI overrides and public-only replay. Review reproduced a saved JSON `null`
+file unexpectedly selecting live capture. Non-object saved files now fail before any
+public request, with regressions for both standalone and proposal quote modes. The other
+leg's executable depth, net inventory and fee-reserve adequacy remain unassessed.
 
 Remaining acceptance work requires an operator-owned funded account on each venue. The
 runner intentionally halts on any fee-short net inventory, unknown history or unresolved
