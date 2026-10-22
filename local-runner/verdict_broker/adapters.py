@@ -102,6 +102,19 @@ class Hyperliquid:
         built = self.bridge(["build-order", *args], self.env(leg))
         check_rule(leg, built["market"]["displayName"], built["market"]["settlementRule"])
         market = self.bridge(["market", str(leg["outcome"])], self.env(leg))
+        side_index = 0 if leg["side"] == "yes" else 1
+        encoding = 10 * leg["outcome"] + side_index
+        expected_asset = 100_000_000 + encoding
+        sides = market.get("sides", [])
+        if (market.get("outcome") != leg["outcome"] or built["market"].get("outcome") != leg["outcome"]
+                or len(sides) != 2 or [s.get("name", "").strip().casefold() for s in sides] != ["yes", "no"]):
+            raise BrokerError("HL execution requires explicit Yes/No venue outcomes in canonical order; named outcomes need a new supported proposal")
+        selected = built["side"]
+        if (selected.get("index") != side_index or selected.get("name", "").strip().casefold() != leg["side"]
+                or selected.get("coin") != f"#{encoding}" or selected.get("assetId") != expected_asset
+                or sides[side_index].get("coin") != f"#{encoding}" or sides[side_index].get("assetId") != expected_asset
+                or len(built["action"].get("orders", [])) != 1 or built["action"]["orders"][0].get("a") != expected_asset):
+            raise BrokerError("HL selected outcome or native asset differs from the approved proposal")
         if market["quoteToken"] != "USDC" or not market["expiresAt"] or datetime.fromisoformat(market["expiresAt"].replace("Z", "+00:00")).timestamp() <= time.time():
             raise BrokerError("HL market is expired, has unknown expiry, or is not USDC quoted")
         book = self.info("l2Book", coin=built["side"]["coin"])

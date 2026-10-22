@@ -166,6 +166,17 @@ SDK's `/clob-markets` fee schema. Polymarket `SignedOrder.order_type` is an unsi
 policy, so FAK/FOK replace only that field on the public dataclass; signed fields remain
 unchanged. Contract tests exercise the real pinned SDKs. Review these hooks before upgrading.
 
+HL local execution accepts markets with explicit `Yes`, `No` labels in canonical order.
+It binds the selected side's name, index, coin and native asset to the proposal outcome.
+Named team and Over/Under outcomes are refused by this yes/no-only proposal format.
+
+The lock is generated with `uv pip compile local-runner/requirements.in --overrides
+local-runner/security-overrides.in --python 3.11 --universal --generate-hashes --output-file
+local-runner/requirements.lock`. The override pins urllib3 2.8.0 to fix published advisories
+despite the Lighter SDK's stale `<2.1` metadata constraint. That SDK uses aiohttp for network
+transport and urllib3 for header construction; the installed-SDK contracts verify the
+supported paths with the override. Keep the override explicit when regenerating the lock.
+
 Verification from the repository root:
 
 ```sh

@@ -1,7 +1,7 @@
 // The CLI and the MCP server are thin faces over the same tool module: prove both against the recorded
 // fixtures through a fake fetch, with no network and no keys.
 import { readFileSync } from 'node:fs';
-import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -229,6 +229,27 @@ describe('MCP streamable HTTP request handler (ephemeral port): a failing reques
     const { port } = server.address() as AddressInfo;
     return { url: `http://127.0.0.1:${port}`, lines, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
   }
+  it('rejects oversized declared and chunked bodies before opening a session and keeps serving', async () => {
+    let opened = 0;
+    const s = await serve(async () => { opened++; throw new Error('must not open for oversized input'); });
+    try {
+      const declared = await fetch(`${s.url}/mcp`, { method: 'POST', headers: HEADERS, body: 'x'.repeat(1_048_577) });
+      expect(declared.status).toBe(413);
+      await declared.text();
+      const chunkedStatus = await new Promise<number>((resolve, reject) => {
+        const req = httpRequest(`${s.url}/mcp`, { method: 'POST', headers: HEADERS }, (res) => {
+          res.resume();
+          res.on('end', () => resolve(res.statusCode ?? 0));
+        });
+        req.on('error', reject);
+        req.write('x'.repeat(700_000));
+        req.end('x'.repeat(700_000));
+      });
+      expect(chunkedStatus).toBe(413);
+      expect(opened).toBe(0);
+      expect((await fetch(`${s.url}/healthz`)).status).toBe(200);
+    } finally { await s.close(); }
+  });
   it('a session that cannot be opened is answered with one HTTP 500 JSON-RPC error, logged once, and the server keeps serving', async () => {
     let opened = 0;
     const s = await serve(async () => {

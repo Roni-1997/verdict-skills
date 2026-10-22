@@ -5,9 +5,9 @@ universal lock. No funded orders, private account reads or production credential
 
 | Check | Result |
 |---|---|
-| Full TypeScript suite, public venue reads and installer E2E | 452 passed, zero skipped |
+| Full TypeScript suite, public venue reads and installer E2E | 453 passed, zero skipped |
 | Local broker and public quote suite, including the real built Node validation boundary | 60 passed |
-| Installed official SDK contract suite | 26 passed |
+| Installed official SDK contract suite | 28 passed |
 | Types, lint, engine/API provenance and release checks | Passed |
 | Both static skill checks | Passed |
 | Public Polymarket discovery and both outcome books through the official SDK | Passed, market 559651, V1 |
@@ -68,3 +68,11 @@ and rejecting the second sends only the first order. The first approval token ca
 authorize another leg. Each order is rechecked after the human wait; changed preflight or
 expiry blocks sending. A restart still reconciles instead of resuming an unattempted leg.
 The focused regressions failed before the change because one approval sent both orders.
+
+The pre-merge security pass reproduced and fixed HL named outcomes being treated as
+YES/NO execution. SDK regressions now require canonical labels and bind the selected
+native asset to the approved outcome. A real HTTP regression verifies oversized declared
+and chunked requests receive 413 before opening a session, with subsequent requests still
+served. Updated JavaScript and Python locks had zero published advisories in the scans
+performed on 2026-10-22. This does not establish absence of unknown vulnerabilities or
+funded acceptance. The explicit urllib3 metadata override is documented in the runner guide.

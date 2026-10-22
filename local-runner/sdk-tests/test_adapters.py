@@ -32,6 +32,39 @@ LIGHTER = {**BASE, "venue": "lighter", "network": "devnet", "market": 4555, "cre
 
 
 class HLSDKTest(unittest.TestCase):
+    def preflight_fixture(self, names=("Yes", "No"), leg=HL):
+        wallet = Account.create()
+        sides = [{"index": i, "name": name, "coin": f"#123{i}", "assetId": 100001230 + i} for i, name in enumerate(names)]
+        selected = 0 if leg["side"] == "yes" else 1
+        action = {"type": "order", "orders": [{"a": 100001230 + selected}]}
+        built = {"market": {"outcome": 123, "displayName": BASE["title"], "settlementRule": BASE["settlementRule"]}, "side": dict(sides[selected]), "action": action}
+        market = {"outcome": 123, "sides": sides, "quoteToken": "USDC", "expiresAt": datetime.fromtimestamp(time.time() + 86400, timezone.utc).isoformat()}
+        adapter = Hyperliquid(HL, wallet=wallet, http=Mock(), bridge=lambda args, env: built if args[0] == "build-order" else market)
+        def info(kind, **kw):
+            if kind == "extraAgents": return [{"address": wallet.address, "validUntil": int((time.time() + 86400) * 1000)}]
+            if kind == "maxBuilderFee": return 10
+            if kind == "l2Book": return {"time": int(time.time() * 1000), "levels": [[], [{"px": "0.4", "sz": "10"}]]}
+            raise AssertionError(kind)
+        adapter.info = info
+        adapter.inventory = lambda _: (D(0), D(0), D(100))
+        return adapter, built, market
+
+    def test_preflight_rejects_named_or_reversed_outcomes_in_yes_no_proposal(self):
+        for names in [("Over", "Under"), ("Arsenal", "Chelsea"), ("No", "Yes")]:
+            adapter, _, _ = self.preflight_fixture(names)
+            with self.subTest(names=names), self.assertRaises(BrokerError): adapter.preflight(HL, "a" * 64)
+
+    def test_preflight_binds_selected_side_and_native_asset_to_approved_outcome(self):
+        for side in ["yes", "no"]:
+            leg = {**HL, "side": side}
+            adapter, built, _ = self.preflight_fixture(leg=leg)
+            self.assertIs(adapter.preflight(leg, "a" * 64).native, built["action"])
+        for key, value in [("index", 1), ("name", "Over"), ("coin", "#9990"), ("assetId", 100009990)]:
+            adapter, built, _ = self.preflight_fixture(); built["side"][key] = value
+            with self.subTest(key=key), self.assertRaises(BrokerError): adapter.preflight(HL, "a" * 64)
+        adapter, built, _ = self.preflight_fixture(); built["action"]["orders"][0]["a"] = 100009990
+        with self.assertRaises(BrokerError): adapter.preflight(HL, "a" * 64)
+
     def test_official_signature_recovers_ephemeral_agent_and_exact_action(self):
         wallet = Account.create()
         captured = []
