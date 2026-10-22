@@ -34,7 +34,7 @@ def public_market(venue, network, market_id):
                       for name, outcome in [("yes", m.outcomes.yes), ("no", m.outcomes.no)]}
             market = {"marketId": str(m.id), "title": m.question, "settlementRule": m.description,
                       "conditionId": str(m.condition_id), "version": str(m.version), "assets": assets,
-                      "active": m.state.active, "closed": m.state.closed, "acceptingOrders": m.state.accepting_orders,
+                      "active": m.state.active, "closed": m.state.closed, "acceptingOrders": m.state.accepting_orders, "enableOrderBook": m.state.enable_order_book,
                       "expiresAt": m.state.end_date.isoformat() if m.state.end_date else None}
             book = {}
             for side, asset in assets.items():

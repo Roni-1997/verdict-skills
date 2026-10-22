@@ -6,7 +6,7 @@ universal lock. No funded orders, private account reads or production credential
 | Check | Result |
 |---|---|
 | Full TypeScript suite, public venue reads and installer E2E | 452 passed, zero skipped |
-| Local broker through the real built Node validation boundary | 25 passed |
+| Local broker and public quote suite, including the real built Node validation boundary | 44 passed |
 | Installed official SDK contract suite | 26 passed |
 | Types, lint, engine/API provenance and release checks | Passed |
 | Both static skill checks | Passed |
@@ -42,6 +42,14 @@ This was a code/integration review, not a comprehensive audit or a review of pri
 A further regression reproduced cancellation being blocked by an unrelated balance endpoint
 failure. Order identity validation now serves status and cancellation independently; cancel
 does not await balances or settlement. The regression failed before the change and passes after it.
+
+The public Polymarket quote batch adds 19 behavioral tests: actual outcome depth, buy/sell
+limits, partial liquidity, per-level fee curves, SDK string/numeric fee parameters, book
+eligibility, source clocks and saved-snapshot CLI replay. Two independent reviewers verified
+fixes for string fee exponents and disabled order books. A real credential-free live quote
+completed for 10 YES shares on market 559651. Its fee schedule was zero; positive fee curves
+are covered by fixtures, not funded acceptance. Quotes report unrounded research economics
+and never claim verified net inventory or authorize execution.
 
 Remaining acceptance work requires an operator-owned funded account on each venue. The
 runner intentionally halts on any fee-short net inventory, unknown history or unresolved

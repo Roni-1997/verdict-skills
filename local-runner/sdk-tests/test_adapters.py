@@ -314,7 +314,7 @@ class PureBoundaryTest(unittest.TestCase):
         from verdict_broker.public import public_market
         market = NS(id="123", question=BASE["title"], description=BASE["settlementRule"], condition_id="0x" + "a" * 64, version="v1",
                     outcomes=NS(yes=NS(token_id="123"), no=NS(token_id="456")),
-                    state=NS(active=True, closed=False, accepting_orders=True, end_date=None))
+                    state=NS(active=True, closed=False, accepting_orders=True, enable_order_book=True, end_date=None))
         client = Mock()
         client.get_market.return_value = market
         def book(*, asset_id):
@@ -326,6 +326,7 @@ class PureBoundaryTest(unittest.TestCase):
         with patch("polymarket.PublicClient", return_value=client), patch("verdict_broker.adapters.JsonHTTP", return_value=http):
             result = public_market("polymarket", "polygon", "123")
         self.assertEqual(result["market"]["assets"], {"yes": "123", "no": "456"})
+        self.assertTrue(result["market"]["enableOrderBook"])
         self.assertEqual(result["book"]["yes"]["asks"][0]["price"], "0.5")
         self.assertEqual(client.get_order_book.call_count, 2)
         client.close.assert_called_once()

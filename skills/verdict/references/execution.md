@@ -10,6 +10,12 @@ installation, credential names, account reads, submission, cancellation and reco
 The local runner requires a repository clone and separately installed Python dependencies;
 it is not bundled into the npm CLI or installed automatically by a skill.
 
+For Polymarket size/depth research, the installed local runner also provides credential-free
+`public-quote` (live capture or saved `public-market` JSON), alongside existing HL/Lighter
+CLI quote commands. It reports partial depth, current curve fees, source clocks and
+limits, without claiming net received shares. See the runner guide for replay flags and
+fee-model limits. A quote is analysis, never permission to prepare or submit an order.
+
 ```sh
 verdict execution prepare --file request.json > proposal.json
 verdict execution review --file proposal.json --pretty

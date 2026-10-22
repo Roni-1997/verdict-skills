@@ -57,6 +57,7 @@ In the operator shell, from `local-runner`:
 ```sh
 .venv/bin/python -m verdict_broker review --proposal ../proposal.json
 .venv/bin/python -m verdict_broker public-market --venue polymarket --network polygon --market-id 123
+.venv/bin/python -m verdict_broker public-quote --venue polymarket --network polygon --market-id 123 --side yes --action buy --shares 10
 .venv/bin/python -m verdict_broker account --proposal ../proposal.json --leg 0
 .venv/bin/python -m verdict_broker submit --proposal ../proposal.json
 .venv/bin/python -m verdict_broker status --proposal ../proposal.json
@@ -67,6 +68,30 @@ Submit and cancel require an interactive terminal and the exact `APPROVE <digest
 There is no bypass flag. Cancellation asks again and targets only the specified leg.
 Acknowledgement is not terminal cancellation: read status afterward. `account` runs the
 same read-only preflight and can block when the proposed order is no longer valid.
+
+`public-quote` is credential-free Polymarket research, alongside the existing HL/Lighter
+`verdict quote` / `verdict lighter quote` commands. It walks the chosen outcome's actual
+asks or bids, with an optional `--limit-price`, and reports complete/partial/blocked depth,
+walked notional, average/worst price, mid/spread and the current CLOB fee curve. Partial
+notionals cover only `filledShares`; no price is extrapolated over missing depth. Closed,
+expired or disabled books, subminimum size and stale evidence block the quote. The default
+age budget is 5000 ms; `--max-age-ms` permits explicit research budgets up to 60000 ms and
+does not relax the execution broker's own deadline.
+
+Save `public-market` JSON and use `public-quote --snapshot public.json --side yes --action
+buy --shares 10` to evaluate it at the current clock. `--at <Unix milliseconds>` explicitly
+replays a saved capture at a historical time; it is refused for live quotes. Output labels
+the source and evaluation modes. Saved snapshots need `enableOrderBook` from the current
+capture format; recapture older files rather than assuming an unknown book is active.
+
+`curveFeeUSDC` is unrounded `shares × rate × [price × (1-price)]^exponent`, summed at the
+prices actually walked, using current CLOB parameters rather than category defaults.
+Integer exponents 0..8 and bounded decimal/string fee parameters are supported; unsupported
+parameters fail closed. The [official fee guide](https://docs.polymarket.com/trading/fees)
+documents five-place rounding, but execution fragmentation, rounding ties, rebates and
+cash/token collection are not inferred here. The quoted plus/minus fee amounts are model
+economics, not guaranteed cash requirements. `netSharesReceived` stays null and
+`inventoryVerified` stays false; this command cannot authorize a trade or verify a hedge.
 
 Single orders support HL Ioc/Gtc/Alo, Lighter ioc/gtc/post_only and Polymarket
 FAK/FOK/GTC/GTD. Polymarket GTD needs a Unix-second expiration at least three minutes

@@ -9,7 +9,7 @@ This is a capability comparison, not a performance benchmark or proof of profita
 | Capability | Verdict implementation | Current limit |
 |---|---|---|
 | Market/rule discovery | HL and Lighter CLI/MCP; public broker snapshots on all three | Polymarket broker snapshot takes a numeric market ID; existing comparison engine supplies broader candidate research |
-| Executable size quotes | HL/Lighter book walking and curved-fee research | Public snapshots are not fill promises; no automatic market-equivalence claim |
+| Executable size quotes | HL/Lighter CLI quotes; Polymarket `public-quote` book walking with dynamic fee curves, limits and saved replay | Public quotes are not fill promises or net inventory; no automatic market-equivalence claim |
 | Single limit orders | Official SDK signing/submission on all three | Operator-owned local shell and separate terminal approval |
 | Native order types | HL Ioc/Gtc/Alo; Lighter ioc/gtc/post_only; Polymarket FAK/FOK/GTC/GTD | Exact share/tick grids, no silent size rounding |
 | Account preflight | Bound account/network, current rules, balances, fees, depth and permission checks available from each SDK/API | Private funded acceptance is unverified; HL all-in outcome fee cap remains operator-declared |
