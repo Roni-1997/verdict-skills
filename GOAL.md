@@ -17,8 +17,9 @@ The owner also authorized local trading on Hyperliquid, Lighter and Polymarket.
 `verdict execution` and MCP `--execution` prepare strict unsigned proposals for individual
 orders or conditional non-atomic pairs. A separate operator-owned Python broker handles
 signing, submission, status and cancellation through pinned official SDKs. It requires
-exact terminal approval and account bindings, checks actual settled net inventory, and
-never automatically resubmits an uncertain attempt. Hosted processes remain keyless.
+separate exact terminal approval for every order and account bindings. It checks actual
+settled net inventory and never automatically resubmits an uncertain attempt. Hosted
+processes remain keyless.
 Polymarket public depth quotes and proposal-leg research do not verify paired profit or
 net acquired shares. See [the local broker guide](local-runner/README.md) and
 [current coverage and limits](docs/agent-capabilities.md). Funded venue acceptance remains
@@ -74,7 +75,8 @@ Measured from Hyperliquid's daily builder-fills files, by client, on testnet fir
 - **Two-message rule for anything signable.** Show the market, settlement rule, side,
   price, size, fee reserves and caps, account, network and applicable Hyperliquid builder
   code, then stop and wait for a real reply. Local execution also requires the operator's
-  separate exact terminal approval. Never fabricate confirmation or add a yes flag.
+  separate exact terminal approval for each order, including every leg of a pair. Never
+  fabricate confirmation, reuse one order's approval for another or add a yes flag.
 - **Public discovery and standalone quotes require no account or credentials.** Proposal
   research uses an account-bound unsigned intent. Private account reads stay in the local broker.
 - **Every Hyperliquid order carries the builder code.** Hyperliquid builder fields do not

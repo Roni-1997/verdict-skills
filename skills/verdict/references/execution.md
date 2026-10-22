@@ -35,6 +35,9 @@ numeric `marketId` and exact CLOB `assetId` (V1 token ID or V2 position ID).
 Show every review line, end the message and wait for a real new human reply. A digest is
 not consent. Hand the unchanged proposal to the operator's dedicated local terminal.
 The agent never handles credentials, drives that terminal or answers its approval prompt.
+Every order needs its own operator approval, including both legs of a pair. Approval of
+one leg cannot authorize the next. Declining a later leg can leave an existing position
+exposed; recovery needs a new separately confirmed proposal. There is no unattended mode.
 No signing or submission occurs in the turn that prepared the proposal. Do not install
 SDKs at trade time. Setup is a separate operator task.
 

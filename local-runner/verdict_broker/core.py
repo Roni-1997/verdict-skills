@@ -256,7 +256,12 @@ class Broker:
                 return self._status(p, adapters)
             self._valid_now(p)
             review = node_call(["execution", "review", "--input", json.dumps(p, ensure_ascii=False)])
-            if not approve(review):
+            def order_review(index):
+                return {**review, "leg": index, "approvalId": f"{p['digest']}:leg:{index}",
+                        "confirmation": [*review["confirmation"],
+                            f"Approve ONLY order {index + 1} of {len(p['payload']['legs'])}. Every other order requires its own separate approval.",
+                            *(["Previous orders have filled. Declining this order can leave unhedged exposure; recovery requires a new separately approved proposal."] if index else [])]}
+            if not approve(order_review(0)):
                 raise BrokerError("Operator did not approve; no order sent")
             # Detect known second-leg failure before acquiring exposed first-leg inventory.
             # Discard these snapshots and refresh each leg again immediately before its send.
@@ -265,8 +270,13 @@ class Broker:
                     self._preflight(p, i, adapter)
             except Exception:
                 raise BrokerError("Initial preflight blocked; every leg must be viable before any order is sent") from None
-            self.store.append(p["digest"], {"type": "approved", "proposal": p})
+            self.store.append(p["digest"], {"type": "approved", "leg": 0, "proposal": p})
             for i, (leg, adapter) in enumerate(zip(p["payload"]["legs"], adapters)):
+                if i:
+                    if not approve(order_review(i)):
+                        self.store.append(p["digest"], {"type": "approval_declined", "leg": i})
+                        return {**self._status(p, adapters), "blocked": "Next order not approved; existing inventory may be exposed. Recovery requires a new separately confirmed proposal"}
+                    self.store.append(p["digest"], {"type": "approved", "leg": i})
                 try:
                     preflight = self._preflight(p, i, adapter)
                 except Exception:

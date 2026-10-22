@@ -16,7 +16,7 @@ This is a capability comparison, not a performance benchmark or proof of profita
 | Account preflight | Bound account/network, current rules, balances, fees, depth and permission checks available from each SDK/API | Private funded acceptance is unverified; HL all-in outcome fee cap remains operator-declared |
 | Resting-order reservations | HL available balances; Lighter rejects other orders in the market; Polymarket rejects any existing open orders | Conservative clean-account policy, rather than simultaneous market-making inventory management |
 | Order lifecycle / cancel | Public/client IDs or authenticated private reads; exact-leg cancellation | Bounded histories and lost Polymarket IDs can require manual reconciliation |
-| Paired execution | All three venue combinations, equal-size immediate complementary buys | Sequential full-first, non-atomic; no automatic hedge/unwind after a partial or unknown leg |
+| Paired execution | All three venue combinations, equal-size immediate complementary buys, separate human approval for every order | Sequential full-first, non-atomic; declining the second order can leave exposure; no automatic hedge/unwind |
 | Fee/settlement accounting | Fee reserves, explicit limits, actual net inventory and confirmed Polymarket trades | No rebates assumed, no realized P&L inferred from balance changes |
 | Restart recovery | Account locks, fsynced attempt-before-send journal, no automatic resubmission | Protect the journal; external account writers invalidate inventory attribution |
 | Hosted agents | Keyless discovery/research/unsigned execution proposals | Hosted MCP cannot sign, submit or record approval |

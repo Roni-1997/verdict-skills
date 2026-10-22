@@ -64,8 +64,12 @@ In the operator shell, from `local-runner`:
 .venv/bin/python -m verdict_broker cancel --proposal ../proposal.json --leg 0
 ```
 
-Submit and cancel require an interactive terminal and the exact `APPROVE <digest>` reply.
-There is no bypass flag. Cancellation asks again and targets only the specified leg.
+Every order requires its own interactive approval, including each leg of a pair. Submit
+shows the full proposal and identifies the one order being approved. Type the exact
+`APPROVE <digest>:leg:<index>` token for that order. Approving the first order never
+authorizes the second. An account's signing key never substitutes for per-order approval.
+There is no bypass flag.
+Cancellation asks separately for `APPROVE <digest>` and targets only the specified leg.
 Acknowledgement is not terminal cancellation: read status afterward. `account` runs the
 same read-only preflight and can block when the proposed order is no longer valid.
 
@@ -125,7 +129,10 @@ Every leg passes initial preflight before either order is attempted; each is ref
 again before its own send. A send deadline is checked after SDK signing/nonce reads,
 immediately before transport. Execution is sequential and non-atomic: first leg must reach a definitive terminal full
 fill, settlement confirmation where applicable, and the exact net inventory change before
-the second leg is preflighted and sent. Partial fills, unknown outcomes, fee-short shares,
+the user is asked to approve the second order. Its fresh preflight runs after that approval,
+so a changed book or an expired proposal blocks sending. Declining the second approval can
+leave the first position exposed; the runner does not automatically undo it.
+Partial fills, unknown outcomes, fee-short shares,
 adverse depth or a second-leg failure leave exposure. Recovery is a new separately confirmed
 proposal. The runner never automatically resizes, unwinds or retries an order.
 

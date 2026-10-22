@@ -114,7 +114,7 @@ export function executionConfirmation(value: unknown) {
     `Maximum combined debit ${amount(p.payload.legs.reduce((sum, l) => sum + debit(l), 0n))} USDC. Proposal expires ${new Date(p.payload.expiresAt).toISOString()}.`,
     `Policy: total debit cap ${p.payload.policy.maxTotalDebitUSDC}, per-leg debit cap ${p.payload.policy.maxLegDebitUSDC}, minimum conditional profit ${p.payload.policy.minConditionalProfitUSDC} USDC.`,
     ...(p.payload.settlementReview ? [`Operator settlement hypothesis ${p.payload.settlementReview.relationship}: ${p.payload.settlementReview.notes}`] : []),
-    ...(p.payload.legs.length === 2 ? ['Non-atomic sequential execution: the second order is sent only after a confirmed complete first fill and fresh preflight. Partial, uncertain or failed first fills halt with possible exposed inventory. Recovery orders require separate confirmation.'] : []),
+    ...(p.payload.legs.length === 2 ? ['Non-atomic sequential execution: each order needs its own separate operator approval. The second order is sent only after a confirmed complete first fill, its own approval and fresh preflight. Declining the second order, or partial, uncertain or failed fills, can leave exposed inventory. Recovery orders require separate confirmation.'] : []),
     'UNSIGNED. No account eligibility, balance, fee, contract-equivalence or fill guarantee. The local broker rechecks venue metadata, permissions and balances before signing. Fees are reserved estimates, not venue-enforced limits.',
     `Digest ${p.digest}. Show all lines, end the message and wait for a real new reply. A digest identifies content, not human consent. Only the operator-owned local broker may sign after its separate confirmation interaction.`,
   ] };
@@ -124,6 +124,6 @@ export function executionCapabilities() {
     hl: { networks: ['testnet', 'mainnet'], orders: ['Ioc', 'Gtc', 'Alo'], cancel: 'client order id', signing: 'official hyperliquid-python-sdk sign_l1_action' },
     lighter: { networks: ['devnet', 'mainnet'], orders: ['ioc', 'gtc', 'post_only'], cancel: 'original client order index', signing: 'official lighter-sdk SignerClient' },
     polymarket: { networks: ['polygon'], orders: ['FAK', 'FOK', 'GTC', 'GTD'], cancel: 'order id', signing: 'official unified polymarket-client' },
-  }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first',
+  }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first', orderApproval: 'each_order',
   note: 'Capabilities describe implemented local adapters, not proof of funded live acceptance. Private account integration needs operator credentials. No automated market-equivalence guarantee or blanket strategy authorization.' };
 }

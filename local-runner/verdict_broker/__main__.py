@@ -14,7 +14,8 @@ def confirmation(review):
     if not sys.stdin.isatty():
         raise BrokerError("Submission/cancellation requires the operator's interactive terminal; no approval bypass flag")
     # Public text only; do not let untrusted market descriptions inject terminal control codes.
-    return input(f"Type APPROVE {review['digest']} to proceed: ") == "APPROVE " + review["digest"]
+    token = review.get("approvalId", review["digest"])
+    return input(f"Type APPROVE {token} to proceed: ") == "APPROVE " + token
 
 
 def main(argv=None):

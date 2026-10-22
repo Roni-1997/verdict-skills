@@ -6,7 +6,7 @@ universal lock. No funded orders, private account reads or production credential
 | Check | Result |
 |---|---|
 | Full TypeScript suite, public venue reads and installer E2E | 452 passed, zero skipped |
-| Local broker and public quote suite, including the real built Node validation boundary | 54 passed |
+| Local broker and public quote suite, including the real built Node validation boundary | 60 passed |
 | Installed official SDK contract suite | 26 passed |
 | Types, lint, engine/API provenance and release checks | Passed |
 | Both static skill checks | Passed |
@@ -62,3 +62,9 @@ Remaining acceptance work requires an operator-owned funded account on each venu
 runner intentionally halts on any fee-short net inventory, unknown history or unresolved
 settlement; paired fills are non-atomic. The [capability matrix](agent-capabilities.md)
 records features not implemented by this batch.
+
+Per-order approval adds six broker regressions. A pair requires two distinct approvals,
+and rejecting the second sends only the first order. The first approval token cannot
+authorize another leg. Each order is rechecked after the human wait; changed preflight or
+expiry blocks sending. A restart still reconciles instead of resuming an unattempted leg.
+The focused regressions failed before the change because one approval sent both orders.

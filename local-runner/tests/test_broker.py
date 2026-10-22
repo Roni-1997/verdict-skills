@@ -90,6 +90,67 @@ class BrokerTest(unittest.TestCase):
             self.broker.submit(self.p, lambda _: False)
         self.assertEqual((self.a.sent, self.b.sent), (0, 0))
 
+    def test_pair_requires_a_distinct_approval_for_each_order(self):
+        approvals = []
+        def approve(review):
+            approvals.append(review)
+            self.assertEqual((self.a.sent, self.b.sent), (len(approvals) - 1, 0))
+            return True
+        self.assertEqual(self.broker.submit(self.p, approve)["state"], "complete")
+        self.assertEqual([r["leg"] for r in approvals], [0, 1])
+        self.assertNotEqual(approvals[0]["approvalId"], approvals[1]["approvalId"])
+        for i, review in enumerate(approvals):
+            self.assertEqual(review["digest"], self.p["digest"])
+            self.assertIn(f"Approve ONLY order {i + 1}", "\n".join(review["confirmation"]))
+        events = self.store.read(self.p["digest"])
+        self.assertEqual([e["leg"] for e in events if e["type"] == "approved"], [0, 1])
+
+    def test_declining_second_order_never_submits_it_or_resumes_on_restart(self):
+        approvals = []
+        def approve(review):
+            approvals.append(review)
+            return len(approvals) == 1
+        result = self.broker.submit(self.p, approve)
+        self.assertEqual((self.a.sent, self.b.sent), (1, 0))
+        self.assertIn("not approved", result["blocked"])
+        self.broker.submit(self.p, lambda _: self.fail("existing attempt must only reconcile"))
+        self.assertEqual(self.b.sent, 0)
+
+    def test_second_order_is_rechecked_after_its_human_approval(self):
+        approvals = []
+        def approve(review):
+            approvals.append(review)
+            if len(approvals) == 2:
+                self.b.fail_preflight = True
+            return True
+        result = self.broker.submit(self.p, approve)
+        self.assertEqual((self.a.sent, self.b.sent), (1, 0))
+        self.assertIn("blocked", result)
+
+    def test_single_order_still_requires_exactly_one_approval(self):
+        approvals = []
+        result = self.broker.submit(proposal(False), lambda review: approvals.append(review) or True)
+        self.assertEqual(result["state"], "complete")
+        self.assertEqual(len(approvals), 1)
+        self.assertEqual(approvals[0]["leg"], 0)
+
+    def test_terminal_approval_token_is_bound_to_the_specific_order(self):
+        from contextlib import redirect_stdout, redirect_stderr
+        import io
+        from verdict_broker.__main__ import confirmation
+        for typed, expected in [("APPROVE digest:leg:0", True), ("APPROVE digest", False), ("APPROVE digest:leg:1", False)]:
+            with self.subTest(typed=typed), patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value=typed), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(confirmation({"digest": "digest", "approvalId": "digest:leg:0", "confirmation": ["Approve ONLY order 1"]}), expected)
+
+    def test_expiry_while_waiting_for_second_approval_blocks_its_send(self):
+        def approve(review):
+            if review["leg"] == 1:
+                self.broker.clock = lambda: self.p["payload"]["expiresAt"] / 1000
+            return True
+        result = self.broker.submit(self.p, approve)
+        self.assertEqual((self.a.sent, self.b.sent), (1, 0))
+        self.assertIn("blocked", result)
+
     def test_partial_first_halts(self):
         self.a.filled = self.a.inventory = "4"
         self.a.state = "canceled"
