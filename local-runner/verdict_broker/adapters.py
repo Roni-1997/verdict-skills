@@ -386,16 +386,20 @@ class Polymarket:
         result = self.client.post_order(signed)
         return Receipt(order_id=str(result.order_id)) if result.ok else Receipt(rejected=True)
 
+    def _read_order(self, leg, receipt):
+        order = self.client.get_order(order_id=receipt.order_id)
+        if (str(order.id) != receipt.order_id or str(order.asset_id) != leg["assetId"] or order.maker_address.lower() != leg["account"]
+                or order.side != leg["action"].upper() or order.original_size != D(leg["shares"]) or order.price != D(leg["limitPrice"])):
+            raise BrokerError("Polymarket order/account identity mismatch")
+        return order
+
     def observe(self, leg, client_id, receipt):
         inventory = str(D(self.inventory(leg).balance) / 1_000_000)
         if receipt.rejected:
             return Observation("rejected", "0", inventory, True)
         if receipt.order_id is None:
             return Observation("unknown", "0", inventory, False)
-        order = self.client.get_order(order_id=receipt.order_id)
-        if (str(order.id) != receipt.order_id or str(order.asset_id) != leg["assetId"] or order.maker_address.lower() != leg["account"]
-                or order.side != leg["action"].upper() or order.original_size != D(leg["shares"]) or order.price != D(leg["limitPrice"])):
-            raise BrokerError("Polymarket order/account identity mismatch")
+        order = self._read_order(leg, receipt)
         state = {"LIVE": "open", "MATCHED": "filled", "CANCELED": "canceled", "CANCELLED": "canceled", "EXPIRED": "expired", "DELAYED": "pending"}.get(order.status.upper(), "unknown")
         settled = order.size_matched == 0
         if order.size_matched > 0 and order.associate_trades:
@@ -410,7 +414,7 @@ class Polymarket:
     def cancel(self, leg, client_id, receipt):
         if receipt.order_id is None:
             raise BrokerError("Lost Polymarket order id; reconcile manually, never guess/cancel all")
-        self.observe(leg, client_id, receipt)  # Verify account/order binding before mutation.
+        self._read_order(leg, receipt)  # Verify identity without depending on balances or settlement.
         result = self.client.cancel_order(order_id=receipt.order_id)
         if receipt.order_id not in result.canceled:
             raise BrokerError("Polymarket cancellation not acknowledged")

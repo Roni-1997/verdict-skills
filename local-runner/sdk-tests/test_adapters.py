@@ -234,6 +234,13 @@ class PolySDKTest(unittest.TestCase):
         with self.assertRaises(BrokerError):
             self.adapter.cancel(POLY, "a" * 64, Receipt())
 
+    def test_cancel_does_not_depend_on_unrelated_balance_or_settlement_reads(self):
+        order = NS(id="order", asset_id=V1_ASSET, maker_address=ACCOUNT, side="BUY", original_size=D(10), price=D("0.4"),
+                   size_matched=D(3), status="LIVE", associate_trades=("pending-trade",))
+        with patch.object(self.adapter, "inventory", side_effect=RuntimeError("balance endpoint temporarily unavailable")), patch.object(self.client, "get_order", return_value=order), patch.object(self.client, "list_account_trades", side_effect=AssertionError("cancellation must not await settlement")), patch.object(self.client, "cancel_order", return_value=NS(canceled=("order",))) as cancel:
+            self.adapter.cancel(POLY, "a" * 64, Receipt(order_id="order"))
+            cancel.assert_called_once_with(order_id="order")
+
     def test_v2_uses_position_id_and_conditional_v2_balance(self):
         market = NS(id="123", version="v2", outcomes=NS(yes=NS(position_id=V2_ASSET, token_id="wrong")))
         with patch.object(self.client, "get_market", return_value=market):
