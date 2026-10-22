@@ -69,3 +69,8 @@ export type { RemoteToolName, RemoteToolsOptions, ToolsFromConfigOptions } from 
 export { API_CONTRACT } from './api-contract.js';
 export { LIGHTER_INPUTS, LighterClient, LighterConfig, LighterMarket, createLighterTools, lighterConfigFromEnv, lighterTicks } from './lighter.js';
 export type { LighterClientOptions, LighterTools } from './lighter.js';
+export { createStrategyTools } from './strategy.js';
+export type { StrategyOptions, StrategyTools } from './strategy.js';
+export { PairedSnapshot, ReferenceSnapshot, StrategySnapshot, StrategyPair, StrategyPolicy, STRATEGY_INPUTS, STRATEGY_DOCS } from './strategy-model.js';
+export type { StrategyToolName } from './strategy-model.js';
+export { assessPair, paperPair, reconcilePair } from './strategy-analysis.js';

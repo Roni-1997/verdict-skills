@@ -1,5 +1,12 @@
 # verdict-skills
 
+The strategy workbench adds HL/Lighter candidate discovery, captured purchase depth,
+fee-aware conditional plans with capital and leg-loss limits, scans of up to eight pairs,
+missed-leg paper simulation, inventory reconciliation and independent venue probes.
+Run `verdict strategy --help` or `verdict-mcp --strategy`. Both share the core calculations.
+See the [strategy guide](skills/verdict/references/strategy.md). No strategy tool signs,
+submits orders or verifies settlement equivalence; Polymarket/Kalshi remain comparison only.
+
 Verdict's agent kit. One typed tool module over the cross-venue engine from the Verdict app,
 shipped three ways from the same code:
 

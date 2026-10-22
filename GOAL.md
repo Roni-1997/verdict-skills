@@ -7,6 +7,12 @@ Hyperliquid's builder fields do not apply to Lighter. No Lighter integrator fee 
 the caller supplies its own local signer, and no tool signs or sends. See the
 [Lighter skill](skills/verdict-lighter/SKILL.md).
 
+The owner-requested strategy workbench adds HL/Lighter candidate discovery, shared book
+snapshots, conditional fee/depth/risk analysis, bounded scans, paper fills and absolute
+inventory reconciliation. Its CLI is `verdict strategy`, and its MCP mode is `--strategy`.
+External venue comparisons remain reference only. It builds no orders, grants no live
+execution authority and changes no existing confirmation rule.
+
 The kit is not a chatbot and it is not a wallet.
 
 Its purpose is to let any agent, bot or front end trade Verdict's HIP-4 outcome markets well,

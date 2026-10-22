@@ -2,7 +2,7 @@
 name: verdict-lighter
 metadata:
   version: "0.1.0"
-description: Research Lighter binary outcome markets through Verdict's CLI or MCP, read books, executable YES/NO quotes and positions, and prepare unsigned orders. Use for Verdict on Lighter and Lighter prediction markets; not for Hyperliquid, perps or spot.
+description: Research Lighter binary outcome markets through Verdict's CLI or MCP, read books, executable YES/NO quotes and positions, and prepare unsigned orders. Use for Verdict on Lighter, Lighter prediction markets and paired HL/Lighter research or paper fills through verdict strategy. Perps and spot are unsupported.
 ---
 
 # Verdict on Lighter
@@ -21,6 +21,12 @@ Read [the setup and signing contract](references/setup.md) when configuring the 
 | Current binary fee tiers | `verdict lighter fees` | `lighter_fee_schedule` |
 | Unsigned order | `verdict lighter build-order N --side yes --action buy --price 0.50 --size 10 --client-order-index UNIQUE_ID` | `lighter_build_order` |
 | Unsigned cancellation | `verdict lighter build-cancel N --client-order-index ORIGINAL_ID` | `lighter_build_cancel` |
+| HL/Lighter paired research, scans and paper fills | `verdict strategy --help` | `strategy_*` from `verdict-mcp --strategy` |
+
+For paired research, read [the strategy workbench guide](../verdict/references/strategy.md)
+from the full repository checkout. It covers conditional plans, fee assumptions, missed-leg
+simulation and inventory reconciliation. It signs or submits nothing; paper policy does not
+grant execution permission. Candidate matching does not verify settlement equivalence.
 
 - State the result's network. Lighter defaults to **devnet**, independently of `VERDICT_NETWORK`. IDs are network-specific.
 - Read tools need no key. Account reads use numeric account indices, not wallet addresses.

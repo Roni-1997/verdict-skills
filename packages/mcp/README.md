@@ -1,5 +1,12 @@
 # @verdict/mcp
 
+`verdict-mcp --strategy` serves seven `strategy_*` research/calculation tools, three prompts
+(`paired_market_research`, `paper_leg_failure`, `inventory_exposure_check`) and the
+`verdict-strategy://capabilities` resource. This separate mode supports HL/Lighter snapshots,
+conditional plans, scans, paper fills and reconciliation. Polymarket/Kalshi are reference only.
+It holds no keys, builds no orders and submits nothing. `--lighter` and `--strategy` are
+mutually exclusive. See the [strategy guide](../../skills/verdict/references/strategy.md).
+
 The Verdict MCP server: seventeen tools over Verdict's HIP-4 outcome markets on Hyperliquid (markets and settlement rules, books, quotes, trades, candles, Polymarket and Kalshi comparison, Deribit fair value, hedges, an opportunity scan, positions, fills, orders, builder-fee status, and two unsigned payload tools), four prompts (`scan_and_compare`, `market_brief`, `hedge_check`, `prepare_order`) and two resources (`verdict://markets`, `verdict://market/{outcome}`). Stdio by default, streamable HTTP with `--http <port>`. The server holds no keys and signs nothing; the payload tools return unsigned Hyperliquid actions carrying Verdict's builder code, and the client shows their confirmation lines and waits for the user.
 
 Not published yet. Once it is, a Claude Desktop, Cursor or `claude mcp add` entry is:

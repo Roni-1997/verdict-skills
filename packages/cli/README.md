@@ -1,5 +1,11 @@
 # @verdict/cli
 
+`verdict strategy --help` lists seven shared-core commands for HL/Lighter snapshots, candidate
+discovery, bounded scans, conditional plans, paper fills, inventory reconciliation and venue
+health. Pass JSON through `--input` or `--file`. Offline assessment, paper and reconciliation
+need no account or network. See the [strategy guide](../../skills/verdict/references/strategy.md).
+These commands build no orders and grant no execution permission.
+
 The `verdict` command line for Verdict's HIP-4 outcome markets on Hyperliquid: list markets with their settlement rules, read one market, its book, a quote for a size, recent trades and candles, compare it with Polymarket and Kalshi, read the Deribit option-implied fair value and Hyperliquid hedges, scan for tradeable markets, read positions, fills, open orders and one order's status for an address, and build unsigned orders that carry Verdict's builder code. One JSON document per command, no prompts, no keys, testnet by default.
 
 Not published yet. Once it is:

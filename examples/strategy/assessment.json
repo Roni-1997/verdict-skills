@@ -1,0 +1,29 @@
+{
+  "snapshot": {
+    "version": 1,
+    "kind": "paired_books",
+    "pair": {"outcome": 42, "market": 4555},
+    "capturedAt": 1792623100000,
+    "hl": {
+      "network": "testnet", "outcome": 42, "title": "DEMO ONLY: fictional BTC Up or Down",
+      "rule": "Hypothetical demonstration: UP pays 1 USDC when the same feed closes at or above its starting price; DOWN otherwise.",
+      "sideNames": ["Yes", "No"], "quoteToken": "USDC", "expiresAt": 1792623600000,
+      "asks": {"yes": [{"price": "0.43", "shares": "10"}], "no": [{"price": "0.60", "shares": "10"}]},
+      "sourceAt": {"yes": 1792623100000, "no": 1792623100000},
+      "clock": {"requestedAt": 1792623100000, "receivedAt": 1792623100000},
+      "knownBuilderBps": null
+    },
+    "lighter": {
+      "network": "devnet", "market": 4555, "creator": 0, "title": "DEMO ONLY: fictional BTC Up or Down",
+      "rule": "Hypothetical demonstration: UP pays 1 USDC when the same feed closes at or above its starting price; DOWN otherwise.",
+      "startsAt": 1792623000000, "expiresAt": 1792623600000, "active": true,
+      "asks": {"yes": [{"price": "0.48", "shares": "10"}], "no": [{"price": "0.54", "shares": "10"}]},
+      "clock": {"requestedAt": 1792623100000, "receivedAt": 1792623100000},
+      "sourceAt": null, "depthTruncated": false, "sizeDecimals": 4, "takerFeePercent": "1"
+    }
+  },
+  "at": 1792623100000,
+  "shares": "10",
+  "policy": {"maxCapitalUSDC": "100", "maxUnhedgedLossUSDC": "5"},
+  "assumptions": {"relationship": "same_event_same_orientation", "hlAllInTakerBpsCap": "10"}
+}

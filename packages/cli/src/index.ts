@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { CANDLE_INTERVALS, ToolError, UpstreamError, configFromEnv, parseApiUrl, toolsFromConfig, type KitConfig, type Tools } from '@verdict/core';
 import { runLighterCli } from './lighter.js';
+import { runStrategyCli } from './strategy.js';
 
 export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command line (JSON output, no prompts)
 
@@ -22,6 +23,7 @@ export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command li
   verdict builder-status <address>
   verdict approve-builder-fee-payload
   verdict build-order <outcome> --side yes|no --action buy|sell --price <0..1> --size <tokens> [--tif Gtc|Ioc|Alo] [--cloid 0x<32 hex>]
+  verdict strategy --help     cross-venue snapshots, scans, conditional plans, paper fills and inventory reconciliation
 
 Options: --pretty indents the JSON. --api <url> answers markets, market, compare, fair-value, hedges and opportunities from the hosted Verdict API at <url> (https://hyperverdict.xyz/api/v1 in production; the same as VERDICT_API_URL, which the flag overrides); book, quote, recent-trades, candles, positions, fills, open-orders, order-status, builder-status and the payload commands run locally either way. Without either, the embedded engine runs. A blank --api is refused (exit 1): to run one command on the embedded engine, run it with VERDICT_API_URL unset or blank.
 Environment: VERDICT_NETWORK (testnet|mainnet, default testnet), VERDICT_VENUE (a deployer venue; unset, blank or all: every deployer), VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP, VERDICT_API_URL (hosted mode, see --api).
@@ -100,6 +102,7 @@ function errorResult(code: ToolError['code'], message: string): CliResult {
  */
 export async function runCli(argv: readonly string[], config?: KitConfig, tools?: Tools): Promise<CliResult> {
   if (argv[0] === 'lighter') return runLighterCli(argv.slice(1));
+  if (argv[0] === 'strategy') return runStrategyCli(argv.slice(1));
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
   try {
     parsed = parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true });
