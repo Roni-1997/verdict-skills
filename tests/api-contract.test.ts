@@ -154,7 +154,7 @@ describe('api contract pin', () => {
     expect(API_CONTRACT.repo).toBe(record.repo);
     expect(API_CONTRACT.commit).toBe(record.commit);
     expect(API_CONTRACT.files.map((f) => f.sha256)).toEqual(record.files.map((f) => f.sha256));
-    expect(API_CONTRACT.commit).toBe('352b2352918cfb9d0616ae19cd4f80346e1d44a9');
+    expect(API_CONTRACT.commit).toBe('25d8ce2ab8c6e18e99e6c37fab27b83ea1105b74');
   });
   it('a pin GitHub cannot find (HTTP 404) fails even under CHECK_ENGINE_OFFLINE=1', () => {
     for (const flag of [false, true]) {

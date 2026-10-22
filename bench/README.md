@@ -10,6 +10,10 @@ beat, and dated reports.
 Pinned: `crypto-skill-bench` v0.1.7, commit `cc0593aea350de0e31598c31a88d16019f254a0b` (2026-04-04).
 `scripts/bench.sh` clones and builds exactly that commit.
 
+`pnpm bench:static` checks both Verdict skills. The local static checker accepts version in
+Agent Skills' `metadata.version` as well as the benchmark's top-level `version` field;
+the external benchmark's original static analyzer still requires the top-level field.
+
 ## How it evaluates a skill directory
 
 `crypto-skill-bench evaluate <dir>` where `<dir>` contains a `SKILL.md`. Read from the source at the

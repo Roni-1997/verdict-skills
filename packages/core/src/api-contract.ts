@@ -2,12 +2,12 @@
 /** The Verdict API contract (docs/api/openapi.json in the app repository) the hosted tools in remote.ts were built against. */
 export const API_CONTRACT = {
   repo: "Roni-1997/verdict",
-  commit: "352b2352918cfb9d0616ae19cd4f80346e1d44a9",
+  commit: "25d8ce2ab8c6e18e99e6c37fab27b83ea1105b74",
   files: [
     {
       "local": "packages/core/api-contract/openapi.json",
       "upstream": "docs/api/openapi.json",
-      "sha256": "714ce5f91f9129a3007ccb3746f3a2c3bf890a7c9115f85d16eab1b4582cb8b2"
+      "sha256": "59432d344f375ae9f3da173ee9a721e92a3003b5c44c2715c935522a43da7d61"
     }
   ],
 } as const;

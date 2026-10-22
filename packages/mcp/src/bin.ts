@@ -5,12 +5,18 @@ import { createServer as createHttpServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { type KitConfig, configFromEnv } from '@verdict/core';
+import { type KitConfig, type LighterConfig, LighterClient, configFromEnv, createLighterTools, createStrategyTools, lighterConfigFromEnv } from '@verdict/core';
 import { createRequestHandler, healthBody, listenLine } from './http.js';
 import { createServer } from './server.js';
+import { createLighterServer } from './lighter.js';
+import { createStrategyServer } from './strategy.js';
+import { createExecutionServer } from './execution.js';
 
 const { values } = parseArgs({
   options: {
+    lighter: { type: 'boolean', default: false },
+    strategy: { type: 'boolean', default: false },
+    execution: { type: 'boolean', default: false },
     http: { type: 'string' },
     host: { type: 'string', default: '127.0.0.1' },
     help: { type: 'boolean', default: false },
@@ -23,6 +29,9 @@ if (values.help) {
       'verdict-mcp: Verdict HIP-4 tools as an MCP server',
       '',
       '  verdict-mcp                 stdio transport (default)',
+      '  verdict-mcp --lighter       Lighter binary outcomes; LIGHTER_NETWORK=devnet|mainnet, LIGHTER_CREATORS=creator indices',
+      '  verdict-mcp --strategy      HL/Lighter research, conditional plans, paper fills and inventory reconciliation; no execution',
+      '  verdict-mcp --execution     keyless proposal preparation/review for the separate local trading broker',
       '  verdict-mcp --http 8787     streamable HTTP on 127.0.0.1:8787/mcp',
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
@@ -37,19 +46,27 @@ if (values.help) {
   );
   process.exit(0);
 }
+if ([values.lighter, values.strategy, values.execution].filter(Boolean).length > 1) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one of --lighter, --strategy or --execution' })}\n`);
+  process.exit(1);
+}
 
 // An invalid VERDICT_NETWORK or VERDICT_BUILDER_FEE_TENTHS_BP is one JSON error line and exit 4 (not configured),
 // the same as the CLI, not a stack trace.
 let config: KitConfig;
+let lighterConfig: LighterConfig | undefined;
 try {
-  config = configFromEnv();
+  config = configFromEnv(values.lighter || values.execution ? {} : process.env);
+  if (values.lighter || values.strategy) lighterConfig = lighterConfigFromEnv();
 } catch (e) {
   process.stderr.write(`${JSON.stringify({ error: 'not_configured', message: e instanceof Error ? e.message : String(e) })}\n`);
   process.exit(4);
 }
 
+const openServer = () => values.execution ? createExecutionServer() : values.strategy ? createStrategyServer(createStrategyTools({ config })) : lighterConfig ? createLighterServer(createLighterTools(new LighterClient(lighterConfig))) : createServer(config);
+
 if (values.http === undefined) {
-  const server = createServer(config);
+  const server = openServer();
   await server.connect(new StdioServerTransport());
 } else {
   const port = Number(values.http);
@@ -58,9 +75,9 @@ if (values.http === undefined) {
     process.exit(1);
   }
   const handler = createRequestHandler({
-    health: () => healthBody(config),
+    health: () => values.execution ? { ok: true, mode: 'keyless_execution_preparation' } : values.strategy ? { ok: true, mode: 'paper_research', networks: { hl: config.network, lighter: lighterConfig?.network } } : lighterConfig ? { ok: true, exchange: 'lighter', network: lighterConfig.network, mode: 'unsigned' } : healthBody(config),
     open: async () => {
-      const server = createServer(config);
+      const server = openServer();
       // Stateless: no session ids, one transport per request. The SDK's option type marks
       // sessionIdGenerator optional, so pass an options object without the key.
       const transport = new StreamableHTTPServerTransport({});
@@ -78,6 +95,6 @@ if (values.http === undefined) {
   });
   const httpServer = createHttpServer(handler);
   httpServer.listen(port, values.host, () => {
-    process.stderr.write(`${listenLine(config, values.host, port)}\n`);
+    process.stderr.write(`${values.execution ? `verdict-execution-preparation listening on http://${values.host}:${port}/mcp (no signing)` : values.strategy ? `verdict-strategy-mcp listening on http://${values.host}:${port}/mcp (paper research only)` : values.lighter ? `verdict-lighter-mcp listening on http://${values.host}:${port}/mcp (no keys or signing)` : listenLine(config, values.host, port)}\n`);
   });
 }

@@ -1,0 +1,52 @@
+{
+  "code": 200,
+  "total": 1,
+  "accounts": [
+    {
+      "code": 0,
+      "account_type": 0,
+      "index": 761897,
+      "l1_address": "0x2A99E4e92C391fad182bF306AFd5041ec5A29333",
+      "cancel_all_time": 0,
+      "total_order_count": 0,
+      "total_isolated_order_count": 0,
+      "pending_order_count": 0,
+      "available_balance": "5.000000",
+      "status": 1,
+      "collateral": "5.000000",
+      "transaction_time": 1792623036265521,
+      "account_trading_mode": 1,
+      "account_index": 761897,
+      "name": "",
+      "description": "",
+      "can_invite": true,
+      "referral_points_percentage": "",
+      "can_rfq": true,
+      "can_rfq_market_ids": [],
+      "agent_enabled": false,
+      "created_at": 0,
+      "metadata": {
+        "color": ""
+      },
+      "positions": [],
+      "bo_positions": [],
+      "assets": [
+        {
+          "symbol": "USDC",
+          "asset_id": 3,
+          "balance": "0.000000",
+          "locked_balance": "0.000000",
+          "margin_mode": "enabled",
+          "margin_balance": "5.000000",
+          "multiplier": "1.000000000000000000"
+        }
+      ],
+      "total_asset_value": "5",
+      "cross_asset_value": "5",
+      "cross_initial_margin_requirement": "0.000000",
+      "cross_maintenance_margin_requirement": "0.000000",
+      "shares": [],
+      "pending_unlocks": []
+    }
+  ]
+}

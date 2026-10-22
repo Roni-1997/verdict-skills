@@ -10,7 +10,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
-  API_CONTRACT,
   CompareMarketResult,
   FairValueResult,
   FindHedgesResult,
@@ -879,10 +878,15 @@ describe('hosted tools: the other eleven tools run locally, unchanged', () => {
     expect(strip(ra), 'build_order').toEqual(strip(rb));
     const built = ra as unknown as { action: { orders: { b: boolean }[]; builder: { b: string; f: number } } };
     expect(built.action.builder).toEqual({ b: '0x00000000000000000000000000000000000000b1', f: 10 });
-    // The approval payload carries a fresh nonce, so compare everything but that.
-    const a = await remote.approve_builder_fee_payload({});
-    const b = await embedded.approve_builder_fee_payload({});
-    expect({ ...a, action: { ...a.action, nonce: 0 } }).toEqual({ ...b, action: { ...b.action, nonce: 0 } });
+    // Approval repeats the nonce in action and typedData.message; fix time for both calls.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    try {
+      const a = await remote.approve_builder_fee_payload({});
+      const b = await embedded.approve_builder_fee_payload({});
+      expect(a).toEqual(b);
+    } finally {
+      clock.mockRestore();
+    }
     expect(apiSeen).toHaveLength(0);
     expect(hlLog).toContain('l2Book:#12100');
   });
@@ -1028,15 +1032,15 @@ describe('configuration: VERDICT_API_URL and --api', () => {
 });
 
 describe('API contract (a): the kit result schemas accept the recorded production bodies, and the bodies match the pinned OpenAPI document', () => {
-  it('the recording is dated, comes from production and was served by the pinned app commit', () => {
+  it('the recording is dated and retains its original serving commit independently of later schema pins', () => {
     expect(recorded.recorded_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     expect(recorded.base).toBe('https://hyperverdict.xyz/api/v1');
     expect(recorded.files.length).toBeGreaterThanOrEqual(12);
     for (const route of Object.keys(KIT_SCHEMA)) expect(okFiles(route).length, route).toBeGreaterThan(0);
     for (const f of recorded.files.filter((x) => x.status === 200 && x.route !== '/markets' && x.route !== '/market')) {
       const body = recordedBody(f) as { engine: { repo: string; commit: string } };
-      expect(body.engine.repo, f.file).toBe(API_CONTRACT.repo);
-      expect(body.engine.commit, f.file).toBe(API_CONTRACT.commit);
+      expect(body.engine.repo, f.file).toBe('Roni-1997/verdict');
+      expect(body.engine.commit, f.file).toBe('352b2352918cfb9d0616ae19cd4f80346e1d44a9');
     }
   });
   for (const f of recorded.files.filter((x) => x.status === 200)) {

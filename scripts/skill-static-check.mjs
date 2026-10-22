@@ -3,7 +3,8 @@
 //
 //   A. A line-for-line port of Crypto Skill Bench's static analyzer (src/static-analyzer.ts at
 //      Minara-AI/crypto-skill-benchmark v0.1.7, commit cc0593a). Same regexes, same check names,
-//      same detail strings, same warnings. The benchmark runs this before the dynamic scenarios
+//      same detail strings, same warnings, with one compatibility extension: version may also
+//      live under Agent Skills' metadata mapping. The benchmark runs this before the dynamic scenarios
 //      and prints it as a report appendix; it does not feed the score.
 //
 //   B. Text checks derived from the benchmark's safety dimension (rubrics/safety.md instant-fail
@@ -59,7 +60,7 @@ export function benchmarkStaticAnalysis(skillDir) {
   if (frontmatterMatch) {
     const fm = frontmatterMatch[1];
     const hasName = /^name:/m.test(fm);
-    const hasVersion = /^version:/m.test(fm);
+    const hasVersion = /^version:/m.test(fm) || /^metadata:[ \t]*\n(?: {2}[^\n]*\n)*? {2}version:[ \t]*\S/m.test(fm);
     checks.push({
       name: 'Frontmatter completeness',
       passed: hasName && hasVersion,

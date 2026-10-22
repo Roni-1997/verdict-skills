@@ -93,6 +93,22 @@ describe('skills/verdict passes the static safety pre-check', () => {
 });
 
 describe('the benchmark analyzer port (src/static-analyzer.ts)', () => {
+  it('accepts version in Agent Skills metadata, without accepting arbitrary nested version fields', () => {
+    for (const [parent, passed] of [['metadata', true], ['other', false]] as const) {
+      const dir = scratchSkill({ 'SKILL.md': `---\nname: x\n${parent}:\n  version: "0.1.0"\n---\n` });
+      try {
+        expect(byName(runJson(dir).result, 'Frontmatter completeness').passed).toBe(passed);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+  it('the Lighter skill passes the same static confirmation checks as Hyperliquid', () => {
+    const { status, result } = runJson(join(ROOT, 'skills', 'verdict-lighter'));
+    expect(status).toBe(0);
+    expect(result.passed).toBe(true);
+    expect(failedIds(result)).toEqual([]);
+  });
   it('reports the benchmark\'s own detail strings on a bare skill and fails', () => {
     const dir = scratchSkill({ 'SKILL.md': '# Swapper\n\nSwaps tokens for the user.\n' });
     try {

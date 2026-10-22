@@ -1,5 +1,21 @@
 # verdict-skills
 
+The [local trading broker](local-runner/README.md) adds single orders, account preflight,
+status/reconciliation, precise cancellation and non-atomic paired buys on HL, Lighter and
+Polymarket. Agents prepare unsigned intents using `verdict execution` or
+`verdict-mcp --execution`; the operator signs in a separate local Python process using
+pinned official SDKs. Attempt journals prevent automatic resubmission after a lost response.
+Matched shares, settled fills and net inventory remain distinct. Funded live acceptance
+still requires operator accounts; the tests do not place funded trades.
+
+The strategy workbench adds HL/Lighter candidate discovery, captured purchase depth,
+fee-aware conditional plans with capital and leg-loss limits, scans of up to eight pairs,
+missed-leg paper simulation, inventory reconciliation and independent venue probes.
+Run `verdict strategy --help` or `verdict-mcp --strategy`. Both share the core calculations.
+See the [strategy guide](skills/verdict/references/strategy.md). No strategy tool signs,
+submits orders or verifies settlement equivalence; its Polymarket/Kalshi snapshots remain
+comparison only. The separate execution workflow supports Polymarket orders.
+
 Verdict's agent kit. One typed tool module over the cross-venue engine from the Verdict app,
 shipped three ways from the same code:
 
@@ -15,7 +31,26 @@ of the Verdict app's plan (`.planning/phases/11-cross-venue-engine/` in `Roni-19
 
 ## Status
 
-Public, in development, testnet only. Nothing is published to npm yet; install from a clone as shown below.
+### Lighter binary outcome adapter
+
+The kit also exposes Lighter binary outcomes through `verdict lighter <command>` and
+`verdict-mcp --lighter` (stdio or the existing `--http` transport). It shares the CLI/MCP
+architecture and keeps signing with the caller. The default Hyperliquid interface is unchanged.
+
+The nine Lighter tools cover market discovery/details, fresh books, executable YES/NO quotes,
+recent prints, public binary positions, fee tiers, and unsigned order/cancel preparation.
+Configure `LIGHTER_NETWORK=devnet|mainnet`; the default is devnet. Payload tools additionally
+require `LIGHTER_CREATORS` to identify the allowed market creators. No credentials are needed.
+
+See the [Lighter skill](skills/verdict-lighter/SKILL.md) and its
+[setup/signing contract](skills/verdict-lighter/references/setup.md) for client configuration,
+pagination, fee assumptions and the official SDK handoff. This is a binary-specific adapter,
+not a wrapper that routes binaries through the official agent kit's perp/spot commands.
+
+### Hyperliquid kit
+
+Public, in development, defaults to testnet. Mainnet requires explicit network selection.
+Nothing is published to npm yet; install from a clone as shown below.
 
 ## What the tools do
 

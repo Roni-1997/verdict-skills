@@ -12,3 +12,6 @@ bench/runs/
 .DS_Store
 # written by skills/verdict/scripts/install.sh into the installed copy only
 skills/verdict/.repo-dir
+__pycache__/
+*.pyc
+.venv/

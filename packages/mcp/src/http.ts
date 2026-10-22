@@ -48,6 +48,7 @@ export interface RequestHandlerOptions {
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json' } as const;
+const MAX_BODY_BYTES = 1_048_576;
 /** The answer to a failure inside the handler when nothing has been sent yet. */
 export const INTERNAL_ERROR_RESPONSE = JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null });
 
@@ -74,8 +75,29 @@ export function createRequestHandler(opts: RequestHandlerOptions): (req: Incomin
     }
     let body: unknown;
     if (req.method === 'POST') {
+      const tooLarge = () => {
+        req.resume();
+        res.writeHead(413, JSON_HEADERS);
+        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32600, message: 'Request body exceeds 1 MiB' }, id: null }));
+      };
+      if (Number(req.headers['content-length'] ?? 0) > MAX_BODY_BYTES) {
+        tooLarge();
+        return;
+      }
       const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
+      let bytes = 0;
+      for await (const c of req.iterator({ destroyOnReturn: false })) {
+        const chunk = c as Buffer;
+        bytes += chunk.byteLength;
+        if (bytes > MAX_BODY_BYTES) {
+          break;
+        }
+        chunks.push(chunk);
+      }
+      if (bytes > MAX_BODY_BYTES) {
+        tooLarge();
+        return;
+      }
       const parsed = parseJsonBody(Buffer.concat(chunks).toString('utf8'));
       if (!parsed.ok) {
         res.writeHead(parsed.status, JSON_HEADERS);

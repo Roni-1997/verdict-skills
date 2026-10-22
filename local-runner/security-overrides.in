@@ -1,0 +1,4 @@
+# The pinned Lighter SDK uses aiohttp for transport and urllib3 only for make_headers.
+# Override its stale <2.1 metadata bound to remove published urllib3 vulnerabilities.
+# Revalidate the official SDK contracts before changing this override or the SDK pin.
+urllib3==2.8.0

@@ -1,0 +1,17 @@
+{
+  "legs": [
+    {
+      "venue": "hl", "network": "mainnet", "account": "0x1111111111111111111111111111111111111111",
+      "outcome": 123, "title": "Synthetic oracle event", "settlementRule": "Synthetic example only: replace with the exact current venue rule.",
+      "side": "yes", "action": "buy", "shares": "10", "limitPrice": "0.4", "feeReserveUSDC": "0.1",
+      "tif": "Ioc", "builder": { "address": "0x2222222222222222222222222222222222222222", "feeTenthsBp": 10 }, "allInFeeBpsCap": "10"
+    },
+    {
+      "venue": "polymarket", "network": "polygon", "account": "0x3333333333333333333333333333333333333333",
+      "marketId": "123", "assetId": "123", "title": "Synthetic oracle event", "settlementRule": "Synthetic example only: replace with the exact current venue rule.",
+      "side": "no", "action": "buy", "shares": "10", "limitPrice": "0.4", "feeReserveUSDC": "0.1", "tif": "FAK"
+    }
+  ],
+  "policy": { "maxTotalDebitUSDC": "10", "maxLegDebitUSDC": "5", "minConditionalProfitUSDC": "0.1" },
+  "settlementReview": { "relationship": "same_event_same_orientation", "notes": "Synthetic replay, not a real contract-equivalence review. Replace all identifiers, titles and rules." }
+}
