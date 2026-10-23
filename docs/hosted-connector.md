@@ -7,15 +7,26 @@ Trading keys stay in the separate private broker process.
 
 This implementation is tested locally with an ephemeral OAuth issuer, real MCP clients,
 the SDK and Python broker, and a simulated venue. It is not deployed, directory-approved
-or tested with funded accounts. `mcp.hyperverdict.xyz` is the proposed address; this
-repository does not provision that DNS record or an identity tenant.
+or tested with funded accounts. `mcp.hyperverdict.xyz` is an example address; this
+repository does not provision a public endpoint or an identity tenant.
 
 ## Identity and trading authority
 
-Use a managed OAuth/OIDC provider. Auth0 is the suggested initial provider because it
-supports [MCP authentication](https://auth0.com/blog/auth0-auth-for-mcp-servers-generally-available/)
-and resource audience configuration. The connector accepts standards-based discovery,
-PKCE and RS256/ES256 JWTs; it contains no authorization server or user database.
+Reuse the product's existing identity provider when it can support the required OAuth
+flow. Auth0 is one compatible example, with
+[MCP authentication](https://auth0.com/blog/auth0-auth-for-mcp-servers-generally-available/)
+and resource audience configuration. It is not a required new login system. The connector
+accepts standards-based discovery, PKCE and RS256/ES256 JWTs; it contains no authorization
+server or user database.
+
+A wallet-login provider such as Privy supplies product identity, which still needs an
+MCP authorization integration. [Privy access tokens](https://docs.privy.io/authentication/user-authentication/access-tokens)
+have the Privy app ID as their audience. This gateway requires its exact MCP URL as the
+audience and separate read/trade scopes, as required by [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
+Do not pass a product-login token through or disable audience/scope checks to make it fit.
+An integration must verify the existing identity, bind verified account ownership, collect
+MCP consent and issue resource-specific authority. This repository does not implement
+that Privy integration yet.
 
 An access token must match the configured issuer and exact MCP resource audience, include
 an expiry and subject, and carry `verdict:read`. Submission and cancellation additionally
@@ -40,9 +51,9 @@ to that terminal prompt. Paired policy execution remains sequential and non-atom
 
 ## Configure the managed provider
 
-1. Create a managed identity tenant, or reuse a verified existing Verdict provider if its
-   issuer, account subjects and API permissions are available. The kit does not discover
-   or replace the app's existing login system.
+1. Reuse the verified product identity through an MCP-capable authorization integration.
+   If no product identity exists, choose a managed provider. Verify its issuer, account
+   subjects and API permissions. The kit does not replace the app's existing login system.
 2. Register a custom API resource, for example `https://mcp.hyperverdict.xyz/mcp`, with
    `verdict:read` and `verdict:trade` scopes and signed, short-lived JWT access tokens.
    The resource must equal `publicOrigin + /mcp`; a browser ID token is not an API token.
