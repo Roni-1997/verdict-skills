@@ -39,5 +39,5 @@ export function networkConfig(network: Network): NetworkConfig {
 export function parseNetwork(value: string | undefined): Network {
   if (value === undefined || value === '' || value === 'testnet') return 'testnet';
   if (value === 'mainnet') return 'mainnet';
-  throw new Error(`VERDICT_NETWORK must be "testnet" or "mainnet", got ${JSON.stringify(value)}`);
+  throw new Error('VERDICT_NETWORK must be "testnet" or "mainnet", got [value hidden]');
 }

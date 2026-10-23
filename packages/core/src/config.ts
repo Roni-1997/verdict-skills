@@ -48,7 +48,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   const feeRaw = env.VERDICT_BUILDER_FEE_TENTHS_BP?.trim() ?? '10';
   const fee = Number(feeRaw);
   if (!/^\d+$/.test(feeRaw) || !Number.isInteger(fee) || fee < 0 || fee > 10_000) {
-    throw new Error(`VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got ${JSON.stringify(feeRaw)}`);
+    throw new Error(`VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got ${HIDDEN}`);
   }
   let builder: BuilderCode | null = null;
   if (address && /^0x[0-9a-fA-F]{40}$/.test(address) && !ZERO.test(address)) {
