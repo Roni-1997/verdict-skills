@@ -1,5 +1,33 @@
 # Execution verification
 
+## Agentic SDK and hosted connector, 2026-10-22
+
+The agentic extension adds the shared SDK lifecycle, explicit bounded operator policies,
+local execution MCP and the authenticated [hosted connector](hosted-connector.md).
+Hosted tests use a real ephemeral OAuth issuer, HTTP MCP clients, the SDK, Python brokers
+and simulated venues. No production credentials or funded orders are used.
+
+Two independent source/fixture reviews and a third cross-review identified two gaps and
+verified the need for corrections. A fully filled first order with an unsent or zero-fill
+hedge could clear the prior-exposure fence. The broker now evaluates the pair as a whole
+and blocks new autonomous risk on both accounts across digests, grants and restarts.
+Regressions cover full-plus-unsent, full-plus-zero, balanced full and proven empty pairs.
+Both failing cases were reproduced before the correction.
+
+The other gap was a grant identity check made only through an earlier capabilities call.
+Every hosted SDK request now carries the operator-pinned `expectedGrantId`; the selected
+broker checks it before reservation or signing. Tests cover every lifecycle operation,
+matching and mismatched grants, and actual replacement of a running simulated policy
+broker with another grant at the same Unix socket. The original client cannot spend the
+replacement grant's budget. This assertion never selects or creates a grant.
+
+The review is scoped to source and local integration behavior. It is not a comprehensive
+audit or funded venue acceptance. Managed-provider registration, deployment, native
+ChatGPT/Claude UI acceptance and production account permissions remain unverified.
+The [hosted setup guide](hosted-connector.md) records those activation requirements.
+
+## Earlier verification record, 2026-10-21
+
 Verified locally on 2026-10-21 using Node 22 and Python 3.11, with SDKs installed from the
 universal lock. No funded orders, private account reads or production credentials were used.
 

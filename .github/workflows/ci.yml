@@ -27,6 +27,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Dependency vulnerability audit
+        run: pnpm audit
       - name: Install pinned broker SDK environment
         run: |
           python3 -m pip install uv==0.9.26

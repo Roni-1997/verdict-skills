@@ -3,10 +3,23 @@
 The [local trading broker](local-runner/README.md) adds single orders, account preflight,
 status/reconciliation, precise cancellation and non-atomic paired buys on HL, Lighter and
 Polymarket. Agents prepare unsigned intents using `verdict execution` or
-`verdict-mcp --execution`; the operator signs in a separate local Python process using
+`verdict-mcp --execution`. The TypeScript SDK `connectExecution()` and local MCP
+`--local-execution` connect to a separate operator-owned Python broker using
 pinned official SDKs. Attempt journals prevent automatic resubmission after a lost response.
 Matched shares, settled fills and net inventory remain distinct. Funded live acceptance
 still requires operator accounts; the tests do not place funded trades.
+
+The [hosted trading connector](docs/hosted-connector.md), enabled explicitly with
+`--hosted-execution`, adds managed OAuth, linked accounts, signed-in browser confirmation
+or an operator-selected policy, and durable submission through that same SDK broker.
+It requires Node 22.13+, a configured identity provider and private account provisioning.
+The connector is locally tested; no production endpoint or directory listing is claimed.
+
+The [Privy account service](docs/account-service.md), enabled with `--account-service`,
+adds the first-party connection flow for Verdict's staging app: verified login and wallet
+ownership, reviewed client permissions, resource-specific OAuth tokens and disconnect.
+It includes research tools and that same SDK submission lifecycle. Operator provisioning,
+hosted activation and client-directory acceptance remain separate from local verification.
 
 The strategy workbench adds HL/Lighter candidate discovery, captured purchase depth,
 fee-aware conditional plans with capital and leg-loss limits, scans of up to eight pairs,
@@ -96,6 +109,10 @@ Replace `<repo>` below with the absolute path of that clone. Every face reads th
 | MCP stdio | yes | yes | never |
 | MCP streamable HTTP (hosted) | yes | yes | never; the server holds no keys |
 
+These rows describe the default research tools. Explicit `--local-execution` and
+`--hosted-execution` also submit through the separate broker; see the
+[local broker](local-runner/README.md) and [hosted connector](docs/hosted-connector.md).
+
 ### Claude Desktop (stdio)
 
 `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows:
@@ -183,7 +200,7 @@ VERDICT_NETWORK=testnet VERDICT_VENUE=at VERDICT_BUILDER_ADDRESS=0x<builder addr
 
 Endpoint `http://127.0.0.1:8787/mcp`, health check `GET /healthz` (network, venue, `mode`: `embedded` or `hosted`, and the API base URL in hosted mode). Add `--host 0.0.0.0` inside a container. The server is stateless: one transport per request, no sessions. Connect a client with `claude mcp add --transport http verdict https://<host>/mcp`, or the equivalent `"url"` entry in a `mcp.json`.
 
-The hosted server holds no keys and signs nothing. It serves the read tools and the unsigned payloads; signing happens on the caller's machine with the caller's key. The process has no TLS and no access control of its own; put a reverse proxy in front of it and do not set `HL_AGENT_PRIVATE_KEY` in its environment. Set `VERDICT_API_URL` on it so the read tools the Verdict API serves come from the API and the server runs no venue fetches of its own (next section).
+This default research server holds no keys and signs nothing. It serves the read tools and the unsigned payloads; signing happens on the caller's machine with the caller's key. This mode has no TLS or access control of its own; put a reverse proxy in front of it and do not set `HL_AGENT_PRIVATE_KEY` in its environment. Set `VERDICT_API_URL` on it so the read tools the Verdict API serves come from the API and the server runs no venue fetches of its own (next section). Real account-linked submission uses the separate, explicitly configured [hosted execution mode](docs/hosted-connector.md), which authenticates every MCP request.
 
 ### Hosted mode
 

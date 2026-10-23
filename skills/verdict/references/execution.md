@@ -32,20 +32,22 @@ explicitly; do not assume rebates, equal expiry or title matches establish equiv
 contracts. Lighter uses a market ID, creator and API key index. Polymarket uses a Gamma
 numeric `marketId` and exact CLOB `assetId` (V1 token ID or V2 position ID).
 
-Show every review line, end the message and wait for a real new human reply. A digest is
+In per-order mode, show every review line, end the message and wait for a real new human reply. A digest is
 not consent. Hand the unchanged proposal to the operator's dedicated local terminal.
 The agent never handles credentials, drives that terminal or answers its approval prompt.
 Every order needs its own operator approval, including both legs of a pair. Approval of
 one leg cannot authorize the next. Declining a later leg can leave an existing position
-exposed; recovery needs a new separately confirmed proposal. There is no unattended mode.
-No signing or submission occurs in the turn that prepared the proposal. Do not install
+exposed; recovery needs a new separately authorized proposal. These rules apply to
+per-order mode. The operator may instead explicitly start bounded policy mode as described
+below.
+In per-order mode, no signing or submission occurs in the turn that prepared the proposal. Do not install
 SDKs at trade time. Setup is a separate operator task.
 
 Single orders support native limit TIFs. Pairs require two immediate buys, equal requested
 shares, distinct venues, compatible environments and a manually reviewed rule orientation.
 The broker sends the second only after the first's terminal full fill, confirmed settlement
 and exact net inventory change. Execution is non-atomic; a partial/uncertain leg stops.
-Never call this guaranteed arbitrage. Recovery is a new separately confirmed proposal.
+Never call this guaranteed arbitrage. Recovery requires a new separately authorized proposal.
 
 Local status reconciles real account state and normalized order lifecycle. Re-running an
 attempted proposal never resubmits. Lost responses and bounded-history misses stay unknown;
@@ -58,6 +60,28 @@ Illustrative capability output, as recorded on 2026-10-21 and may differ:
 ```json
 {"version":1,"hostedSigning":false,"pairs":["hl/lighter","hl/polymarket","lighter/polymarket"],"pairMode":"sequential_full_first"}
 ```
+
+
+## Local agent lifecycle
+
+An operator-configured `verdict-mcp --local-execution` adds `execution_preflight`,
+`execution_submit`, `execution_status` and `execution_cancel`. It uses the same SDK
+`connectExecution()` client as CLI lifecycle commands. `VERDICT_BROKER_SOCKET` and
+`VERDICT_EXECUTION_MODE=per_order|policy` are operator configuration, never tool inputs.
+Local execution is stdio only; hosted `--execution` stays keyless.
+
+In `per_order`, each order prompts in the operator terminal. In `policy`, a previously
+issued grant binds exact reviewed proposal templates, numeric limits, cumulative gross
+debit, order count and expiry. Only the operator can create or revoke grants. The agent
+cannot select a grant, change mode or supply approval. Do not ask for per-order approval
+when a matching policy already authorizes the order. Present remaining authority from
+`execution_capabilities` and respect all broker blocks.
+
+Persist the unchanged proposal before submission. If delivery is unknown, call status
+with that proposal; never prepare a replacement or retry automatically. Status and
+authorized exact-own-order cancellation remain available after expiry/revocation.
+Partial/unknown/net-short results stop the pair and block further autonomous account
+risk pending operator reconciliation. No automatic unwind or recovery trade exists.
 
 ## Errors
 

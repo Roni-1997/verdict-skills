@@ -27,9 +27,12 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.8",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@types/express": "5.0.5",
     "@types/node": "22.15.3",
     "@verdict/engine": "workspace:*",
+    "jose": "6.2.12",
     "typescript": "5.9.2",
+    "viem": "2.55.13",
     "vitest": "4.1.12",
     "zod": "3.25.76"
   }

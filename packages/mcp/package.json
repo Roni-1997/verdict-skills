@@ -32,6 +32,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@verdict/core": "workspace:*",
+    "express": "5.3.0",
+    "jose": "6.2.12",
+    "viem": "2.55.13",
     "zod": "3.25.76"
   },
   "publishConfig": {

@@ -1,0 +1,13 @@
+# Supply a reviewed Node 22.13+ Debian image pinned by digest. No floating production default.
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE} AS build
+WORKDIR /app
+COPY . .
+RUN corepack enable && corepack prepare pnpm@10.34.5 --activate && pnpm install --frozen-lockfile && pnpm run build
+
+FROM ${NODE_IMAGE}
+WORKDIR /app
+COPY --from=build --chown=node:node /app /app
+USER node
+EXPOSE 8787
+ENTRYPOINT ["node", "packages/mcp/dist/bin.js", "--account-service", "--connector-config", "/run/verdict/config.json", "--http", "8787", "--host", "0.0.0.0"]

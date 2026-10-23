@@ -1,0 +1,10 @@
+# Replace this example hostname only after the account service configuration agrees.
+mcp.verdict.example {
+    request_body {
+        max_size 1MB
+    }
+    reverse_proxy 127.0.0.1:8787 {
+        flush_interval -1
+    }
+    # Access logging is intentionally disabled: callback queries contain one-use receipts/codes.
+}

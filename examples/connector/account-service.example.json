@@ -1,0 +1,24 @@
+{
+  "publicOrigin": "https://mcp.verdict.example",
+  "appOrigin": "https://staging.verdict.example",
+  "appNetwork": "testnet",
+  "privyAppId": "REPLACE_WITH_EXISTING_STAGING_PRIVY_APP_ID",
+  "privyVerificationKey": "REPLACE_WITH_EXISTING_PRIVY_APP_ES256_PUBLIC_SPKI_PEM_VERIFICATION_KEY",
+  "relaySecretEnv": "VERDICT_CONNECTOR_RELAY_SECRET",
+  "stateDir": "/var/lib/verdict/authority",
+  "gatewayJobsDir": "/var/lib/verdict/jobs",
+  "refreshTtlSeconds": 86400,
+  "profiles": [
+    {
+      "id": "operator-provisioned-testnet-account",
+      "enabled": false,
+      "mode": "per_order",
+      "brokerSocket": "/run/verdict-broker/account.sock",
+      "grantId": "00000000-0000-4000-8000-000000000000",
+      "grantHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "accounts": [
+        { "venue": "hl", "network": "testnet", "account": "0x0000000000000000000000000000000000000000" }
+      ]
+    }
+  ]
+}

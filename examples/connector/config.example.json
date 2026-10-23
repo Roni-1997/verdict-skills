@@ -1,0 +1,26 @@
+{
+  "publicOrigin": "https://mcp.hyperverdict.xyz",
+  "issuer": "https://YOUR_TENANT.us.auth0.com/",
+  "browserClientId": "YOUR_BROWSER_CLIENT_ID",
+  "browserClientSecretEnv": "VERDICT_CONNECTOR_BROWSER_CLIENT_SECRET",
+  "stateDir": "/var/lib/verdict-connector/jobs",
+  "approvalTtlSeconds": 300,
+  "allowInsecureLocalhost": false,
+  "bindings": [
+    {
+      "id": "operator-provisioned-account",
+      "subject": "auth0|REPLACE_WITH_VERIFIED_SUBJECT",
+      "enabled": false,
+      "mode": "per_order",
+      "brokerSocket": "/run/verdict-broker/account/broker.sock",
+      "grantId": "00000000-0000-4000-8000-000000000000",
+      "accounts": [
+        {
+          "venue": "hl",
+          "network": "testnet",
+          "account": "0x1111111111111111111111111111111111111111"
+        }
+      ]
+    }
+  ]
+}

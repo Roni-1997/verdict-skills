@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -79,6 +80,7 @@ class Preflight:
     native: dict
     checked_at: float
     valid_until: float | None = None
+    before_transport: Callable[[], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,91 @@ class Store:
             os.close(fd)
             raise BrokerError("Unsafe broker state file permissions")
         return fd
+
+    @contextlib.contextmanager
+    def authority_locked(self):
+        """All lifecycle operations use this lock BEFORE sorted account locks."""
+        fd = self._open("authority.lock", os.O_CREAT | os.O_RDWR)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as e:
+                raise BrokerError("Authority ledger is busy in another local broker process") from e
+            yield
+        finally:
+            os.close(fd)
+
+    def read_private(self, name, *, missing_ok=False):
+        try:
+            fd = self._open(name, os.O_RDONLY)
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise BrokerError("Required authority state is missing; never recreate budgets") from None
+        with os.fdopen(fd) as f:
+            return json_load(f.read(1_048_577))
+
+    def write_once(self, name, value, *, allow_existing=False):
+        encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
+        try:
+            fd = self._open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if allow_existing and self.read_private(name) == value:
+                return
+            raise BrokerError("Immutable authority state already exists or differs") from None
+        with os.fdopen(fd, "wb", buffering=0) as f:
+            offset = 0
+            while offset < len(encoded):
+                written = f.write(encoded[offset:])
+                if not written:
+                    raise BrokerError("Authority state write failed")
+                offset += written
+            os.fsync(f.fileno())
+        self._sync_directory()
+
+    def _sync_directory(self):
+        directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+    def proposal_journals(self):
+        for path in sorted(self.root.glob("*.jsonl")):
+            if re.fullmatch(r"[0-9a-f]{64}\.jsonl", path.name):
+                yield path.stem, self.read(path.stem)
+
+    def unresolved_accounts(self, *, exclude_digest=None):
+        unresolved = set()
+        for digest, events in self.proposal_journals():
+            if digest == exclude_digest:
+                continue
+            proposal = next((e.get("proposal") for e in events if e.get("type") == "approved" and "proposal" in e), None)
+            quantities = {}
+            for attempt in (e for e in events if e.get("type") == "attempt_started"):
+                i = attempt.get("leg")
+                if (not isinstance(proposal, dict) or type(i) is not int or i < 0
+                        or i >= len(proposal.get("payload", {}).get("legs", []))):
+                    raise BrokerError("Attempt journal lacks its canonical proposal; reconcile manually")
+                leg = proposal["payload"]["legs"][i]
+                terminal = next((e.get("observation") for e in events if e.get("type") == "terminal_observation" and e.get("leg") == i), None)
+                resolved = False
+                if terminal is not None:
+                    try:
+                        filled, delta = D(terminal["filled"]), D(terminal["netInventoryChange"])
+                        resolved = (terminal["state"] in TERMINAL and terminal["settled"] is True and filled.is_finite() and delta.is_finite()
+                                    and ((filled == D(leg["shares"]) and delta == D(leg["shares"])) or (filled == 0 and delta == 0)))
+                    except (KeyError, TypeError, ArithmeticError, ValueError):
+                        raise BrokerError("Terminal observation journal corrupt") from None
+                if not resolved:
+                    unresolved.add(account_key(leg))
+                quantities[i] = filled if resolved else None
+            if quantities and len(proposal["payload"]["legs"]) == 2:
+                first, second = quantities.get(0, D(0)), quantities.get(1, D(0))
+                # Individually terminal orders can still leave the pair directionally exposed.
+                if first is None or second is None or first != second:
+                    unresolved.update(account_key(leg) for leg in proposal["payload"]["legs"])
+        return unresolved
 
     @contextlib.contextmanager
     def locked(self, legs):
@@ -168,18 +255,65 @@ class Store:
                     raise BrokerError("Journal write failed")
                 offset += count
             os.fsync(f.fileno())
-        directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        self._sync_directory()
 
 
 class Broker:
-    def __init__(self, store: Store, factory: Callable[[dict], Adapter], *, clock=time.time,
+    def __init__(self, store: Store, factory: Callable[[dict], Adapter], *, authority, clock=time.time,
                  sleep=time.sleep, poll_seconds=15):
         self.store, self.factory, self.clock, self.sleep = store, factory, clock, sleep
+        if authority is None:
+            raise BrokerError("Explicit operator execution authority required")
+        self.authority = authority
+        self.authority.bind(store)
         self.poll_seconds = poll_seconds
+
+    def capabilities(self):
+        with self.store.authority_locked():
+            return {"kind": "local_execution_capabilities", "authority": self.authority.describe(), "fundedAcceptanceVerified": False}
+
+    def inspect_connection(self):
+        """Read the selected policy and fresh public readiness, without reserving or signing."""
+        if self.authority.mode != "policy":
+            raise BrokerError("Connection inspection requires operator policy authority")
+        with self.store.authority_locked():
+            authority = self.authority.describe()
+            manifest = self.authority.inspection_manifest()
+            groups = {}
+            for template in manifest["templates"]:
+                for leg in template["payload"]["legs"]:
+                    account = {k: leg[k] for k in ("venue", "network", "account")}
+                    if leg["venue"] == "lighter":
+                        account["apiKeyIndex"] = leg["apiKeyIndex"]
+                    key = json.dumps(account, sort_keys=True)
+                    groups.setdefault(key, (account, []))[1].append(leg)
+            accounts = []
+            for account, legs in groups.values():
+                row = {"account": account, "ownerWallet": None, "agentAddress": None,
+                       "checks": {"registration": "unknown", "builder": "unknown"},
+                       "checkedAt": self.clock() * 1000, "notes": []}
+                adapter = None
+                if account["venue"] == "polymarket":
+                    row["notes"].append("Polymarket ownership verification is unsupported.")
+                else:
+                    try:
+                        adapter = self.factory(legs[0])
+                        row.update(adapter.inspect_connection(legs))
+                    except Exception:
+                        # Never return adapter/SDK exceptions, which can contain local secrets.
+                        row["notes"] = ["Venue connection inspection unavailable; readiness is unknown."]
+                    finally:
+                        if adapter is not None:
+                            try:
+                                adapter.close()
+                            except Exception:
+                                pass
+                row["checkedAt"] = self.clock() * 1000
+                accounts.append(row)
+            # Recheck the durable authority after fresh venue reads.
+            authority = self.authority.describe()
+            return {"kind": "execution_connection_inspection", "authority": authority,
+                    **manifest, "accounts": accounts, "fundedAcceptanceVerified": False}
 
     def _valid_now(self, proposal):
         p = proposal["payload"]
@@ -201,7 +335,11 @@ class Broker:
             raise BrokerError("Insufficient available collateral including reserved fees")
         if leg["action"] == "sell" and D(result.inventory) < D(leg["shares"]):
             raise BrokerError("Sell exceeds available holdings; naked sells are disabled")
-        return replace(result, valid_until=min(proposal["payload"]["expiresAt"] / 1000, result.checked_at + 5))
+        deadlines = [proposal["payload"]["expiresAt"] / 1000, result.checked_at + 5]
+        authority_expiry = self.authority.expiry()
+        if authority_expiry is not None:
+            deadlines.append(authority_expiry)
+        return replace(result, valid_until=min(deadlines))
 
     def _status(self, proposal, adapters):
         events = self.store.read(proposal["digest"])
@@ -211,19 +349,31 @@ class Broker:
             if attempt is None:
                 legs.append({"leg": i, "state": "not_attempted", "filled": "0", "netInventoryChange": "0", "settled": False})
                 continue
+            frozen = next((e["observation"] for e in events if e.get("type") == "terminal_observation" and e.get("leg") == i), None)
+            if frozen is not None:
+                legs.append(frozen)
+                continue
             item = next((e for e in reversed(events) if e.get("type") == "receipt" and e.get("leg") == i), None)
             receipt = Receipt(**item["receipt"]) if item else Receipt()
             try:
                 observation = adapter.observe(leg, identity(proposal, i), receipt)
                 if observation.state not in TERMINAL | {"open", "pending", "unknown"}:
                     raise BrokerError("Unrecognized normalized order state")
-                change = D(observation.inventory) - D(attempt["inventory_before"])
+                filled, inventory = D(observation.filled), D(observation.inventory)
+                if not filled.is_finite() or filled < 0 or not inventory.is_finite():
+                    raise BrokerError("Invalid venue observation")
+                change = inventory - D(attempt["inventory_before"])
                 delta = change if leg["action"] == "buy" else -change
-                row = {"leg": i, "state": observation.state, "filled": observation.filled,
-                       "netInventoryChange": str(delta), "settled": observation.settled}
+                row = {"leg": i, "state": observation.state, "filled": format(filled, "f"),
+                       "netInventoryChange": format(delta, "f"), "settled": observation.settled}
             except Exception:
                 row = {"leg": i, "state": "unknown", "filled": None, "netInventoryChange": None, "settled": False}
             legs.append(row)
+            if (row["state"] in TERMINAL and row["settled"] and row["filled"] is not None
+                    and row["netInventoryChange"] is not None and D(row["filled"]) == D(row["netInventoryChange"])):
+                # Freeze definitive execution evidence BEFORE later own trades
+                # can change these account-wide inventory deltas.
+                self.store.append(proposal["digest"], {"type": "terminal_observation", "leg": i, "observation": row})
         full = lambda row, leg: row["state"] in TERMINAL and row["settled"] and row["filled"] is not None and D(row["filled"]) == D(leg["shares"]) and row["netInventoryChange"] is not None and D(row["netInventoryChange"]) == D(leg["shares"])
         complete = all(full(r, l) for r, l in zip(legs, proposal["payload"]["legs"]))
         return {"digest": proposal["digest"], "state": "complete" if complete else "needs_reconciliation",
@@ -234,7 +384,7 @@ class Broker:
     def _session(self, proposal):
         # Revalidate even for trusted API callers; a forged digest cannot bypass the CLI schema.
         proposal = node_call(["execution", "validate", "--input", json.dumps(proposal, ensure_ascii=False)])
-        with self.store.locked(proposal["payload"]["legs"]):
+        with self.store.authority_locked(), self.store.locked(proposal["payload"]["legs"]):
             adapters = []
             try:
                 for leg in proposal["payload"]["legs"]:
@@ -249,19 +399,35 @@ class Broker:
         with self._session(proposal) as (p, adapters):
             return self._status(p, adapters)
 
-    def submit(self, proposal, approve: Callable[[dict], bool]):
+    def preflight(self, proposal):
+        with self._session(proposal) as (p, adapters):
+            self.authority.check(p)
+            legs = []
+            for i, adapter in enumerate(adapters):
+                check = self._preflight(p, i, adapter)
+                legs.append({"leg": i, "inventoryShares": format(D(check.inventory), "f"), "availableUSDC": format(D(check.available_usdc), "f"),
+                             "feeBoundUSDC": format(D(check.required_fee), "f"), "checkedAt": check.checked_at * 1000, "validUntil": check.valid_until * 1000})
+            return {"state": "ready", "digest": p["digest"], "authorization": "none", "authority": self.authority.describe(), "legs": legs}
+
+    def submit(self, proposal):
         with self._session(proposal) as (p, adapters):
             events = self.store.read(p["digest"])
             if any(e.get("type") == "attempt_started" for e in events):
                 return self._status(p, adapters)
+            if self.authority.reserved(p):
+                raise BrokerError("Existing reservation without an attempt; reconcile manually, never resume")
             self._valid_now(p)
+            self.authority.check(p)
             review = node_call(["execution", "review", "--input", json.dumps(p, ensure_ascii=False)])
+            unresolved = self.store.unresolved_accounts()
+            if self.authority.mode == "per_order" and any(account_key(l) in unresolved for l in p["payload"]["legs"]):
+                review["confirmation"].append("These accounts have unresolved earlier execution. This separately approved recovery trade does not clear, retry or resolve those earlier attempts; inspect their original proposals independently.")
             def order_review(index):
                 return {**review, "leg": index, "approvalId": f"{p['digest']}:leg:{index}",
                         "confirmation": [*review["confirmation"],
                             f"Approve ONLY order {index + 1} of {len(p['payload']['legs'])}. Every other order requires its own separate approval.",
                             *(["Previous orders have filled. Declining this order can leave unhedged exposure; recovery requires a new separately approved proposal."] if index else [])]}
-            if not approve(order_review(0)):
+            if not self.authority.approve(p, order_review(0)):
                 raise BrokerError("Operator did not approve; no order sent")
             # Detect known second-leg failure before acquiring exposed first-leg inventory.
             # Discard these snapshots and refresh each leg again immediately before its send.
@@ -271,9 +437,10 @@ class Broker:
             except Exception:
                 raise BrokerError("Initial preflight blocked; every leg must be viable before any order is sent") from None
             self.store.append(p["digest"], {"type": "approved", "leg": 0, "proposal": p})
+            self.authority.reserve(p)
             for i, (leg, adapter) in enumerate(zip(p["payload"]["legs"], adapters)):
                 if i:
-                    if not approve(order_review(i)):
+                    if not self.authority.approve(p, order_review(i)):
                         self.store.append(p["digest"], {"type": "approval_declined", "leg": i})
                         return {**self._status(p, adapters), "blocked": "Next order not approved; existing inventory may be exposed. Recovery requires a new separately confirmed proposal"}
                     self.store.append(p["digest"], {"type": "approved", "leg": i})
@@ -285,11 +452,17 @@ class Broker:
                     return {**self._status(p, adapters), "blocked": "Second-leg preflight changed; exposed inventory requires a new separately confirmed recovery proposal"}
                 # Fence BEFORE signing or transport. A crash after this point is an unknown send.
                 self.store.append(p["digest"], {"type": "attempt_started", "leg": i,
-                                               "client_id": identity(p, i), "inventory_before": preflight.inventory})
+                                               "client_id": identity(p, i), "inventory_before": preflight.inventory, "authority": self.authority.origin()})
                 try:
                     self._valid_now(p)
                     if self.clock() - preflight.checked_at > 5:
                         raise BrokerError("Preflight expired before send")
+                    def before_transport():
+                        self._valid_now(p)
+                        if self.clock() >= preflight.valid_until:
+                            raise BrokerError("Preflight expired before transport")
+                        self.authority.before_transport(p)
+                    preflight = replace(preflight, before_transport=before_transport)
                     receipt = adapter.submit(leg, identity(p, i), preflight)
                     self.store.append(p["digest"], {"type": "receipt", "leg": i, "receipt": asdict(receipt)})
                 except Exception:
@@ -309,17 +482,19 @@ class Broker:
                     self.sleep(0.5)
             return self._status(p, adapters)
 
-    def cancel(self, proposal, index, approve: Callable[[dict], bool]):
+    def cancel(self, proposal, index):
         with self._session(proposal) as (p, adapters):
             if type(index) is not int or not 0 <= index < len(adapters):
                 raise BrokerError("Invalid leg index")
             events = self.store.read(p["digest"])
-            if not any(e.get("type") == "attempt_started" and e.get("leg") == index for e in events):
+            attempt = next((e for e in events if e.get("type") == "attempt_started" and e.get("leg") == index), None)
+            if attempt is None:
                 raise BrokerError("Cannot cancel a leg that was never attempted")
             item = next((e for e in reversed(events) if e.get("type") == "receipt" and e.get("leg") == index), None)
             receipt = Receipt(**item["receipt"]) if item else Receipt()
             leg = p["payload"]["legs"][index]
-            if not approve({"digest": p["digest"], "confirmation": [f"Cancel ONLY leg {index}: {leg['venue']} {leg['network']} account {leg['account']}, client identity {identity(p, index)}. Cancellation can race fills; check status afterward."]}):
+            review = {"digest": p["digest"], "confirmation": [f"Cancel ONLY leg {index}: {leg['venue']} {leg['network']} account {leg['account']}, client identity {identity(p, index)}. Cancellation can race fills; check status afterward."]}
+            if not self.authority.approve_cancel(p, index, attempt, review):
                 raise BrokerError("Cancellation not approved")
             self.store.append(p["digest"], {"type": "cancel_started", "leg": index})
             try:

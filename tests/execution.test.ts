@@ -93,8 +93,10 @@ it('built MCP completes prepare/review over stdio, preserves strict schemas and 
   const transport = new StdioClientTransport({ command: process.execPath, args: [bin, '--execution'], env: { VERDICT_NETWORK: 'bad-ignored-keyless-config' }, stderr: 'pipe' });
   try {
     await client.connect(transport);
-    const names = (await client.listTools()).tools.map((t) => t.name);
+    const tools = (await client.listTools()).tools;
+    const names = tools.map((t) => t.name);
     expect(names).toEqual(['execution_prepare', 'execution_review', 'execution_capabilities']);
+    expect(JSON.stringify(tools.map((tool) => tool.inputSchema))).not.toMatch(/"items":\[/);
     const prepared = await client.callTool({ name: 'execution_prepare', arguments: request([hl, polymarket]) });
     expect(prepared.isError).not.toBe(true);
     const p = validateExecution(prepared.structuredContent);

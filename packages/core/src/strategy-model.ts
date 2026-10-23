@@ -25,7 +25,7 @@ export const PairedSnapshot = z.object({
   version: z.literal(1), kind: z.literal('paired_books'), pair: StrategyPair, capturedAt: Epoch,
   hl: z.object({
     network: z.enum(['testnet', 'mainnet']), outcome: HlId, title: z.string().max(10_000), rule: z.string().max(50_000).nullable(),
-    sideNames: z.tuple([z.string(), z.string()]), quoteToken: z.string().max(80), expiresAt: Epoch.nullable(),
+    sideNames: z.array(z.string()).length(2).pipe(z.tuple([z.string(), z.string()])), quoteToken: z.string().max(80), expiresAt: Epoch.nullable(),
     asks: Asks, sourceAt: z.object({ yes: Epoch, no: Epoch }).strict(), clock: Clock, knownBuilderBps: StrategyDecimal.nullable(),
   }).strict(),
   lighter: z.object({
