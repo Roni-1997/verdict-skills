@@ -35,6 +35,10 @@ class FakeBroker:
                          "remainingOrders": 2, "cancelOwnOrders": True}
         return {"kind": "local_execution_capabilities", "authority": authority, "fundedAcceptanceVerified": False}
 
+    def inspect_connection(self):
+        self.calls.append("inspectConnection")
+        return {"kind": "execution_connection_inspection"}
+
     def _status(self, proposal):
         attempted = (self.root / proposal["digest"]).exists()
         return {"digest": proposal["digest"], "state": "needs_reconciliation",
@@ -155,8 +159,8 @@ class RpcTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.service.path.stat().st_mode), 0o600)
 
     def test_exact_mode_assertion_for_every_operation(self):
-        for operation in ["capabilities", "preflight", "submit", "status", "cancel"]:
-            fields = {"proposal": self.proposal} if operation != "capabilities" else {}
+        for operation in ["capabilities", "inspectConnection", "preflight", "submit", "status", "cancel"]:
+            fields = {"proposal": self.proposal} if operation not in {"capabilities", "inspectConnection"} else {}
             if operation == "cancel":
                 fields["leg"] = 0
             response = self.service.call({"operation": operation, "expectedMode": "policy", **fields})
@@ -166,8 +170,8 @@ class RpcTest(unittest.TestCase):
 
     def test_pinned_grant_is_asserted_on_the_selected_broker_for_every_operation(self):
         self.broker.mode = "policy"
-        for operation in ["capabilities", "preflight", "submit", "status", "cancel"]:
-            fields = {"proposal": self.proposal} if operation != "capabilities" else {}
+        for operation in ["capabilities", "inspectConnection", "preflight", "submit", "status", "cancel"]:
+            fields = {"proposal": self.proposal} if operation not in {"capabilities", "inspectConnection"} else {}
             if operation == "cancel":
                 fields["leg"] = 0
             calls = list(self.broker.calls)

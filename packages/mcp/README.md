@@ -6,6 +6,12 @@ execution, and SDK submission/status/cancel. It requires Node 22.13+ and separat
 private policy brokers. The default research mode below remains keyless. See the
 [hosted connector guide](../../docs/hosted-connector.md) for configuration and deployment limits.
 
+`--account-service --connector-config /private/operator/accounts.json --http 8789` adds
+the first-party Privy connection, verified wallet enrollment, OAuth and revocation service
+for the matching Verdict app route. It combines research and the same SDK execution
+lifecycle. See the [account service guide](../../docs/account-service.md). It is locally
+tested with fake venues, not deployed or accepted with funded accounts.
+
 `verdict-mcp --strategy` serves seven `strategy_*` research/calculation tools, three prompts
 (`paired_market_research`, `paper_leg_failure`, `inventory_exposure_check`) and the
 `verdict-strategy://capabilities` resource. This separate mode supports HL/Lighter snapshots,

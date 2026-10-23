@@ -243,6 +243,14 @@ class PolicyAuthority:
                 "remainingDebitUSDC": _amount(_units(grant["maxDebitUSDC"]) - sum(_units(r["debitUSDC"]) for r in usage)),
                 "remainingOrders": grant["maxOrders"] - sum(r["orders"] for r in usage), "cancelOwnOrders": grant["cancelOwnOrders"]}
 
+    def inspection_manifest(self):
+        """Saved public scope only; callers hold the authority lock."""
+        grant, _ = self._load()
+        templates = [node_call(["execution", "validate", "--input", json.dumps(p, ensure_ascii=False)]) for p in grant["templates"]]
+        if templates != grant["templates"]:
+            raise BrokerError("Saved grant templates are not canonical")
+        return {"maxDebitUSDC": grant["maxDebitUSDC"], "maxOrders": grant["maxOrders"], "templates": templates}
+
     def check(self, proposal):
         grant, reservations = self._load()
         if self._revoked(grant) or self.clock() * 1000 >= grant["expiresAt"]:

@@ -19,6 +19,7 @@ const { values } = parseArgs({
     execution: { type: 'boolean', default: false },
     'local-execution': { type: 'boolean', default: false },
     'hosted-execution': { type: 'boolean', default: false },
+    'account-service': { type: 'boolean', default: false },
     'connector-config': { type: 'string' },
     http: { type: 'string' },
     host: { type: 'string', default: '127.0.0.1' },
@@ -37,6 +38,7 @@ if (values.help) {
       '  verdict-mcp --execution     keyless proposal preparation/review for the separate local trading broker',
       '  verdict-mcp --local-execution  SDK lifecycle over operator-owned Unix broker; stdio only; VERDICT_BROKER_SOCKET and VERDICT_EXECUTION_MODE=per_order|policy required',
       '  verdict-mcp --hosted-execution --connector-config private.json --http 8787  authenticated account-linked SDK execution; Node 22.13+',
+      '  verdict-mcp --account-service --connector-config private.json --http 8787  Privy account connection, OAuth and SDK execution; Node 22.13+',
       '  verdict-mcp --http 8787     streamable HTTP on 127.0.0.1:8787/mcp',
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
@@ -51,15 +53,15 @@ if (values.help) {
   );
   process.exit(0);
 }
-if ([values.lighter, values.strategy, values.execution, values['local-execution'], values['hosted-execution']].filter(Boolean).length > 1) {
-  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one MCP server mode: --lighter, --strategy, --execution, --local-execution or --hosted-execution' })}\n`);
+if ([values.lighter, values.strategy, values.execution, values['local-execution'], values['hosted-execution'], values['account-service']].filter(Boolean).length > 1) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one MCP server mode: --lighter, --strategy, --execution, --local-execution, --hosted-execution or --account-service' })}\n`);
   process.exit(1);
 }
 if (values['local-execution'] && values.http !== undefined) {
   process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: '--local-execution supports stdio only; account-linked HTTP requires explicit --hosted-execution configuration' })}\n`);
   process.exit(1);
 }
-if ((values['connector-config'] !== undefined && !values['hosted-execution']) || (values['hosted-execution'] && (values.http === undefined || values['connector-config'] === undefined))) {
+if ((values['connector-config'] !== undefined && !values['hosted-execution'] && !values['account-service']) || ((values['hosted-execution'] || values['account-service']) && (values.http === undefined || values['connector-config'] === undefined))) {
   process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Hosted execution requires explicit --hosted-execution --connector-config FILE --http PORT; connector configuration never enables a public server implicitly' })}\n`);
   process.exit(1);
 }
@@ -84,15 +86,15 @@ try {
 
 const openServer = () => executionClient ? createLocalExecutionServer(executionClient) : values.execution ? createExecutionServer() : values.strategy ? createStrategyServer(createStrategyTools({ config })) : lighterConfig ? createLighterServer(createLighterTools(new LighterClient(lighterConfig))) : createServer(config);
 
-if (values['hosted-execution']) {
+if (values['hosted-execution'] || values['account-service']) {
   try {
     const [major, minor] = process.versions.node.split('.').map(Number);
     if (major === undefined || minor === undefined || major < 22 || (major === 22 && minor < 13)) throw new Error();
     const port = Number(values.http);
     if (!Number.isInteger(port) || port <= 0 || port > 65535 || values['connector-config'] === undefined) throw new Error();
-    const { createHostedHandler, readHostedConfig } = await import('./hosted-http.js');
-    const connectorConfig = await readHostedConfig(values['connector-config']);
-    const connector = await createHostedHandler(connectorConfig);
+    const connectorConfig = values['account-service'] ? await (await import('./connect-http.js')).readAccountServiceConfig(values['connector-config']) : await (await import('./hosted-http.js')).readHostedConfig(values['connector-config']);
+    const connector = values['account-service'] ? await (await import('./connect-http.js')).createAccountService((await import('./connect-model.js')).AccountServiceConfig.parse(connectorConfig))
+      : await (await import('./hosted-http.js')).createHostedHandler((await import('./hosted-model.js')).HostedConfig.parse(connectorConfig));
     const listener = createHttpServer({ maxHeaderSize: 16_384 }, connector.handle);
     listener.requestTimeout = 30_000;
     listener.headersTimeout = 15_000;
@@ -101,7 +103,7 @@ if (values['hosted-execution']) {
     const stop = () => listener.close(() => { connector.close(); });
     process.once('SIGTERM', stop); process.once('SIGINT', stop);
   } catch {
-    process.stderr.write(`${JSON.stringify({ error: 'not_configured', message: 'Hosted connector startup failed. Requires Node 22.13+, valid private configuration, managed OAuth discovery and private state. Details hidden.' })}\n`);
+    process.stderr.write(`${JSON.stringify({ error: 'not_configured', message: 'Hosted connector startup failed. Requires Node 22.13+, valid private configuration, configured identity verification and persistent private state. Details hidden.' })}\n`);
     process.exit(4);
   }
 } else if (values.http === undefined) {

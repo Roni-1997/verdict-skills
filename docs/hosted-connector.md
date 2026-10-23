@@ -12,6 +12,12 @@ repository does not provision a public endpoint or an identity tenant.
 
 ## Identity and trading authority
 
+For Verdict's existing Privy login, use the [first-party account service](account-service.md)
+and its matching staging app connection route. `--account-service` supplies durable OAuth
+and verified ownership enrollment while keeping this execution gateway and broker unchanged.
+The rest of this section describes the alternative external-provider `--hosted-execution`
+mode, which remains supported with its strict JWT audience and scope checks.
+
 Reuse the product's existing identity provider when it can support the required OAuth
 flow. Auth0 is one compatible example, with
 [MCP authentication](https://auth0.com/blog/auth0-auth-for-mcp-servers-generally-available/)
@@ -26,7 +32,7 @@ audience and separate read/trade scopes, as required by [MCP authorization](http
 Do not pass a product-login token through or disable audience/scope checks to make it fit.
 An integration must verify the existing identity, bind verified account ownership, collect
 MCP consent and issue resource-specific authority. This repository does not implement
-that Privy integration yet.
+that integration in external-provider mode; the separate account-service mode now does.
 
 An access token must match the configured issuer and exact MCP resource audience, include
 an expiry and subject, and carry `verdict:read`. Submission and cancellation additionally

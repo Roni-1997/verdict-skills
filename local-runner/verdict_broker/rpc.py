@@ -67,12 +67,12 @@ def _dispatch(broker, request):
     if not isinstance(request, dict):
         raise BrokerError("Broker request must be an object")
     operation = request.get("operation")
-    if not isinstance(operation, str) or operation not in {"capabilities", "preflight", "submit", "status", "cancel"}:
+    if not isinstance(operation, str) or operation not in {"capabilities", "inspectConnection", "preflight", "submit", "status", "cancel"}:
         raise BrokerError("Unknown broker operation")
     fields = {"operation", "expectedMode"}
     if "expectedGrantId" in request:
         fields.add("expectedGrantId")
-    if operation != "capabilities":
+    if operation not in {"capabilities", "inspectConnection"}:
         fields.add("proposal")
     if operation == "cancel":
         fields.add("leg")
@@ -86,7 +86,7 @@ def _dispatch(broker, request):
                 raise ValueError
         except ValueError:
             raise BrokerError("Expected a canonical policy grant assertion") from None
-    if operation != "capabilities" and not isinstance(request["proposal"], dict):
+    if operation not in {"capabilities", "inspectConnection"} and not isinstance(request["proposal"], dict):
         raise BrokerError("Expected a canonical execution proposal object")
     if operation == "cancel" and (type(request["leg"]) is not int or request["leg"] not in (0, 1)):
         raise BrokerError("Cancel requires an exact zero-based proposal leg")
@@ -95,6 +95,10 @@ def _dispatch(broker, request):
         raise BrokerError("Configured broker mode does not match the expected operator mode")
     if "expectedGrantId" in request and request["expectedGrantId"] != capabilities["authority"].get("grantId"):
         raise BrokerError("Configured broker grant does not match the operator-pinned grant")
+    if operation == "inspectConnection":
+        if request["expectedMode"] != "policy" or "expectedGrantId" not in request:
+            raise BrokerError("Connection inspection requires an operator-pinned policy grant")
+        return broker.inspect_connection()
     if operation == "capabilities":
         return capabilities
     if operation == "preflight":

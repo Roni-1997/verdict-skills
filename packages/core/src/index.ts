@@ -75,5 +75,5 @@ export { PairedSnapshot, ReferenceSnapshot, StrategySnapshot, StrategyPair, Stra
 export type { StrategyToolName } from './strategy-model.js';
 export { assessPair, paperPair, reconcilePair } from './strategy-analysis.js';
 export { ExecutionLeg, ExecutionRequest, ExecutionProposal, prepareExecution, validateExecution, executionConfirmation, executionCapabilities } from './execution.js';
-export { ExecutionMode, LocalExecutionCapabilities, ExecutionPreflight, ExecutionStatus, ExecutionDeliveryUnknownError, connectExecution } from './execution-client.js';
+export { ExecutionLinkedAccount, ExecutionConnectionInspection, ExecutionMode, LocalExecutionCapabilities, ExecutionPreflight, ExecutionStatus, ExecutionDeliveryUnknownError, connectExecution } from './execution-client.js';
 export type { ExecutionClient, ExecutionConnectionOptions } from './execution-client.js';

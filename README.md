@@ -15,6 +15,12 @@ or an operator-selected policy, and durable submission through that same SDK bro
 It requires Node 22.13+, a configured identity provider and private account provisioning.
 The connector is locally tested; no production endpoint or directory listing is claimed.
 
+The [Privy account service](docs/account-service.md), enabled with `--account-service`,
+adds the first-party connection flow for Verdict's staging app: verified login and wallet
+ownership, reviewed client permissions, resource-specific OAuth tokens and disconnect.
+It includes research tools and that same SDK submission lifecycle. Operator provisioning,
+hosted activation and client-directory acceptance remain separate from local verification.
+
 The strategy workbench adds HL/Lighter candidate discovery, captured purchase depth,
 fee-aware conditional plans with capital and leg-loss limits, scans of up to eight pairs,
 missed-leg paper simulation, inventory reconciliation and independent venue probes.

@@ -1,7 +1,7 @@
 import { connect } from 'node:net';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
-import { type ExecutionProposal, validateExecution } from './execution.js';
+import { ExecutionLeg, ExecutionProposal, validateExecution } from './execution.js';
 import { ToolError } from './tools.js';
 
 export const ExecutionMode = z.enum(['per_order', 'policy']);
@@ -19,6 +19,28 @@ const Authority = z.discriminatedUnion('mode', [
     remainingDebitUSDC: Decimal, remainingOrders: z.number().int().nonnegative().safe(), cancelOwnOrders: z.boolean(),
   }).strict(),
 ]);
+
+/** Public account identity, selected only from an operator-approved execution template. */
+export const ExecutionLinkedAccount = z.discriminatedUnion('venue', [
+  ExecutionLeg.options[0].pick({ venue: true, network: true, account: true }),
+  ExecutionLeg.options[1].pick({ venue: true, network: true, account: true, apiKeyIndex: true }),
+  ExecutionLeg.options[2].pick({ venue: true, network: true, account: true }),
+]);
+export type ExecutionLinkedAccount = z.infer<typeof ExecutionLinkedAccount>;
+const PublicAddress = z.string().regex(/^0x[0-9a-f]{40}$/);
+const ConnectionCheck = z.enum(['ready', 'missing', 'unknown']);
+export const ExecutionConnectionInspection = z.object({
+  kind: z.literal('execution_connection_inspection'), authority: Authority.options[1],
+  maxDebitUSDC: Decimal, maxOrders: z.number().int().positive().safe(),
+  templates: z.array(ExecutionProposal).min(1).max(32),
+  accounts: z.array(z.object({ account: ExecutionLinkedAccount,
+    ownerWallet: PublicAddress.nullable(), agentAddress: PublicAddress.nullable(),
+    checks: z.object({ registration: ConnectionCheck, builder: ConnectionCheck }).strict(),
+    checkedAt: ObservationMs, notes: z.array(z.string().max(1000)).max(32),
+  }).strict()).min(1).max(64),
+  fundedAcceptanceVerified: z.literal(false),
+}).strict();
+export type ExecutionConnectionInspection = z.infer<typeof ExecutionConnectionInspection>;
 
 export const LocalExecutionCapabilities = z.object({
   kind: z.literal('local_execution_capabilities'), authority: Authority, fundedAcceptanceVerified: z.literal(false),
@@ -52,6 +74,7 @@ export class ExecutionDeliveryUnknownError extends ToolError {
 export interface ExecutionClient {
   readonly mode: ExecutionMode;
   capabilities(): Promise<LocalExecutionCapabilities>;
+  inspectConnection(): Promise<ExecutionConnectionInspection>;
   preflight(proposal: ExecutionProposal): Promise<ExecutionPreflight>;
   submit(proposal: ExecutionProposal): Promise<ExecutionStatus>;
   status(proposal: ExecutionProposal): Promise<ExecutionStatus>;
@@ -70,7 +93,7 @@ const Envelope = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), result: z.unknown() }).strict(),
   z.object({ ok: z.literal(false), error: z.object({ code: z.enum(['broker_blocked', 'broker_error']), message: z.string().max(10_000) }).strict() }).strict(),
 ]);
-type Operation = 'capabilities' | 'preflight' | 'submit' | 'status' | 'cancel';
+type Operation = 'inspectConnection' | 'capabilities' | 'preflight' | 'submit' | 'status' | 'cancel';
 const MAX_BYTES = 1_048_576;
 
 /** JSON.parse otherwise silently accepts duplicate keys. All values remain unknown until Zod parses them. */
@@ -163,7 +186,7 @@ export async function connectExecution(options: ExecutionConnectionOptions): Pro
     });
   }
 
-  function authorityMode(result: LocalExecutionCapabilities | ExecutionPreflight) {
+  function authorityMode(result: LocalExecutionCapabilities | ExecutionPreflight | ExecutionConnectionInspection) {
     if (result.authority.mode !== expectedMode) throw new ToolError('Local broker mode differs from the explicitly selected expectedMode.', 'not_configured');
     if (expectedGrantId !== undefined && (result.authority.mode !== 'policy' || result.authority.grantId !== expectedGrantId)) {
       throw new ToolError('Local broker grant differs from the operator-pinned expectedGrantId.', 'not_configured');
@@ -190,6 +213,25 @@ export async function connectExecution(options: ExecutionConnectionOptions): Pro
     mode: expectedMode,
     async capabilities() {
       const result = validateResult(LocalExecutionCapabilities, await request('capabilities')); authorityMode(result); return result;
+    },
+    async inspectConnection() {
+      if (expectedMode !== 'policy' || expectedGrantId === undefined) {
+        throw new ToolError('Connection inspection requires an operator-pinned policy grant.', 'not_configured');
+      }
+      const result = validateResult(ExecutionConnectionInspection, await request('inspectConnection'));
+      authorityMode(result);
+      try {
+        for (const template of result.templates) validateExecution(template);
+        const accountKey = (account: ExecutionLinkedAccount) => JSON.stringify(account);
+        const expected = new Set(result.templates.flatMap((template) => template.payload.legs.map((leg) => {
+          const { venue, network, account } = leg;
+          return accountKey(ExecutionLinkedAccount.parse({ venue, network, account,
+            ...(leg.venue === 'lighter' ? { apiKeyIndex: leg.apiKeyIndex } : {}) }));
+        })));
+        const actual = result.accounts.map((row) => accountKey(row.account));
+        if (actual.length !== expected.size || new Set(actual).size !== actual.length || actual.some((key) => !expected.has(key))) throw invalidResponse();
+      } catch { throw invalidResponse(); }
+      return result;
     },
     async preflight(value) {
       const proposal = validateExecution(value);

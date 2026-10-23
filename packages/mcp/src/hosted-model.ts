@@ -1,12 +1,15 @@
 import { isAbsolute } from 'node:path';
-import { ExecutionLeg, ExecutionProposal, ExecutionStatus } from '@verdict/core';
+import { ExecutionLinkedAccount, ExecutionProposal, ExecutionStatus } from '@verdict/core';
 import { z } from 'zod';
 
 export const READ_SCOPE = 'verdict:read';
 export const TRADE_SCOPE = 'verdict:trade';
 export type ConnectorScope = typeof READ_SCOPE | typeof TRADE_SCOPE;
+export const AuthorityRef = z.object({ kind: z.literal('first_party'), grantId: z.string().uuid(), epoch: z.number().int().nonnegative().safe() }).strict();
+export type AuthorityRef = z.infer<typeof AuthorityRef>;
 export const Principal = z.object({ issuer: z.string().url(), subject: z.string().min(1).max(512),
   scopes: z.array(z.string()), expiresAt: z.number().finite().nonnegative(),
+  authorization: AuthorityRef.optional(),
 }).strict();
 export type Principal = z.infer<typeof Principal>;
 export type BrowserSession = Readonly<{ principal: Principal; csrf: string; expiresAt: number }>;
@@ -17,21 +20,17 @@ export function requireScope(principal: Principal, scope: ConnectorScope): void 
   if (principal.expiresAt <= Date.now()) throw new HostedError(401, 'invalid_token', 'Authentication expired. Sign in again.');
   if (!principal.scopes.includes(scope)) throw new HostedError(403, 'insufficient_scope', 'This operation requires additional account permission.');
 }
-export const LinkedAccount = z.discriminatedUnion('venue', [
-  ExecutionLeg.options[0].pick({ venue: true, network: true, account: true }),
-  ExecutionLeg.options[1].pick({ venue: true, network: true, account: true, apiKeyIndex: true }),
-  ExecutionLeg.options[2].pick({ venue: true, network: true, account: true }),
-]);
+export const LinkedAccount = ExecutionLinkedAccount;
 export type LinkedAccount = z.infer<typeof LinkedAccount>;
 const AbsolutePath = z.string().min(1).refine(isAbsolute);
 export const Binding = z.object({ id: z.string().min(1).max(128), subject: z.string().min(1).max(512),
   enabled: z.boolean(), mode: z.enum(['per_order', 'policy']), brokerSocket: AbsolutePath,
-  grantId: z.string().uuid(), accounts: z.array(LinkedAccount).min(1).max(32),
+  grantId: z.string().uuid(), grantHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), accounts: z.array(LinkedAccount).min(1).max(32),
 }).strict();
 export type Binding = z.infer<typeof Binding>;
 export const HostedConfig = z.object({ publicOrigin: z.string().url(), issuer: z.string().url(),
   browserClientId: z.string().min(1), browserClientSecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
-  stateDir: AbsolutePath, bindings: z.array(Binding).min(1).max(1000),
+  stateDir: AbsolutePath, bindings: z.array(Binding).max(1000),
   approvalTtlSeconds: z.number().int().min(30).max(900).default(300),
   allowInsecureLocalhost: z.boolean().default(false),
 }).strict().superRefine((config, context) => {
@@ -56,6 +55,7 @@ export type HostedConfig = z.infer<typeof HostedConfig>;
 export type AuthConfig = Pick<HostedConfig, 'publicOrigin' | 'issuer' | 'browserClientId' | 'browserClientSecretEnv' | 'allowInsecureLocalhost'>;
 export const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const Job = z.object({ id: z.string().uuid(), owner: Digest, bindingHash: Digest,
+  authorization: AuthorityRef.nullable().default(null),
   purpose: z.enum(['submit', 'cancel']), proposal: ExecutionProposal, leg: z.union([z.literal(0), z.literal(1)]).nullable(),
   expiresAt: z.number().int().nonnegative(), state: z.enum(['pending', 'attempted', 'observed', 'declined']),
   result: ExecutionStatus.nullable(),

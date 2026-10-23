@@ -21,6 +21,10 @@ def main():
         inventory = D(0)
         orders = {}
 
+        def inspect_connection(self, legs):
+            return {"ownerWallet": legs[0]["account"], "agentAddress": "0x" + "3" * 40,
+                    "checks": {"registration": "ready", "builder": "ready"}, "notes": []}
+
         def preflight(self, leg, client_id):
             return Preflight(format(self.inventory, 'f'), "1000", "0.01", {}, time.time())
 

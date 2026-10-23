@@ -7,7 +7,7 @@ import { ExecutionStatus, validateExecution } from '@verdict/core';
 import { z } from 'zod';
 import { Digest, HostedError, Job } from './hosted-model.js';
 
-const Input = Job.pick({ owner: true, bindingHash: true, purpose: true, proposal: true, leg: true, expiresAt: true })
+const Input = Job.pick({ owner: true, bindingHash: true, purpose: true, proposal: true, leg: true, expiresAt: true, authorization: true })
   .extend({ expiresAt: z.number().int().nonnegative().safe() });
 type Input = z.input<typeof Input>;
 const Lookup = Job.pick({ owner: true, purpose: true, leg: true }).extend({ digest: Digest }).strict();

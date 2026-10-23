@@ -7,6 +7,8 @@ from datetime import datetime
 from decimal import Decimal, ROUND_CEILING
 import logging
 import os
+import math
+import re
 import time
 
 from .core import BrokerError, D, Observation, Preflight, Receipt, node_call
@@ -17,6 +19,12 @@ def secret(name):
     if not value:
         raise BrokerError(f"Missing local operator environment variable {name}")
     return value
+
+
+def public_address(value):
+    if type(value) is str and re.fullmatch(r"0x[0-9a-fA-F]{40}", value) and value.lower() != "0x" + "0" * 40:
+        return value.lower()
+    return None
 
 
 def fee_round(value):
@@ -76,6 +84,37 @@ class Hyperliquid:
 
     def info(self, kind, **args):
         return self.http.request("POST", self.host + "/info", json={"type": kind, **args})
+
+    def inspect_connection(self, legs):
+        leg = legs[0]
+        owner, agent = public_address(leg["account"]), public_address(self.wallet.address)
+        checks, notes = {"registration": "unknown", "builder": "unknown"}, []
+        if owner is None or agent is None or owner == agent:
+            return {"ownerWallet": owner, "agentAddress": agent, "checks": checks,
+                    "notes": ["A dedicated valid HL agent and main account are required."]}
+        try:
+            agents = self.info("extraAgents", user=owner)
+            if not isinstance(agents, list) or any(not isinstance(a, dict) or public_address(a.get("address")) is None
+                    or type(a.get("validUntil")) not in (int, float) or not math.isfinite(a["validUntil"]) for a in agents):
+                raise ValueError
+            checks["registration"] = "ready" if any(public_address(a["address"]) == agent and a["validUntil"] > time.time() * 1000 for a in agents) else "missing"
+        except Exception:
+            notes.append("HL agent registration could not be verified.")
+        if checks["registration"] == "missing":
+            notes.append("Approve the displayed HL agent separately; its registration is absent or expired.")
+        builder_states = []
+        for address, fee in {(l["builder"]["address"], l["builder"]["feeTenthsBp"]) for l in legs}:
+            try:
+                maximum = self.info("maxBuilderFee", user=owner, builder=address)
+                if type(maximum) not in (int, float) or not math.isfinite(maximum) or maximum < 0:
+                    raise ValueError
+                builder_states.append("ready" if maximum >= fee else "missing")
+            except Exception:
+                builder_states.append("unknown")
+        checks["builder"] = "missing" if "missing" in builder_states else "unknown" if "unknown" in builder_states else "ready"
+        if checks["builder"] != "ready":
+            notes.append("HL builder approval is insufficient or could not be verified; configure it separately.")
+        return {"ownerWallet": owner, "agentAddress": agent, "checks": checks, "notes": notes}
 
     def env(self, leg):
         return {"VERDICT_NETWORK": leg["network"], "VERDICT_BUILDER_ADDRESS": leg["builder"]["address"],
@@ -214,6 +253,38 @@ class Lighter:
 
     def run(self, awaitable):
         return self.loop.run_until_complete(awaitable)
+
+    def inspect_connection(self, legs):
+        import lighter
+        leg = legs[0]
+        checks, notes, owner = {"registration": "unknown", "builder": "ready"}, [], None
+        try:
+            if type(leg["account"]) is not int or not 0 <= leg["account"] <= 9_007_199_254_740_991:
+                raise ValueError
+            response = self.run(lighter.AccountApi(self.signer.api_client).account(by="index", value=str(leg["account"]), _request_timeout=15))
+            if type(response.code) is not int or response.code != 200 or len(response.accounts) != 1:
+                raise ValueError
+            account = response.accounts[0]
+            if type(account.index) is not int or account.index != leg["account"]:
+                raise ValueError
+            owner = public_address(account.l1_address)
+            if owner is None:
+                raise ValueError
+        except Exception:
+            notes.append("Lighter account ownership could not be verified from the fresh account response.")
+        try:
+            error = self.signer.check_client()
+            if error is None:
+                checks["registration"] = "ready" if owner is not None else "unknown"
+            elif type(error) is str and error:
+                checks["registration"] = "missing"
+                notes.append("Lighter API key/account registration failed; configure it separately.")
+            else:
+                notes.append("Lighter API key/account registration returned an unknown result.")
+        except Exception:
+            notes.append("Lighter API key/account registration could not be verified.")
+        notes.append("Lighter has no builder approval requirement.")
+        return {"ownerWallet": owner, "agentAddress": None, "checks": checks, "notes": notes}
 
     def env(self, leg):
         return {"LIGHTER_NETWORK": leg["network"], "LIGHTER_CREATORS": str(leg["creator"])}

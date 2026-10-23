@@ -55,6 +55,7 @@ class FakeClient implements ExecutionClient {
   async capabilities(): Promise<LocalExecutionCapabilities> {
     return { kind: 'local_execution_capabilities', authority: this.authority, fundedAcceptanceVerified: false };
   }
+  async inspectConnection(): Promise<never> { throw new Error('Inspection is outside this gateway fixture.'); }
   async preflight(proposal: ExecutionProposal): Promise<ExecutionPreflight> {
     this.preflights++;
     return { state: 'ready', digest: proposal.digest, authorization: 'none', authority: this.authority,

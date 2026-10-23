@@ -6,6 +6,7 @@ import {
 import type { ExecutionLeg, ExecutionProposal, LocalExecutionCapabilities } from '@verdict/core';
 import { z } from 'zod';
 import type { HostedJobs } from './hosted-jobs.js';
+import type { HostedRuntime } from './hosted-security.js';
 import {
   type Binding, HostedConfig, HostedError, type HostedMutation, type Job, type LinkedAccount, Principal,
   READ_SCOPE, requireScope, TRADE_SCOPE, type ConnectorScope,
@@ -26,7 +27,7 @@ const Cancel = z.object({ proposal: z.unknown(), leg: z.union([z.literal(0), z.l
 /** Account-linked transport only. All order and budget semantics stay in the SDK/broker. */
 export class HostedExecution {
   private readonly config: HostedConfig;
-  constructor(config: HostedConfig, private readonly jobs: HostedJobs, private readonly connect: Connect = connectExecution) {
+  constructor(config: HostedConfig, private readonly jobs: HostedJobs, private readonly connect: Connect = connectExecution, private readonly runtime?: HostedRuntime) {
     const parsed = HostedConfig.safeParse(config);
     if (!parsed.success) throw new HostedError(503, 'not_configured', 'Hosted execution configuration is invalid.');
     this.config = parsed.data;
@@ -37,7 +38,8 @@ export class HostedExecution {
     if (!parsed.success || parsed.data.issuer !== this.config.issuer) throw new HostedError(401, 'invalid_token', 'Sign in with the configured account provider.');
     requireScope(parsed.data, READ_SCOPE);
     if (scope !== READ_SCOPE) requireScope(parsed.data, scope);
-    const binding = this.config.bindings.find((item) => item.subject === parsed.data.subject);
+    this.runtime?.assertActive(parsed.data);
+    const binding = this.runtime ? this.runtime.binding(parsed.data.subject) : this.config.bindings.find((item) => item.subject === parsed.data.subject);
     if (!binding?.enabled) throw new HostedError(403, 'account_not_linked', 'This account has no enabled trading connection.');
     return { binding, bindingHash: hash(JSON.stringify(canonical(binding))), owner: hash(`${parsed.data.issuer}\0${parsed.data.subject}`) };
   }
@@ -62,7 +64,8 @@ export class HostedExecution {
   }
 
   private grant(capabilities: LocalExecutionCapabilities | ExecutionPreflight, context: Context): void {
-    if (capabilities.authority.mode !== 'policy' || capabilities.authority.grantId !== context.binding.grantId) {
+    if (capabilities.authority.mode !== 'policy' || capabilities.authority.grantId !== context.binding.grantId
+      || (context.binding.grantHash !== undefined && capabilities.authority.grantHash !== context.binding.grantHash)) {
       throw new HostedError(503, 'broker_authority_mismatch', 'The operator trading policy does not match this linked account.');
     }
   }
@@ -118,6 +121,7 @@ export class HostedExecution {
   private async dispatch(principal: Principal, context: Context, job: Job): Promise<HostedMutation> {
     this.checkJob(job, context);
     this.current(principal, context, TRADE_SCOPE);
+    this.runtime?.assertJobActive(job);
     if (job.purpose === 'submit' && job.state === 'pending') this.validProposalNow(job.proposal);
     const claimed = this.jobs.claim({ id: job.id, owner: context.owner, bindingHash: context.bindingHash, now: Date.now() });
     if (claimed.kind === 'already_attempted') return this.reconcile(principal, context, claimed.job);
@@ -126,6 +130,7 @@ export class HostedExecution {
     try {
       const client = await this.client(principal, context, TRADE_SCOPE);
       this.current(principal, context, TRADE_SCOPE);
+      this.runtime?.assertJobActive(claimed.job);
       const response = claimed.job.purpose === 'submit' ? await client.submit(claimed.job.proposal)
         : await client.cancel({ proposal: claimed.job.proposal, leg: this.cancelLeg(claimed.job) });
       const result = this.result(response, claimed.job.proposal);
@@ -193,6 +198,7 @@ export class HostedExecution {
     }
     this.current(principal, context, TRADE_SCOPE); this.validProposalNow(proposal);
     const job = this.jobs.getOrCreate({ owner: context.owner, bindingHash: context.bindingHash, purpose: 'submit', proposal, leg: null,
+      authorization: principal.authorization ?? null,
       expiresAt: Math.min(proposal.payload.expiresAt, Date.now() + this.config.approvalTtlSeconds * 1000) });
     this.checkJob(job, context);
     return context.binding.mode === 'per_order' && job.state === 'pending' ? this.pending(job) : this.dispatch(principal, context, job);
@@ -234,6 +240,7 @@ export class HostedExecution {
       return context.binding.mode === 'per_order' ? this.pending(existing) : this.dispatch(principal, context, existing);
     }
     const job = this.jobs.getOrCreate({ owner: context.owner, bindingHash: context.bindingHash, purpose: 'cancel', proposal, leg: input.data.leg,
+      authorization: principal.authorization ?? null,
       expiresAt: Date.now() + this.config.approvalTtlSeconds * 1000 });
     return context.binding.mode === 'per_order' && job.state === 'pending' ? this.pending(job) : this.dispatch(principal, context, job);
   }

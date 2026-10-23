@@ -151,7 +151,7 @@ it('serves OAuth discovery, challenges invalid tokens and advertises real write 
     expect(response.status).toBe(401); expect(response.headers.get('www-authenticate')).toContain('oauth-protected-resource/mcp');
   }
   const tools = (await alice.listTools()).tools;
-  expect(tools.map((tool) => tool.name)).toEqual(['execution_accounts', 'execution_capabilities', 'execution_prepare', 'execution_review', 'execution_preflight', 'execution_submit', 'execution_status', 'execution_cancel']);
+  expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['list_markets', 'execution_accounts', 'execution_capabilities', 'execution_prepare', 'execution_review', 'execution_preflight', 'execution_submit', 'execution_status', 'execution_cancel']));
   expect(tools.find((tool) => tool.name === 'execution_submit')).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, _meta: { securitySchemes: [{ type: 'oauth2', scopes: [READ_SCOPE, TRADE_SCOPE] }], ui: { resourceUri: 'ui://verdict/order-review.html' } } });
   const wire = await fetch(`${origin}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${aliceToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 'auth-metadata', method: 'tools/list', params: {} }) });

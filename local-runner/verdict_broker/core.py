@@ -272,6 +272,49 @@ class Broker:
         with self.store.authority_locked():
             return {"kind": "local_execution_capabilities", "authority": self.authority.describe(), "fundedAcceptanceVerified": False}
 
+    def inspect_connection(self):
+        """Read the selected policy and fresh public readiness, without reserving or signing."""
+        if self.authority.mode != "policy":
+            raise BrokerError("Connection inspection requires operator policy authority")
+        with self.store.authority_locked():
+            authority = self.authority.describe()
+            manifest = self.authority.inspection_manifest()
+            groups = {}
+            for template in manifest["templates"]:
+                for leg in template["payload"]["legs"]:
+                    account = {k: leg[k] for k in ("venue", "network", "account")}
+                    if leg["venue"] == "lighter":
+                        account["apiKeyIndex"] = leg["apiKeyIndex"]
+                    key = json.dumps(account, sort_keys=True)
+                    groups.setdefault(key, (account, []))[1].append(leg)
+            accounts = []
+            for account, legs in groups.values():
+                row = {"account": account, "ownerWallet": None, "agentAddress": None,
+                       "checks": {"registration": "unknown", "builder": "unknown"},
+                       "checkedAt": self.clock() * 1000, "notes": []}
+                adapter = None
+                if account["venue"] == "polymarket":
+                    row["notes"].append("Polymarket ownership verification is unsupported.")
+                else:
+                    try:
+                        adapter = self.factory(legs[0])
+                        row.update(adapter.inspect_connection(legs))
+                    except Exception:
+                        # Never return adapter/SDK exceptions, which can contain local secrets.
+                        row["notes"] = ["Venue connection inspection unavailable; readiness is unknown."]
+                    finally:
+                        if adapter is not None:
+                            try:
+                                adapter.close()
+                            except Exception:
+                                pass
+                row["checkedAt"] = self.clock() * 1000
+                accounts.append(row)
+            # Recheck the durable authority after fresh venue reads.
+            authority = self.authority.describe()
+            return {"kind": "execution_connection_inspection", "authority": authority,
+                    **manifest, "accounts": accounts, "fundedAcceptanceVerified": False}
+
     def _valid_now(self, proposal):
         p = proposal["payload"]
         now = self.clock() * 1000

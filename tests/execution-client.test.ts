@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  connectExecution, ExecutionDeliveryUnknownError, ExecutionMode, ExecutionPreflight, ExecutionStatus,
+  connectExecution, ExecutionConnectionInspection, ExecutionLinkedAccount, ExecutionDeliveryUnknownError, ExecutionMode, ExecutionPreflight, ExecutionStatus,
   LocalExecutionCapabilities, prepareExecution, type ExecutionProposal,
 } from '../packages/core/src/index.js';
 
 const Request = z.object({ expectedMode: ExecutionMode,
   expectedGrantId: z.string().uuid().optional(),
-  operation: z.enum(['capabilities', 'preflight', 'submit', 'status', 'cancel']),
+  operation: z.enum(['inspectConnection', 'capabilities', 'preflight', 'submit', 'status', 'cancel']),
   proposal: z.unknown().optional(), leg: z.union([z.literal(0), z.literal(1)]).optional(),
 }).strict();
 type Request = z.infer<typeof Request>;
@@ -46,6 +46,7 @@ async function server(handler: Handler) {
   const requests: Request[] = []; const sockets = new Set<Socket>();
   const listener = createServer({ allowHalfOpen: true }, (socket) => {
     sockets.add(socket); socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => { /* Abrupt client disconnects are intentional transport fixtures. */ });
     let raw = '';
     socket.on('data', (chunk: Buffer) => { raw += chunk.toString('utf8'); });
     socket.on('end', () => {
@@ -83,6 +84,45 @@ describe('local execution SDK over a real Unix socket', () => {
     const serialized = JSON.stringify(broker.requests);
     for (const name of ['socketPath', 'timeoutMs', 'privateKey', 'approved', 'grantId', 'stateDir', 'factory']) expect(serialized).not.toContain(`"${name}"`);
     expect(Object.isFrozen(client)).toBe(true);
+  });
+
+  it('inspects only the pinned saved policy and validates its exact template-derived account manifest', async () => {
+    const grant = '11111111-1111-4111-8111-111111111111'; const p = proposal();
+    const account = ExecutionLinkedAccount.parse({ venue: 'hl', network: 'testnet', account: p.payload.legs[0].account });
+    const inspection = ExecutionConnectionInspection.parse({ kind: 'execution_connection_inspection',
+      authority: capabilities('policy', grant).authority, maxDebitUSDC: '25', maxOrders: 7, templates: [p],
+      accounts: [{ account, ownerWallet: p.payload.legs[0].account, agentAddress: `0x${'3'.repeat(40)}`,
+        checks: { registration: 'ready', builder: 'missing' }, checkedAt: Date.now(), notes: ['Separate approval required.'] }],
+      fundedAcceptanceVerified: false,
+    });
+    let response: unknown = inspection;
+    const broker = await server((request, socket) => reply(socket,
+      request.operation === 'capabilities' ? capabilities('policy', grant) : response));
+    const client = await connectExecution({ expectedMode: 'policy', expectedGrantId: grant, socketPath: broker.socketPath });
+    expect(await client.inspectConnection()).toEqual(inspection);
+    expect(broker.requests.at(-1)).toEqual({ operation: 'inspectConnection', expectedMode: 'policy', expectedGrantId: grant });
+    response = { ...inspection, authority: { ...inspection.authority, grantId: '22222222-2222-4222-8222-222222222222' } };
+    await expect(client.inspectConnection()).rejects.toMatchObject({ code: 'not_configured' });
+    for (const invalid of [
+      { ...inspection, privateKey: 'private-secret' },
+      { ...inspection, accounts: [{ ...inspection.accounts[0], socket: 'private-secret' }] },
+      { ...inspection, accounts: [{ ...inspection.accounts[0], account: { ...account, account: `0x${'4'.repeat(40)}` } }] },
+      { ...inspection, templates: [{ ...p, digest: '0'.repeat(64) }] },
+      { ...inspection, accounts: [...inspection.accounts, ...inspection.accounts] },
+    ]) {
+      response = invalid;
+      await expect(client.inspectConnection()).rejects.toThrow('invalid response');
+      await expect(client.inspectConnection()).rejects.not.toThrow('private-secret');
+    }
+  });
+
+  it('requires a pinned policy for inspection before issuing an inspection request', async () => {
+    for (const mode of ['policy', 'per_order'] satisfies ExecutionMode[]) {
+      const broker = await server((_request, socket) => reply(socket, capabilities(mode)));
+      const client = await connectExecution({ expectedMode: mode, socketPath: broker.socketPath });
+      await expect(client.inspectConnection()).rejects.toMatchObject({ code: 'not_configured' });
+      expect(broker.requests.map((request) => request.operation)).toEqual(['capabilities']);
+    }
   });
 
   it('uses operator environment configuration and refuses missing, relative or URL destinations without echoing them', async () => {
