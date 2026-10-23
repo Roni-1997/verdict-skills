@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 // verdict-mcp: stdio by default (Claude Desktop, Cursor, local agents); --http <port> serves streamable HTTP
-// for hosted agents. Stateless: one transport per request, no sessions, no keys.
+// for hosted agents. Explicit --hosted-execution adds OAuth, browser consent and durable jobs.
 import { createServer as createHttpServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { type KitConfig, type LighterConfig, LighterClient, configFromEnv, createLighterTools, createStrategyTools, lighterConfigFromEnv } from '@verdict/core';
+import { type ExecutionClient, ExecutionMode, type KitConfig, type LighterConfig, LighterClient, ToolError, configFromEnv, connectExecution, createLighterTools, createStrategyTools, lighterConfigFromEnv } from '@verdict/core';
 import { createRequestHandler, healthBody, listenLine } from './http.js';
 import { createServer } from './server.js';
 import { createLighterServer } from './lighter.js';
 import { createStrategyServer } from './strategy.js';
-import { createExecutionServer } from './execution.js';
+import { createExecutionServer, createLocalExecutionServer } from './execution.js';
 
 const { values } = parseArgs({
   options: {
     lighter: { type: 'boolean', default: false },
     strategy: { type: 'boolean', default: false },
     execution: { type: 'boolean', default: false },
+    'local-execution': { type: 'boolean', default: false },
+    'hosted-execution': { type: 'boolean', default: false },
+    'connector-config': { type: 'string' },
     http: { type: 'string' },
     host: { type: 'string', default: '127.0.0.1' },
     help: { type: 'boolean', default: false },
@@ -32,6 +35,8 @@ if (values.help) {
       '  verdict-mcp --lighter       Lighter binary outcomes; LIGHTER_NETWORK=devnet|mainnet, LIGHTER_CREATORS=creator indices',
       '  verdict-mcp --strategy      HL/Lighter research, conditional plans, paper fills and inventory reconciliation; no execution',
       '  verdict-mcp --execution     keyless proposal preparation/review for the separate local trading broker',
+      '  verdict-mcp --local-execution  SDK lifecycle over operator-owned Unix broker; stdio only; VERDICT_BROKER_SOCKET and VERDICT_EXECUTION_MODE=per_order|policy required',
+      '  verdict-mcp --hosted-execution --connector-config private.json --http 8787  authenticated account-linked SDK execution; Node 22.13+',
       '  verdict-mcp --http 8787     streamable HTTP on 127.0.0.1:8787/mcp',
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
@@ -46,8 +51,16 @@ if (values.help) {
   );
   process.exit(0);
 }
-if ([values.lighter, values.strategy, values.execution].filter(Boolean).length > 1) {
-  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one of --lighter, --strategy or --execution' })}\n`);
+if ([values.lighter, values.strategy, values.execution, values['local-execution'], values['hosted-execution']].filter(Boolean).length > 1) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one MCP server mode: --lighter, --strategy, --execution, --local-execution or --hosted-execution' })}\n`);
+  process.exit(1);
+}
+if (values['local-execution'] && values.http !== undefined) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: '--local-execution supports stdio only; account-linked HTTP requires explicit --hosted-execution configuration' })}\n`);
+  process.exit(1);
+}
+if ((values['connector-config'] !== undefined && !values['hosted-execution']) || (values['hosted-execution'] && (values.http === undefined || values['connector-config'] === undefined))) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Hosted execution requires explicit --hosted-execution --connector-config FILE --http PORT; connector configuration never enables a public server implicitly' })}\n`);
   process.exit(1);
 }
 
@@ -55,17 +68,43 @@ if ([values.lighter, values.strategy, values.execution].filter(Boolean).length >
 // the same as the CLI, not a stack trace.
 let config: KitConfig;
 let lighterConfig: LighterConfig | undefined;
+let executionClient: ExecutionClient | undefined;
 try {
-  config = configFromEnv(values.lighter || values.execution ? {} : process.env);
+  config = configFromEnv(values.lighter || values.execution || values['local-execution'] || values['hosted-execution'] ? {} : process.env);
   if (values.lighter || values.strategy) lighterConfig = lighterConfigFromEnv();
+  if (values['local-execution']) {
+    const mode = ExecutionMode.safeParse(process.env.VERDICT_EXECUTION_MODE);
+    if (!mode.success) throw new ToolError('Set VERDICT_EXECUTION_MODE=per_order|policy explicitly', 'not_configured');
+    executionClient = await connectExecution({ expectedMode: mode.data });
+  }
 } catch (e) {
   process.stderr.write(`${JSON.stringify({ error: 'not_configured', message: e instanceof Error ? e.message : String(e) })}\n`);
   process.exit(4);
 }
 
-const openServer = () => values.execution ? createExecutionServer() : values.strategy ? createStrategyServer(createStrategyTools({ config })) : lighterConfig ? createLighterServer(createLighterTools(new LighterClient(lighterConfig))) : createServer(config);
+const openServer = () => executionClient ? createLocalExecutionServer(executionClient) : values.execution ? createExecutionServer() : values.strategy ? createStrategyServer(createStrategyTools({ config })) : lighterConfig ? createLighterServer(createLighterTools(new LighterClient(lighterConfig))) : createServer(config);
 
-if (values.http === undefined) {
+if (values['hosted-execution']) {
+  try {
+    const [major, minor] = process.versions.node.split('.').map(Number);
+    if (major === undefined || minor === undefined || major < 22 || (major === 22 && minor < 13)) throw new Error();
+    const port = Number(values.http);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535 || values['connector-config'] === undefined) throw new Error();
+    const { createHostedHandler, readHostedConfig } = await import('./hosted-http.js');
+    const connectorConfig = await readHostedConfig(values['connector-config']);
+    const connector = await createHostedHandler(connectorConfig);
+    const listener = createHttpServer({ maxHeaderSize: 16_384 }, connector.handle);
+    listener.requestTimeout = 30_000;
+    listener.headersTimeout = 15_000;
+    listener.on('error', () => { connector.close(); process.stderr.write(`${JSON.stringify({ error: 'connector_start_failed', message: 'Unable to bind the configured connector listener' })}\n`); process.exitCode = 1; });
+    listener.listen(port, values.host, () => { process.stderr.write(`verdict-hosted-execution listening on ${values.host}:${port}; public MCP resource ${connectorConfig.publicOrigin.replace(/\/$/, '')}/mcp (authenticated real execution)\n`); });
+    const stop = () => listener.close(() => { connector.close(); });
+    process.once('SIGTERM', stop); process.once('SIGINT', stop);
+  } catch {
+    process.stderr.write(`${JSON.stringify({ error: 'not_configured', message: 'Hosted connector startup failed. Requires Node 22.13+, valid private configuration, managed OAuth discovery and private state. Details hidden.' })}\n`);
+    process.exit(4);
+  }
+} else if (values.http === undefined) {
   const server = openServer();
   await server.connect(new StdioServerTransport());
 } else {

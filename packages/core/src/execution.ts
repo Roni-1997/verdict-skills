@@ -30,7 +30,7 @@ export const ExecutionLeg = z.discriminatedUnion('venue', [
   }).strict(),
 ]);
 export type ExecutionLeg = z.infer<typeof ExecutionLeg>;
-const Legs = z.union([z.tuple([ExecutionLeg]), z.tuple([ExecutionLeg, ExecutionLeg])]);
+const Legs = z.array(ExecutionLeg).min(1).max(2).pipe(z.union([z.tuple([ExecutionLeg]), z.tuple([ExecutionLeg, ExecutionLeg])]));
 const Review = z.object({
   relationship: z.enum(['same_event_same_orientation', 'same_event_reversed_orientation']),
   notes: z.string().min(20).max(5000),
@@ -116,7 +116,7 @@ export function executionConfirmation(value: unknown) {
     ...(p.payload.settlementReview ? [`Operator settlement hypothesis ${p.payload.settlementReview.relationship}: ${p.payload.settlementReview.notes}`] : []),
     ...(p.payload.legs.length === 2 ? ['Non-atomic sequential execution: each order needs its own separate operator approval. The second order is sent only after a confirmed complete first fill, its own approval and fresh preflight. Declining the second order, or partial, uncertain or failed fills, can leave exposed inventory. Recovery orders require separate confirmation.'] : []),
     'UNSIGNED. No account eligibility, balance, fee, contract-equivalence or fill guarantee. The local broker rechecks venue metadata, permissions and balances before signing. Fees are reserved estimates, not venue-enforced limits.',
-    `Digest ${p.digest}. Show all lines, end the message and wait for a real new reply. A digest identifies content, not human consent. Only the operator-owned local broker may sign after its separate confirmation interaction.`,
+    `Digest ${p.digest}. In per-order mode, show all lines, end the message and wait for a real new reply; each order also needs exact operator-terminal confirmation. Policy mode requires a previously approved bounded operator grant. A digest identifies content, not authority. Only the operator-owned local broker may sign.`,
   ] };
 }
 export function executionCapabilities() {
@@ -124,6 +124,6 @@ export function executionCapabilities() {
     hl: { networks: ['testnet', 'mainnet'], orders: ['Ioc', 'Gtc', 'Alo'], cancel: 'client order id', signing: 'official hyperliquid-python-sdk sign_l1_action' },
     lighter: { networks: ['devnet', 'mainnet'], orders: ['ioc', 'gtc', 'post_only'], cancel: 'original client order index', signing: 'official lighter-sdk SignerClient' },
     polymarket: { networks: ['polygon'], orders: ['FAK', 'FOK', 'GTC', 'GTD'], cancel: 'order id', signing: 'official unified polymarket-client' },
-  }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first', orderApproval: 'each_order',
-  note: 'Capabilities describe implemented local adapters, not proof of funded live acceptance. Private account integration needs operator credentials. No automated market-equivalence guarantee or blanket strategy authorization.' };
+  }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first', orderApproval: 'operator_selected', executionModes: ['per_order', 'policy'], defaultMode: 'per_order',
+  note: 'Capabilities describe implemented local adapters, not proof of funded live acceptance. Private account integration needs operator credentials. Policy mode requires an existing bounded operator grant. No automated market-equivalence guarantee or blanket strategy authorization.' };
 }

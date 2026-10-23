@@ -14,7 +14,8 @@ Documentation only. This file contains no executable code.
 
 For specifically requested single orders or paired trades on HL, Lighter or Polymarket,
 use `execution` and `references/execution.md`. Hosted preparation stays keyless; the operator
-uses a separately installed local SDK broker and approves in their own terminal.
+uses a separately installed local SDK broker and explicitly selects per-order terminal
+approval or a bounded autonomous grant. See the execution reference for local agent tools.
 
 Activate when the request is about trading or researching Verdict's HIP-4 outcome markets: listing them, reading a settlement rule, a book, a quote for a size, recent trades or candles, positions, fills, open orders, an order's status, builder-fee approval, or building an order that routes to Verdict. Also activate when the user asks to compare a Verdict market with Polymarket or Kalshi, for its option-implied fair value, for a hedge, or for a scan of what is tradeable on Verdict.
 
@@ -130,7 +131,9 @@ Reading (`markets`, `market`, `book`, `quote`, `recent-trades`, `candles`, `comp
 - Never edit the `action` object from `build-order`: not the builder code, not the key order, not the price string.
 - Never switch `VERDICT_NETWORK` to mainnet on your own. The user sets the network.
 - Never run `install.sh`, edit `~/.claude/CLAUDE.md` or write to `~/.local/bin` or any other user configuration without a yes from the user in a new message. Announcing a change is not consent.
-- Never write, generate or install signing code at trade time, and never read `HL_AGENT_PRIVATE_KEY`. The kit ships no signer in CLI/MCP; the separately installed SDK broker runs only in the operator's own terminal. Hand over the unchanged payload and stop.
+- Never write, generate or install signing code at trade time, and never read `HL_AGENT_PRIVATE_KEY`. The kit ships no signer in CLI/MCP; the separately installed SDK broker owns signing and authority. In per-order mode, hand
+  over the unchanged payload and stop. In explicitly configured policy mode, use only the
+  local lifecycle tools within the existing grant; never forge approval or issue a grant.
 - Never print, log, commit or write to a file `HL_AGENT_PRIVATE_KEY` or any signed payload. Never run `env`, `printenv` or `export -p`, and never echo a request body, while the key is exported: your transcript is a hosted path.
 - The key never enters your environment. Export `HL_AGENT_PRIVATE_KEY` only in the shell that runs the signing step, a shell no agent drives: never in the environment of an agent, its exec tool or an MCP server (every command they run inherits it), never on a hosted server, and never written to a file. If the user has exported it in the shell you run commands in, say so and ask them to move the signing step to a shell of their own before anything is signed.
 - Never estimate a price, a fair value or a settlement rule from memory when a command can read it.

@@ -130,18 +130,20 @@ class Hyperliquid:
         fee = D(leg["shares"]) * price_bound * D(leg["allInFeeBpsCap"]) / 10000
         return Preflight(str(total), str(cash), fee_round(fee), built["action"], started)
 
-    def _send(self, leg, action, deadline=None):
+    def _send(self, leg, action, deadline=None, before_transport=None):
         from hyperliquid.utils.signing import sign_l1_action
         self.nonce = max(self.nonce + 1, int(time.time() * 1000))
         expiry = min(self.nonce + 5000, int(deadline * 1000)) if deadline is not None else self.nonce + 5000
         signature = sign_l1_action(self.wallet, action, None, self.nonce, expiry, leg["network"] == "mainnet")
         if deadline is not None:
             fresh_send(deadline)
+        if before_transport is not None:
+            before_transport()
         return self.http.request("POST", self.host + "/exchange", json={"action": action, "nonce": self.nonce,
                                   "signature": signature, "vaultAddress": None, "expiresAfter": expiry})
 
     def submit(self, leg, client_id, preflight):
-        result = self._send(leg, preflight.native, send_deadline(preflight))
+        result = self._send(leg, preflight.native, send_deadline(preflight), preflight.before_transport)
         if result.get("status") != "ok":
             return Receipt(rejected=True)
         statuses = result["response"]["data"]["statuses"]
@@ -192,6 +194,7 @@ class Lighter:
         logging.getLogger("lighter").setLevel(logging.WARNING)
         self.loop = asyncio.new_event_loop()
         self.deadline = None
+        self.before_transport = None
         self.host = "https://mainnet.zklighter.elliot.ai" if leg["network"] == "mainnet" else "https://devnet.zklighter.elliot.ai"
         async def create():
             broker_adapter = self
@@ -199,6 +202,8 @@ class Lighter:
                 async def send_tx(self, tx_type, tx_info):
                     if broker_adapter.deadline is not None:
                         fresh_send(broker_adapter.deadline)
+                    if broker_adapter.before_transport is not None:
+                        broker_adapter.before_transport()
                     return await super().send_tx(tx_type=tx_type, tx_info=tx_info)
             return DeadlineSigner(url=self.host, account_index=leg["account"], chain_id=304 if leg["network"] == "mainnet" else 300,
                                         api_private_keys={leg["apiKeyIndex"]: secret("VERDICT_LIGHTER_API_PRIVATE_KEY")})
@@ -252,11 +257,13 @@ class Lighter:
 
     def submit(self, leg, client_id, preflight):
         self.deadline = send_deadline(preflight)
+        self.before_transport = preflight.before_transport
         fresh_send(self.deadline)
         try:
             _, response, error = self.run(self.signer.create_order(**preflight.native, api_key_index=self.key_index))
         finally:
             self.deadline = None
+            self.before_transport = None
         if error or response is None:
             raise BrokerError("Lighter submission outcome unknown")
         if response.code != 200:
@@ -396,6 +403,8 @@ class Polymarket:
         if shares != D(leg["shares"]) or (price > D(leg["limitPrice"]) if leg["action"] == "buy" else price < D(leg["limitPrice"])):
             raise BrokerError("SDK rounded confirmed shares or worsened limit; nothing posted")
         fresh_send(send_deadline(preflight))
+        if preflight.before_transport is not None:
+            preflight.before_transport()
         result = self.client.post_order(signed)
         return Receipt(order_id=str(result.order_id)) if result.ok else Receipt(rejected=True)
 

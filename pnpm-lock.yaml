@@ -28,6 +28,9 @@ importers:
       '@verdict/engine':
         specifier: workspace:*
         version: link:packages/engine
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       typescript:
         specifier: 5.9.2
         version: 5.9.2
@@ -63,6 +66,9 @@ importers:
       '@verdict/core':
         specifier: workspace:*
         version: link:../core
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       zod:
         specifier: 3.25.76
         version: 3.25.76

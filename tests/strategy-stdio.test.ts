@@ -15,10 +15,16 @@ it('built strategy MCP replays offline inputs and rejects conflicting modes', as
   const transport = open(); const client = new Client({ name: 'strategy-stdio-proof', version: '1' });
   try {
     await client.connect(transport);
-    expect((await client.listTools()).tools).toHaveLength(7);
+    const tools = (await client.listTools()).tools;
+    expect(tools).toHaveLength(7);
+    expect(JSON.stringify(tools.map((tool) => tool.inputSchema))).not.toMatch(/"items":\[/);
     const assessment = await client.callTool({ name: 'strategy_assess_pair', arguments: request });
     expect(assessment.isError).not.toBe(true);
     expect(assessment.structuredContent).toMatchObject({ kind: 'conditional_plan', liveReady: false, selectedDirection: 'hl_yes' });
+    const originalSnapshot = z.record(z.unknown()).parse(request.snapshot);
+    const originalHl = z.record(z.unknown()).parse(originalSnapshot.hl);
+    const invalidSides = { ...request, snapshot: { ...originalSnapshot, hl: { ...originalHl, sideNames: ['yes'] } } };
+    expect((await client.callTool({ name: 'strategy_assess_pair', arguments: invalidSides })).isError).toBe(true);
     const paper = await client.callTool({ name: 'strategy_paper_pair', arguments: { ...request, direction: 'hl_yes', fills: { hl: '9', lighter: '0' } } });
     expect(paper.isError).not.toBe(true);
     expect(paper.structuredContent).toMatchObject({ kind: 'paper_result', strandedShares: { hl: '9', lighter: '0' }, conditionalSettlement: { floorPnlUSDC: '-3.87387' } });
