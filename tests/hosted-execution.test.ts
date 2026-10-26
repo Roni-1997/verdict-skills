@@ -10,8 +10,8 @@ import { HostedJobs } from '../packages/mcp/src/hosted-jobs.js';
 import { HostedConfig, type HostedMutation, type Principal, READ_SCOPE, TRADE_SCOPE } from '../packages/mcp/src/hosted-model.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const ADDRESS = `0x${'1'.repeat(40)}`;
-const BOB_ADDRESS = `0x${'3'.repeat(40)}`;
+const ADDRESS = 42;
+const BOB_ADDRESS = 43;
 const GRANT = '11111111-1111-4111-8111-111111111111';
 const BOB_GRANT = '22222222-2222-4222-8222-222222222222';
 const issuer = 'https://identity.example/';
@@ -19,20 +19,21 @@ function principal(subject = 'alice'): Principal {
   return { issuer, subject, scopes: [READ_SCOPE, TRADE_SCOPE], expiresAt: Date.now() + 7_200_000 };
 }
 function request(account = ADDRESS, validForSeconds = 3600) {
-  return { validForSeconds, legs: [{ venue: 'hl', network: 'testnet', account, outcome: 123,
+  return { validForSeconds, legs: [{ venue: 'lighter', network: 'testnet', account, apiKeyIndex: 2, creator: 7, market: 123,
     title: 'Synthetic account-linked contract', settlementRule: 'Synthetic exact oracle rule; no real market.',
-    side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'Ioc',
-    allInFeeBpsCap: '10', builder: { address: `0x${'2'.repeat(40)}`, feeTenthsBp: 0 },
+    side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'ioc',
   }], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } };
 }
 function pair() {
   const first = request();
   return prepareExecution({ ...first, legs: [...first.legs, {
-    venue: 'lighter', network: 'devnet', account: 42, apiKeyIndex: 2, creator: 7, market: 456,
+    venue: 'hl', network: 'testnet', account: `0x${'1'.repeat(40)}`, outcome: 456,
     title: first.legs[0]?.title, settlementRule: first.legs[0]?.settlementRule,
-    side: 'no', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'ioc',
-  }], settlementReview: { relationship: 'same_event_same_orientation', notes: 'Operator reviewed identical oracle and exact payout orientation.' } });
+    side: 'no', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'Ioc',
+    allInFeeBpsCap: '10', builder: { address: `0x${'2'.repeat(40)}`, feeTenthsBp: 0 },
+  }], settlementReview: { relationship: 'same_event_same_orientation', notes: 'Legacy synthetic cross-venue proposal for rejection testing.' } });
 }
+
 function index(value: number): 0 | 1 { if (value === 0 || value === 1) return value; throw new Error('Invalid test leg'); }
 function approvalId(value: HostedMutation): string {
   if (value.state !== 'approval_required') throw new Error('Expected browser approval');
@@ -96,9 +97,9 @@ beforeEach(async () => {
   config = HostedConfig.parse({ publicOrigin: 'https://mcp.verdict.example', issuer,
     browserClientId: 'browser-client', storage: { kind: 'local', stateDir: join(directory, 'state') }, approvalTtlSeconds: 30,
     bindings: [{ id: 'alice', subject: 'alice', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: '/operator/alice.sock' }, grantId: GRANT,
-      accounts: [{ venue: 'hl', network: 'testnet', account: ADDRESS }, { venue: 'lighter', network: 'devnet', account: 42, apiKeyIndex: 2 }] },
+      accounts: [{ venue: 'lighter', network: 'testnet', account: ADDRESS, apiKeyIndex: 2 }, { venue: 'lighter', network: 'devnet', account: 42, apiKeyIndex: 2 }] },
     { id: 'bob', subject: 'bob', enabled: true, mode: 'policy', execution: { kind: 'local_socket', socketPath: '/operator/bob.sock' }, grantId: BOB_GRANT,
-      accounts: [{ venue: 'hl', network: 'testnet', account: BOB_ADDRESS }] }],
+      accounts: [{ venue: 'lighter', network: 'testnet', account: BOB_ADDRESS, apiKeyIndex: 2 }] }],
   });
   alice = new FakeClient(); bob = new FakeClient(BOB_GRANT); connections = [];
   gateway = new HostedExecution(config, jobs, connect);
@@ -128,7 +129,7 @@ it('checks issuer, subject, expiry, scopes and account/key ownership before any 
   for (const identity of identities) await expect(gateway.submit(identity, proposal)).rejects.toBeInstanceOf(Error);
   await expect(gateway.preflight(principal('bob'), proposal)).rejects.toMatchObject({ code: 'account_mismatch' });
   await expect(gateway.prepare(principal('bob'), request())).rejects.toMatchObject({ code: 'account_mismatch' });
-  const lighter = pair().payload.legs[1];
+  const lighter = prepareExecution(request()).payload.legs[0];
   if (!lighter) throw new Error('Missing fixture leg');
   const wrongKey = prepareExecution({ ...request(), legs: [{ ...lighter, apiKeyIndex: 3 }] });
   await expect(gateway.preflight(principal(), wrongKey)).rejects.toMatchObject({ code: 'account_mismatch' });
@@ -177,15 +178,16 @@ it('does not share mutable principal or broker state across concurrent users', a
   expect(alice.submits).toBe(0); expect(bob.submits).toBe(1);
 });
 
-it('rejects per-order pairs before any SDK call or job while policy mode can execute reviewed pairs', async () => {
+it('rejects paired proposals in both modes before any SDK call or job', async () => {
   const proposal = pair();
-  await expect(gateway.submit(principal(), proposal)).rejects.toMatchObject({ code: 'single_leg_confirmation_only' });
+  await expect(gateway.submit(principal(), proposal)).rejects.toMatchObject({ code: 'invalid_proposal' });
   expect(connections).toHaveLength(0);
   const changed = structuredClone(config); const binding = changed.bindings[0];
   if (!binding) throw new Error('Missing binding'); binding.mode = 'policy';
   const policy = new HostedExecution(changed, jobs, connect);
-  expect((await policy.submit(principal(), proposal)).state).toBe('complete');
-  expect(alice.submits).toBe(1); expect(alice.preflights).toBe(0);
+  await expect(policy.submit(principal(), proposal)).rejects.toMatchObject({ code: 'invalid_proposal' });
+  expect(connections).toHaveLength(0);
+  expect(alice.submits).toBe(0); expect(alice.preflights).toBe(0);
 });
 
 it('asserts policy broker mode and the operator-pinned grant at every private connection', async () => {
@@ -292,4 +294,37 @@ it('status errors remain uncertain and no unknown-order lookup enables a second 
   expect((await gateway.status(principal(), proposal)).state).toBe('delivery_unknown');
   expect((await gateway.submit(principal(), proposal)).state).toBe('delivery_unknown');
   expect(alice.submits).toBe(1);
+});
+
+it('rejects former single-venue inputs and research network conflicts before broker effects', async () => {
+  const legacyLeg = pair().payload.legs[1];
+  if (!legacyLeg) throw new Error('Missing legacy fixture');
+  const legacy = prepareExecution({ ...request(), legs: [legacyLeg] });
+  for (const operation of ['review', 'preflight', 'submit'] as const) {
+    await expect(gateway[operation](principal(), legacy)).rejects.toMatchObject({ code: 'invalid_proposal' });
+  }
+  await expect(gateway.prepare(principal(), { ...request(), legs: [legacyLeg] })).rejects.toMatchObject({ code: 'invalid_proposal' });
+  const changed = { ...config, lighter: { network: 'devnet' as const, creators: [7] } };
+  const mismatched = new HostedExecution(changed, jobs, connect);
+  await expect(mismatched.prepare(principal(), request())).rejects.toMatchObject({ code: 'invalid_proposal' });
+  await expect(mismatched.submit(principal(), prepareExecution(request()))).rejects.toMatchObject({ code: 'invalid_proposal' });
+  expect(connections).toHaveLength(0); expect(alice.submits).toBe(0);
+});
+
+it('blocks a previously saved legacy browser approval before durable claim or SDK submission', async () => {
+  const legacyLeg = pair().payload.legs[1];
+  if (legacyLeg?.venue !== 'hl') throw new Error('Missing legacy fixture');
+  const changed = structuredClone(config); const binding = changed.bindings[0];
+  if (!binding) throw new Error('Missing binding');
+  binding.accounts.push({ venue: 'hl', network: legacyLeg.network, account: legacyLeg.account });
+  const scoped = new HostedExecution(changed, jobs, connect);
+  const baseline = jobs.get(approvalId(await scoped.submit(principal(), prepareExecution(request()))));
+  if (!baseline) throw new Error('Missing scoped job');
+  const legacy = prepareExecution({ ...request(), legs: [legacyLeg] });
+  const saved = jobs.getOrCreate({ owner: baseline.owner, bindingHash: baseline.bindingHash, purpose: 'submit',
+    proposal: legacy, leg: null, authorization: null, expiresAt: Date.now() + 30_000 });
+  const claim = vi.spyOn(jobs, 'claim');
+  await expect(scoped.confirm(principal(), saved.id)).rejects.toMatchObject({ code: 'invalid_proposal' });
+  expect(claim).not.toHaveBeenCalled(); expect(alice.submits).toBe(0);
+  expect(jobs.get(saved.id)?.state).toBe('pending');
 });

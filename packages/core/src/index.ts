@@ -74,7 +74,7 @@ export type { StrategyOptions, StrategyTools } from './strategy.js';
 export { PairedSnapshot, ReferenceSnapshot, StrategySnapshot, StrategyPair, StrategyPolicy, STRATEGY_INPUTS, STRATEGY_DOCS } from './strategy-model.js';
 export type { StrategyToolName } from './strategy-model.js';
 export { assessPair, paperPair, reconcilePair } from './strategy-analysis.js';
-export { ExecutionLeg, ExecutionRequest, ExecutionProposal, prepareExecution, validateExecution, executionConfirmation, executionCapabilities } from './execution.js';
+export { ExecutionLeg, LighterExecutionLeg, ExecutionRequest, ExecutionProposal, prepareExecution, validateExecution, executionConfirmation, executionCapabilities } from './execution.js';
 export { ConsumerLighterScope, ExecutionLinkedAccount, ExecutionConnectionInspection, ExecutionMode, LocalExecutionCapabilities, ExecutionPreflight, ExecutionStatus, ExecutionDeliveryUnknownError, connectExecution } from './execution-client.js';
 export type { ExecutionClient, ExecutionConnectionOptions } from './execution-client.js';
 export { LighterBuyIntent, LighterIntentPlan, planLighterBuyIntent, prepareLighterBuyIntent } from './lighter-intent.js';

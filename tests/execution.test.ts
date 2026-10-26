@@ -116,7 +116,7 @@ it('built MCP completes prepare/review over stdio, preserves strict schemas and 
     const names = tools.map((t) => t.name);
     expect(names).toEqual(['execution_prepare', 'execution_review', 'execution_capabilities']);
     expect(JSON.stringify(tools.map((tool) => tool.inputSchema))).not.toMatch(/"items":\[/);
-    const prepared = await client.callTool({ name: 'execution_prepare', arguments: request([hl, polymarket]) });
+    const prepared = await client.callTool({ name: 'execution_prepare', arguments: { ...request([lighter]), settlementReview: null } });
     expect(prepared.isError).not.toBe(true);
     const p = validateExecution(prepared.structuredContent);
     const checked = await client.callTool({ name: 'execution_review', arguments: p });

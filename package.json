@@ -2,7 +2,7 @@
   "name": "verdict-skills",
   "private": true,
   "version": "0.0.0",
-  "description": "Verdict agent kit: one typed tool module over the cross-venue engine, shipped as a CLI, a skill file and an MCP server, with builder-code order routing",
+  "description": "Verdict's Lighter agent kit: market research, trade review, operator approval, and SDK execution through CLI, skill, and MCP",
   "type": "module",
   "packageManager": "pnpm@10.34.5",
   "engines": {

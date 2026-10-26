@@ -38,6 +38,7 @@ export const Binding = z.object({ id: z.string().min(1).max(128), subject: z.str
 export type Binding = z.infer<typeof Binding>;
 export const HostedConfig = z.object({ publicOrigin: z.string().url(), issuer: z.string().url(),
   browserClientId: z.string().min(1), browserClientSecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+  lighter: z.object({ network: z.enum(['devnet', 'testnet', 'mainnet']), creators: z.array(z.number().int().nonnegative().safe()) }).strict().optional(),
   storage: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('local'), stateDir: AbsolutePath }).strict(),
     z.object({ kind: z.literal('postgres'), deploymentId: z.string().uuid(), databaseId: z.string().uuid() }).strict(),

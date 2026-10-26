@@ -4,7 +4,7 @@ import { recoverMessageAddress } from 'viem';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, InvalidTargetError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { OAuthClientInformationFullSchema, type OAuthClientInformationFull, type OAuthTokenRevocationRequest, type OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { connectExecution, ExecutionConnectionInspection, executionConfirmation, validateExecution } from '@verdict/core';
+import { connectExecution, ExecutionConnectionInspection, executionConfirmation } from '@verdict/core';
 import { CONNECT_PROTOCOL, ConnectAccountView, ConnectRequest, ConnectResponse, ConnectTransactionView, LighterSetup, type LighterSetupState } from './connect-contract.js';
 import { AccountServiceConfig, Grant, Transaction, Profile, failure, hash, opaque, ownerHash } from './connect-model.js';
 import { ConnectStore, type AuthorityRepository, type ConnectReadTx, type ConnectWriteTx } from './connect-store.js';
@@ -13,6 +13,7 @@ import type { HostedRuntime, ReviewJobIdentity, SharedPublicTransaction } from '
 import { createPrivyIdentity } from './privy-identity.js';
 import { LighterProvisioner, type ProvisionerSetup } from './lighter-provisioner.js';
 import { PrivateSignerClient } from './private-signer-client.js';
+import { requireLighterProposal } from './lighter-execution-boundary.js';
 const emptyView = (reason = 'No verified trading account is provisioned. This connection permits research only.'): ConnectAccountView => ({ kind: 'read_only', reason, scopes: [READ_SCOPE] });
 const profileRevision = (profile: Profile) => hash(JSON.stringify(profile));
 const identical = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -312,6 +313,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         return this.verifyIdentity(token);
     }
     private async inspectProfile(profile: Profile, subject: string): Promise<ExecutionConnectionInspection> {
+        if (profile.accounts.some((account) => account.venue !== 'lighter' || account.network !== (this.config.appNetwork === 'lighter-testnet' ? 'testnet' : 'mainnet'))) throw new HostedError(403, 'lighter_account_required', 'Connect a Lighter account to trade on Verdict.');
         const managed = await this.store.read(db => db.get('managed-profile', profile.id));
         if (managed) {
             const actual = await this.provisioner?.binding(managed.subject);
@@ -326,7 +328,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         if (!identical(inspection.accounts.map((row) => accountKey(row.account)).sort(), profile.accounts.map(accountKey).sort()))
             throw new HostedError(503, 'profile_mismatch', 'The broker accounts do not match the provisioned connection.');
         for (const template of inspection.templates)
-            validateExecution(template);
+            requireLighterProposal(template);
         if ('scope' in inspection && (inspection.scope.mode !== profile.mode || inspection.scope.origin !== this.config.publicOrigin
             || inspection.accounts.some((row) => row.account.venue !== 'lighter' || row.account.network !== inspection.scope.network
                 || row.account.account !== inspection.scope.account || row.account.apiKeyIndex !== inspection.scope.apiKeyIndex || row.ownerWallet !== inspection.scope.ownerWallet)))
@@ -344,8 +346,6 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             for (const [check, state] of Object.entries(row.checks))
                 if (state !== 'ready')
                     blockers.push(`${row.account.venue} ${row.account.network} ${row.account.account}: ${check} ${state}`);
-            if (row.account.venue === 'hl' && row.agentAddress && row.checks.registration !== 'ready')
-                approvals.push({ kind: 'hyperliquid', network: row.account.network, account: row.account.account, agentAddress: row.agentAddress, agentName: 'Verdict Hosted' });
         }
         return ConnectAccountView.parse({ kind: 'executable', profileId: profile.id, revision: profileRevision(profile), mode: profile.mode,
             accounts: profile.accounts.map(({ venue, network, account }) => ({ venue, network, account: String(account) })), scopes, blockers, approvals,

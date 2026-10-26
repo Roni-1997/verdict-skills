@@ -32,6 +32,10 @@ for arg in "$@"; do
   esac
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/routing-block.sh"
+# An installed copy removes its own directory in step 2. Retain compatibility text first.
+LEGACY_CLAUDE_MD_BLOCK="$(cat "$SCRIPT_DIR/legacy-routing-block.txt")"
 BIN_DIR="${VERDICT_BIN_DIR:-$HOME/.local/bin}"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 SKILL_DST="$CLAUDE_HOME/skills/verdict"
@@ -46,26 +50,27 @@ LEFT_IN_PLACE=0
 CLAUDE_MD_BLOCK=$(cat <<'BLOCK'
 ## Verdict
 
-Verdict's HIP-4 outcome markets on Hyperliquid are available through the `verdict` skill (~/.claude/skills/verdict).
+Verdict's agentic trading kit for Lighter binary outcome markets is available through the `verdict` skill (~/.claude/skills/verdict).
 
 ### Routing
 
-Load the verdict skill, not web search or memory, when the request involves:
+Load the verdict skill when the request involves:
 
-- Verdict, hyperverdict, the Verdict venue or its markets
-- HIP-4, outcome market, Hyperliquid prediction market, YES or NO on Hyperliquid
-- a settlement rule, order book, quote for a size, trade history, positions, fills or orders on such a market
-- "compare to Polymarket" or "compare to Kalshi" for a market that exists on Verdict
-- Verdict's builder code, builder fee or builder approval
+- Verdict markets or Lighter binary outcomes
+- settlement rules, executable quotes, liquidity, fees, recent prints, or public positions
+- connecting an agent, reviewing a trade, approving an exact order, or SDK execution
+- original order status, reconciliation, or cancellation
 
-Do not load it for general blockchain education, Hyperliquid perps or spot, or trading on Polymarket, Kalshi or Deribit themselves.
+Perps, spot, and paired trading are outside this skill.
 
 ### Rules the skill enforces
 
-- Read commands (markets, market, book, quote, recent-trades, candles, compare, fair-value, hedges, opportunities, positions, fills, open-orders, order-status, builder-status) run without asking and need no account. A Polymarket or Kalshi comparison is shown with its confidence and reasons, never as a bare number.
-- build-order and approve-builder-fee-payload return unsigned payloads. Show the market, the settlement rule text, side, price, size, the fee in cents per $1,000 and the builder address, end the message, and wait for a real reply in a new message before anything is signed. Never fabricate a confirmation.
-- Analysis and order building never happen in the same turn.
-- Nothing signs on a hosted server; keys stay local and in memory.
+- Public research needs no key. State the network and use numeric Lighter account and market IDs.
+- Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
+- In per_order mode, end the message and wait for a reply in a new message before independent approval. Hosted approval belongs to the signed-in user; local approval belongs to the operator's terminal. The agent cannot approve.
+- Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
+- Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
+- After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.
 BLOCK
 )
 
@@ -104,18 +109,13 @@ elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
   printf '%s\n' "$CLAUDE_MD_BLOCK" > "$BLOCK_FILE"
   COUNT="$(wc -l < "$BLOCK_FILE" | tr -d ' ')"
   # First line of a run of lines equal to the block, line for line; 0 when the file has no verbatim copy.
-  START="$(awk '
-    NR == FNR { block[++n] = $0; next }
-    { line[++m] = $0 }
-    END {
-      for (i = 1; i + n - 1 <= m; i++) {
-        if (line[i] != block[1]) continue
-        ok = 1
-        for (j = 2; j <= n; j++) if (line[i + j - 1] != block[j]) { ok = 0; break }
-        if (ok) { print i; exit }
-      }
-      print 0
-    }' "$BLOCK_FILE" "$CLAUDE_MD")"
+  START="$(find_exact_routing_block "$BLOCK_FILE" "$CLAUDE_MD")"
+  if [[ "$START" == 0 ]]; then
+    printf '%s\n' "$LEGACY_CLAUDE_MD_BLOCK" > "$BLOCK_FILE"
+    START="$(find_exact_routing_block "$BLOCK_FILE" "$CLAUDE_MD")"
+    COUNT="$(wc -l < "$BLOCK_FILE" | tr -d ' ')"
+  fi
+  MATCHED_BLOCK="$(cat "$BLOCK_FILE")"
   rm -f "$BLOCK_FILE"
   if [[ "$START" == 0 ]]; then
     echo "    a '## Verdict' section is present but it is not the block install.sh writes; left in place:"
@@ -127,7 +127,7 @@ elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
   else
     echo "    The following block will be removed from $CLAUDE_MD (lines $START to $((START + COUNT - 1))):"
     echo "    ------------------------------------------------------------"
-    printf '%s\n' "$CLAUDE_MD_BLOCK" | sed 's/^/    /'
+    printf '%s\n' "$MATCHED_BLOCK" | sed 's/^/    /'
     echo "    ------------------------------------------------------------"
     TMP="$(mktemp)"
     # Drop exactly those lines, plus the one blank separator line install.sh put in front of them when

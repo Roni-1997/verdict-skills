@@ -1,71 +1,59 @@
-# Setup and unsigned signing contract
+# Install or connect the Verdict kit
 
-Build the existing Verdict workspace as described in the [repository README](../../../README.md).
-The Lighter adapter adds no dependency and does not install the upstream Python kit or run its installer.
+Use Node 22 and pnpm 10.34.5. Build a clone with `pnpm install --frozen-lockfile` and `pnpm run build`.
 
-## MCP
+## Connect research
 
-Replace `/absolute/path/to/verdict-skills` with the clone path:
+Register `node <clone>/packages/mcp/dist/bin.js` as your MCP command. Set `LIGHTER_NETWORK=testnet` for staging. The default is devnet. `--lighter` is a compatibility alias for the default Lighter server.
 
-```json
-{
-  "mcpServers": {
-    "verdict-lighter": {
-      "command": "node",
-      "args": ["/absolute/path/to/verdict-skills/packages/mcp/dist/bin.js", "--lighter"],
-      "env": { "LIGHTER_NETWORK": "devnet" }
-    }
-  }
-}
+Use `LIGHTER_CREATORS` for operator-verified creator account indices on the selected network. Public discovery needs no credentials. Unsigned SDK argument preparation requires a creator allowlist.
+
+For local HTTP, run `LIGHTER_NETWORK=testnet verdict-mcp --http 8787`. The loopback endpoint is `http://127.0.0.1:8787/mcp`. This research server has no authentication and holds no keys. Use an authenticated gateway before exposing it remotely.
+
+## Install the skill and launchers
+
+The installer writes user configuration. If the user has not already authorized the installation, wait for a yes in a new message before running it:
+
+```sh
+	bash <clone>/skills/verdict/scripts/install.sh --claude-md
 ```
 
-Use that server entry in an MCP-capable client such as Codex, Claude Desktop or Cursor.
-For clients configured through a UI, use the same command, arguments and environment values.
-Streamable HTTP uses `node packages/mcp/dist/bin.js --lighter --http 8788`, binding loopback by default.
-The server has no authentication: any remote deployment needs an authenticated gateway.
-The existing Hyperliquid server remains available without `--lighter`.
+It fetches the repository's lockfile-pinned npm dependencies from the npm registry and checks `pnpm-lock.yaml`. It pipes nothing from the network into a shell. It builds the clone, writes marked `verdict` and `verdict-mcp` launchers, and copies the default `verdict` skill with a `.repo-dir` marker that remembers the clone path.
 
-To make this skill discoverable, register this `skills/verdict-lighter` directory with the agent's
-skill mechanism. The existing Verdict install script installs the Hyperliquid skill only.
-Do not run Lighter's upstream installer to install this adapter; it installs a different skill.
+Without `--claude-md`, the installer leaves `CLAUDE.md` alone. With the flag, it appends the block below or upgrades an exact copy of the previous managed routing block. Repeated runs preserve the current block. A user-edited or unrecognized section remains unchanged, with instructions to review it by hand.
 
-| Setting | Meaning |
-|---|---|
-| `LIGHTER_NETWORK` | `devnet` (default, chain 300), `testnet` (chain 300), or `mainnet` (chain 304). Testnet uses `https://testnet.zklighter.elliot.ai`; its accounts and markets are separate from devnet. Never infer it from Hyperliquid configuration. |
-| `LIGHTER_CREATORS` | Comma-separated creator account indices. When absent, discovery reads all creators but unsigned order/cancel preparation is disabled. When configured, discovery filters that page and payload tools enforce the same allowlist. An empty filtered page can still have a next cursor. |
+```markdown
+## Verdict
 
-Use creator indices verified by the operator on the selected network. No mainnet Verdict
-creator or integrator-fee agreement is assumed by this kit. It adds no Hyperliquid builder code.
-`VERDICT_API_URL` affects only the Hyperliquid tools; Lighter reads its fixed official REST hosts directly.
-No private key or authentication token is configured in the kit.
+Verdict's agentic trading kit for Lighter binary outcome markets is available through the `verdict` skill (~/.claude/skills/verdict).
 
-## Prepare an order
+### Routing
 
-1. Read the current market and its settlement rule; request a quote for the intended side, action and shares.
-2. Build an order with the side's USDC price and a unique client order index, from 0 through `2^48−1`.
-3. Show the returned confirmation, including network, rule, side, price, shares, market fee estimate and the sell warning. Wait for the user's explicit reply.
-4. Hand the unchanged `sdkArgs` to the caller's local Lighter signer. The signer must match the returned network/chain and its own account/key, recheck market state, available collateral, all open orders and actual fee multiplier, and reserve a fresh nonce just before signing. The unsigned kit has not proved account solvency or execution eligibility.
+Load the verdict skill when the request involves:
 
-The official Python SDK accepts these arguments through `SignerClient.create_order(**sdkArgs)`.
-Its binary examples require current binary-capable SDK/signer versions; see the
-[official binary trading guide](https://apidocs.lighter.xyz/docs/binary-options-trading-and-fees).
-The SDK performs signing/submission; that step belongs entirely to the caller's local signer, not an agent-driven shell or hosted MCP process.
-Do not pass network IDs from one tool result into a signer for another network.
-`order_expiry=-1` is the SDK's default 28-day sentinel; IOC uses `0`. The market's trading window still governs acceptance.
+- Verdict markets or Lighter binary outcomes
+- settlement rules, executable quotes, liquidity, fees, recent prints, or public positions
+- connecting an agent, reviewing a trade, approving an exact order, or SDK execution
+- original order status, reconciliation, or cancellation
 
-`sdkMethod=cancel_order` uses `sdkArgs.order_index` equal to the **original client order index**.
-Do not substitute an exchange order ID: those can exceed JavaScript's exact number range.
-The caller must verify the order and account before signing. Cancels remain possible outside the trading window.
+Perps, spot, and paired trading are outside this skill.
 
-The fee estimate includes market fees at multiplier 1, not configured integrator fees. It does
-not imply a commercial revenue share. Authenticated open-order history, full account fills,
-settlement P&L, amendments and cross-venue comparisons are not implemented by this adapter.
+### Rules the skill enforces
 
-## Upstream basis
+- Public research needs no key. State the network and use numeric Lighter account and market IDs.
+- Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
+- In per_order mode, end the message and wait for a reply in a new message before independent approval. Hosted approval belongs to the signed-in user; local approval belongs to the operator's terminal. The agent cannot approve.
+- Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
+- Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
+- After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.
+```
 
-Reviewed [elliottech/lighter-agent-kit](https://github.com/elliottech/lighter-agent-kit) at
-`9798b37230d631b4a09a5a28d2436f5405a00992` on October 21, 2026. Its scripts support perps/spot;
-their asset discovery and paper fills do not support binary outcomes. This adapter follows
-its human-unit input convention and official SDK contract, but uses `/events` for binaries,
-never the upstream kit's perp/spot order discovery. No upstream script is vendored or executed.
-Public fixtures and endpoint provenance are in the repository's `tests/fixtures/lighter` directory.
+`bash <clone>/skills/verdict/scripts/uninstall.sh` needs no build, Node process, or network. It removes only marked launchers, a skill copy carrying `.repo-dir`, and an exact current or previous managed routing block. Unrecognized files stay in place and produce exit 1. A final newline added to a file that previously lacked one remains after removal.
+
+## Connect execution
+
+The default research server signs nothing. `--execution` prepares and reviews unsigned single-Lighter proposals. `--local-execution` requires `VERDICT_BROKER_SOCKET` and an explicit `VERDICT_EXECUTION_MODE=per_order|policy`. Use a separate default research connection if needed.
+
+Hosted execution and account service require operator-managed connector configuration. Their public MCP process is keyless; the separate private signer uses the official SDK under reviewed authority. See `references/execution.md` for approval and reconciliation rules. Never put signing keys or login tokens in agent configuration.
+
+The hosted staging endpoint exists at `https://verdict-mcp-staging.vercel.app/mcp`. Real sign-in resume and full staging account-to-order acceptance remain blocked. Treat it as a staging pilot, not a completed live onboarding flow.

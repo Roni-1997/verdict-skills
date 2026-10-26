@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import express from 'express';
+import { lighterConfigFromEnv } from '@verdict/core';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { AccountAuthority } from './connect-authority.js';
 import { AccountServiceConfig } from './connect-model.js';
@@ -23,10 +24,12 @@ export async function readAccountServiceConfig(path: string): Promise<AccountSer
 /** Standard OAuth SDK routes, product handoff and the existing SDK execution gateway in one writer. */
 export async function createAccountService(input: AccountServiceConfig, authorityInput?: AccountAuthority, dependencies: { repository?: AuthorityRepository; gateway?: HostedHandlerDependencies } = {}) {
   const config = AccountServiceConfig.parse(input);
+  if (!['lighter', 'lighter-testnet'].includes(config.appNetwork)) throw new HostedError(503, 'lighter_network_required', 'The Verdict connector requires a Lighter app network.');
   const authority = authorityInput ?? await AccountAuthority.create(config, undefined, undefined, dependencies.repository);
   let gateway: Awaited<ReturnType<typeof createHostedHandler>>;
   try {
     gateway = await createHostedHandler(HostedConfig.parse({ publicOrigin: config.publicOrigin, issuer: config.publicOrigin,
+      lighter: lighterConfigFromEnv({ LIGHTER_NETWORK: config.appNetwork === 'lighter-testnet' ? 'testnet' : 'mainnet', LIGHTER_CREATORS: process.env.LIGHTER_CREATORS }),
       browserClientId: 'first_party', storage: config.storage.kind === 'local' ? { kind: 'local', stateDir: config.storage.gatewayJobsDir } : { kind: 'postgres', deploymentId: config.storage.deploymentId, databaseId: config.storage.databaseId }, bindings: [], allowInsecureLocalhost: config.allowInsecureLocalhost,
       approvalTtlSeconds: config.approvalTtlSeconds }), authority, dependencies.gateway);
   } catch (error) { await authority.close(); throw error; }

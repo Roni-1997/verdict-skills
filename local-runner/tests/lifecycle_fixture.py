@@ -10,7 +10,8 @@ from verdict_broker.rpc import serve_local
 
 
 def main():
-    template, socket_path, state_dir = map(Path, sys.argv[1:])
+    template, socket_path, state_dir = map(Path, sys.argv[1:4])
+    owner_wallet = sys.argv[4] if len(sys.argv) > 4 else None
     store = Store(state_dir)
     proposal = load_proposal(template)
     grant = issue_grant(store, [proposal], max_debit_usdc="100", max_orders=20,
@@ -22,7 +23,7 @@ def main():
         orders = {}
 
         def inspect_connection(self, legs):
-            return {"ownerWallet": legs[0]["account"], "agentAddress": "0x" + "3" * 40,
+            return {"ownerWallet": owner_wallet or (legs[0]["account"] if isinstance(legs[0]["account"], str) else "0x" + "1" * 40), "agentAddress": "0x" + "3" * 40,
                     "checks": {"registration": "ready", "builder": "ready"}, "notes": []}
 
         def preflight(self, leg, client_id):

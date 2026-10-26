@@ -1,7 +1,7 @@
 {
   "publicOrigin": "https://mcp.verdict.example",
   "appOrigin": "https://staging.verdict.example",
-  "appNetwork": "testnet",
+  "appNetwork": "lighter-testnet",
   "privyAppId": "REPLACE_WITH_EXISTING_STAGING_PRIVY_APP_ID",
   "privyVerificationKey": "REPLACE_WITH_EXISTING_PRIVY_APP_ES256_PUBLIC_SPKI_PEM_VERIFICATION_KEY",
   "relaySecretEnv": "VERDICT_CONNECTOR_RELAY_SECRET",
@@ -15,9 +15,10 @@
       "grantHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "accounts": [
         {
-          "venue": "hl",
+          "venue": "lighter",
           "network": "testnet",
-          "account": "0x0000000000000000000000000000000000000000"
+          "account": 42,
+          "apiKeyIndex": 2
         }
       ],
       "execution": {

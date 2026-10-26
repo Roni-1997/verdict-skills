@@ -23,10 +23,9 @@ import type { LighterProvisioner } from '../packages/mcp/src/lighter-provisioner
 const wallet = privateKeyToAccount(generatePrivateKey());
 const otherWallet = privateKeyToAccount(generatePrivateKey());
 const root = fileURLToPath(new URL('..', import.meta.url));
-const request = { validForSeconds: 3600, legs: [{ venue: 'hl', network: 'testnet', account: wallet.address.toLowerCase(), outcome: 123,
+const request = { validForSeconds: 3600, legs: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 2, creator: 7, market: 123,
   title: 'Synthetic connection integration contract', settlementRule: 'Fake settlement; no live funds or contract.',
-  side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'Ioc',
-  allInFeeBpsCap: '10', builder: { address: `0x${'2'.repeat(40)}`, feeTenthsBp: 10 } }],
+  side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'ioc' }],
   policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } };
 const proposal = prepareExecution(request);
 const subject = 'did:privy:alice';
@@ -114,7 +113,7 @@ async function restart() {
 beforeAll(async () => {
   directory = await mkdtemp('/tmp/vca-'); signing = await generateKeyPair('ES256'); socketPath = join(directory, 'broker.sock');
   const template = join(directory, 'template.json'); await writeFile(template, JSON.stringify(proposal));
-  broker = spawn(process.env.VERDICT_BROKER_PYTHON ?? 'python3', [join(root, 'local-runner/tests/lifecycle_fixture.py'), template, socketPath, join(directory, 'broker')],
+  broker = spawn(process.env.VERDICT_BROKER_PYTHON ?? 'python3', [join(root, 'local-runner/tests/lifecycle_fixture.py'), template, socketPath, join(directory, 'broker'), wallet.address.toLowerCase()],
     { cwd: root, env: { PATH: process.env.PATH ?? '', PYTHONPATH: join(root, 'local-runner'), PYTHONDONTWRITEBYTECODE: '1', VERDICT_NODE_BINARY: process.execPath }, stdio: ['ignore', 'ignore', 'pipe'] });
   let diagnostics = ''; broker.stderr?.on('data', (value: Buffer) => { diagnostics += value.toString(); });
   for (let i = 0; i < 200; i++) {
@@ -134,10 +133,10 @@ beforeAll(async () => {
 }, 20_000);
 beforeEach(async () => {
   state = await mkdtemp(join(directory, 'case-')); inspectOverride = null; provisionerOverride = undefined;
-  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'testnet', privyAppId: 'test-privy-app', privyVerificationKey: await exportSPKI(signing.publicKey),
+  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', privyAppId: 'test-privy-app', privyVerificationKey: await exportSPKI(signing.publicKey),
     relaySecretEnv: 'VERDICT_CONNECT_TEST_SECRET', storage: { kind: 'local', stateDir: join(state, 'authority'), gatewayJobsDir: join(state, 'jobs') }, allowInsecureLocalhost: true,
     profiles: [{ id: 'alice-profile', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: socketPath }, grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash,
-      accounts: [{ venue: 'hl', network: 'testnet', account: wallet.address.toLowerCase() }] }] });
+      accounts: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 2 }] }] });
   await restart();
 });
 afterEach(async () => {
@@ -153,9 +152,9 @@ afterAll(async () => {
 it('connects through real SDK discovery, DCR, PKCE, Privy-style identity, wallet proof and the real broker inspection', async () => {
   const flow = await connect(); expect(flow.review.connection).toMatchObject({ kind: 'executable', mode: 'per_order', blockers: [], policy: { maxDebitUSDC: '100', maxOrders: 20 } });
   const client = await mcp(flow.tokens.access_token); const tools = (await client.listTools()).tools.map((tool) => tool.name);
-  expect(tools).toEqual(expect.arrayContaining(['list_markets', 'lighter_quote', 'strategy_scan_pairs', 'connection_status', 'execution_submit', 'execution_cancel']));
+  expect(tools).toEqual(expect.arrayContaining(['lighter_list_markets', 'lighter_quote', 'connection_status', 'execution_submit', 'execution_cancel']));
   const accounts = await client.callTool({ name: 'execution_accounts', arguments: {} }); expect(accounts.isError).not.toBe(true);
-  expect(accounts.structuredContent).toMatchObject({ gatewayMode: 'per_order', accounts: [{ account: wallet.address.toLowerCase() }] });
+  expect(accounts.structuredContent).toMatchObject({ gatewayMode: 'per_order', accounts: [{ venue: 'lighter', account: 42 }] });
   const disk = (await readFile(join(join(state, 'authority'), 'authority.sqlite'))).toString('latin1');
   for (const secret of [flow.tokens.access_token, flow.tokens.refresh_token ?? '', await identity()]) if (secret) expect(disk).not.toContain(secret);
   expect(JSON.stringify(accounts)).not.toContain(socketPath);

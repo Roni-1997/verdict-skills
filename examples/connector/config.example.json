@@ -1,5 +1,5 @@
 {
-  "publicOrigin": "https://mcp.hyperverdict.xyz",
+  "publicOrigin": "https://mcp.verdict.example",
   "issuer": "https://YOUR_TENANT.us.auth0.com/",
   "browserClientId": "YOUR_BROWSER_CLIENT_ID",
   "browserClientSecretEnv": "VERDICT_CONNECTOR_BROWSER_CLIENT_SECRET",
@@ -14,9 +14,10 @@
       "grantId": "00000000-0000-4000-8000-000000000000",
       "accounts": [
         {
-          "venue": "hl",
+          "venue": "lighter",
           "network": "testnet",
-          "account": "0x1111111111111111111111111111111111111111"
+          "account": 42,
+          "apiKeyIndex": 2
         }
       ],
       "execution": {
@@ -28,5 +29,11 @@
   "storage": {
     "kind": "local",
     "stateDir": "/var/lib/verdict-connector/jobs"
+  },
+  "lighter": {
+    "network": "testnet",
+    "creators": [
+      7
+    ]
   }
 }

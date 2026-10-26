@@ -5,6 +5,7 @@ import {
 } from '@verdict/core';
 import type { ExecutionLeg, ExecutionProposal, LocalExecutionCapabilities } from '@verdict/core';
 import { z } from 'zod';
+import { requireLighterProposal, requireLighterRequest } from './lighter-execution-boundary.js';
 import type { HostedJobStore } from './hosted-job-store.js';
 import type { HostedRuntime } from './hosted-security.js';
 import {
@@ -45,8 +46,12 @@ export class HostedExecution {
     return { binding, bindingHash: hash(JSON.stringify(canonical(binding))), owner: hash(`${parsed.data.issuer}\0${parsed.data.subject}`) };
   }
 
-  private proposal(value: unknown): ExecutionProposal {
-    try { return validateExecution(value); }
+  private proposal(value: unknown, scope: 'historical' | 'new_order' = 'historical'): ExecutionProposal {
+    try {
+      const proposal = scope === 'new_order' ? requireLighterProposal(value) : validateExecution(value);
+      if (scope === 'new_order' && this.config.lighter && proposal.payload.legs.some((leg) => leg.network !== this.config.lighter?.network)) throw new Error('Research and execution network mismatch');
+      return proposal;
+    }
     catch { throw new HostedError(400, 'invalid_proposal', 'Use the unchanged canonical execution proposal.'); }
   }
 
@@ -127,6 +132,7 @@ export class HostedExecution {
 
   private async dispatch(principal: Principal, context: Context, job: Job): Promise<HostedMutation> {
     this.checkJob(job, context);
+    if (job.purpose === 'submit' && job.state === 'pending') this.proposal(job.proposal, 'new_order');
     await this.current(principal, context, TRADE_SCOPE);
     await this.runtime?.assertJobActive(job);
     if (job.purpose === 'submit' && job.state === 'pending') this.validProposalNow(job.proposal);
@@ -157,17 +163,20 @@ export class HostedExecution {
   async accounts(principal: Principal): Promise<{ gatewayMode: Binding['mode']; brokerMode: 'policy'; accounts: LinkedAccount[];
     authority: LocalExecutionCapabilities['authority']; singleLegConfirmationOnly: boolean }> {
     const context = await this.context(principal, READ_SCOPE);
+    const accounts = context.binding.accounts.filter((account) => account.venue === 'lighter');
+    if (accounts.length === 0) throw new HostedError(403, 'lighter_account_required', 'Connect a Lighter account to trade on Verdict.');
     const client = await this.client(principal, context, READ_SCOPE);
     const capabilities = await client.capabilities(); this.grant(capabilities, context);
-    return { gatewayMode: context.binding.mode, brokerMode: 'policy', accounts: context.binding.accounts.map((account) => ({ ...account })),
-      authority: capabilities.authority, singleLegConfirmationOnly: context.binding.mode === 'per_order' };
+    return { gatewayMode: context.binding.mode, brokerMode: 'policy', accounts: accounts.map((account) => ({ ...account })),
+      authority: capabilities.authority, singleLegConfirmationOnly: true };
   }
 
   async prepare(principal: Principal, input: unknown): Promise<ExecutionProposal> {
     const context = await this.context(principal, READ_SCOPE);
     let proposal: ExecutionProposal;
-    try { proposal = prepareExecution(input); }
+    try { proposal = prepareExecution(requireLighterRequest(input)); }
     catch { throw new HostedError(400, 'invalid_proposal', 'The trade request does not match the supported execution schema.'); }
+    this.proposal(proposal, 'new_order');
     this.accountsMatch(context, proposal);
     return proposal;
   }
@@ -189,13 +198,13 @@ export class HostedExecution {
   }
 
   async review(principal: Principal, value: unknown): Promise<ReturnType<typeof executionConfirmation>> {
-    const context = await this.context(principal, READ_SCOPE); const proposal = this.proposal(value);
+    const context = await this.context(principal, READ_SCOPE); const proposal = this.proposal(value, 'new_order');
     this.accountsMatch(context, proposal);
     return executionConfirmation(proposal, 'hosted');
   }
 
   async preflight(principal: Principal, value: unknown): Promise<ExecutionPreflight> {
-    const context = await this.context(principal, READ_SCOPE); const proposal = this.proposal(value);
+    const context = await this.context(principal, READ_SCOPE); const proposal = this.proposal(value, 'new_order');
     this.accountsMatch(context, proposal);
     const client = await this.client(principal, context, READ_SCOPE);
     const result = ExecutionPreflight.parse(await client.preflight(proposal)); this.grant(result, context);
@@ -204,9 +213,8 @@ export class HostedExecution {
   }
 
   async submit(principal: Principal, value: unknown): Promise<HostedMutation> {
-    const context = await this.context(principal, TRADE_SCOPE); const proposal = this.proposal(value);
+    const context = await this.context(principal, TRADE_SCOPE); const proposal = this.proposal(value, 'new_order');
     this.accountsMatch(context, proposal);
-    if (context.binding.mode === 'per_order' && proposal.payload.legs.length !== 1) throw new HostedError(400, 'single_leg_confirmation_only', 'Browser per-order confirmation supports one order at a time. Use an explicitly configured policy for reviewed pairs.');
     const existing = await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: proposal.digest, leg: null });
     if (existing) {
       this.checkJob(existing, context);

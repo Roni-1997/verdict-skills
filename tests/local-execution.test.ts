@@ -9,10 +9,9 @@ import { connectExecution, prepareExecution } from '../packages/core/src/index.j
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const request = (price = '0.4', shares = '10') => ({ validForSeconds: 3600, legs: [{
-  venue: 'hl', network: 'testnet', account: `0x${'1'.repeat(40)}`, outcome: 123,
+  venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 2, market: 123, creator: 7,
   title: 'Synthetic integration contract', settlementRule: 'Synthetic exact rule; not a live contract.',
-  side: 'yes', action: 'buy', shares, limitPrice: price, feeReserveUSDC: '0.1', tif: 'Ioc',
-  allInFeeBpsCap: '10', builder: { address: `0x${'2'.repeat(40)}`, feeTenthsBp: 10 },
+  side: 'yes', action: 'buy', shares, limitPrice: price, feeReserveUSDC: '0.1', tif: 'ioc',
 }], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } });
 let directory: string;
 let socketPath: string;

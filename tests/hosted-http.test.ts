@@ -12,13 +12,12 @@ import { HostedConfig, HostedMutation, READ_SCOPE, TRADE_SCOPE } from '../packag
 import { startIssuer } from './fixtures/hosted-issuer.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const ALICE = `0x${'1'.repeat(40)}`;
-const BOB = `0x${'3'.repeat(40)}`;
+const ALICE = 42;
+const BOB = 43;
 const request = (account = ALICE, price = '0.4') => ({ validForSeconds: 3600, legs: [{
-  venue: 'hl', network: 'testnet', account, outcome: 123,
+  venue: 'lighter', network: 'testnet', account, apiKeyIndex: 2, market: 123, creator: 7,
   title: 'Synthetic hosted integration contract', settlementRule: 'Synthetic exact rule; no live contract or funds.',
-  side: 'yes', action: 'buy', shares: '10', limitPrice: price, feeReserveUSDC: '0.1', tif: 'Ioc',
-  allInFeeBpsCap: '10', builder: { address: `0x${'2'.repeat(40)}`, feeTenthsBp: 10 },
+  side: 'yes', action: 'buy', shares: '10', limitPrice: price, feeReserveUSDC: '0.1', tif: 'ioc',
 }], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } });
 let directory: string;
 let issuer: Awaited<ReturnType<typeof startIssuer>>;
@@ -123,9 +122,9 @@ beforeAll(async () => {
   config = HostedConfig.parse({ publicOrigin: origin, issuer: issuer.issuer, browserClientId: issuer.clientId,
     storage: { kind: 'local', stateDir: join(directory, 'hosted-state') }, allowInsecureLocalhost: true,
     bindings: [{ id: 'alice', subject: 'alice', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: a.socketPath }, grantId: a.grantId,
-      accounts: [{ venue: 'hl', network: 'testnet', account: ALICE }] },
+      accounts: [{ venue: 'lighter', network: 'testnet', account: ALICE, apiKeyIndex: 2 }] },
     { id: 'bob', subject: 'bob', enabled: true, mode: 'policy', execution: { kind: 'local_socket', socketPath: b.socketPath }, grantId: b.grantId,
-      accounts: [{ venue: 'hl', network: 'testnet', account: BOB }] }],
+      accounts: [{ venue: 'lighter', network: 'testnet', account: BOB, apiKeyIndex: 2 }] }],
   });
   connector = await createHostedHandler(config); server.on('request', connector.handle);
   aliceToken = await issuer.token('alice', [READ_SCOPE, TRADE_SCOPE], { audience: `${origin}/mcp` });
@@ -150,8 +149,11 @@ it('serves OAuth discovery, challenges invalid tokens and advertises real write 
     const response = await fetch(`${origin}/mcp`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
     expect(response.status).toBe(401); expect(response.headers.get('www-authenticate')).toContain('oauth-protected-resource/mcp');
   }
+  expect(alice.getInstructions()).toContain('Research uses Lighter testnet');
   const tools = (await alice.listTools()).tools;
-  expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['list_markets', 'execution_accounts', 'execution_capabilities', 'execution_prepare', 'execution_review', 'execution_preflight', 'execution_submit', 'execution_status', 'execution_cancel']));
+  expect(tools.every((tool) => tool.name.startsWith('lighter_') || tool.name.startsWith('execution_'))).toBe(true);
+  expect((await alice.listResources()).resources.map((resource) => resource.uri)).toEqual(['verdict-lighter://markets', 'ui://verdict/order-review.html']);
+  expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['lighter_list_markets', 'execution_accounts', 'execution_capabilities', 'execution_prepare', 'execution_review', 'execution_preflight', 'execution_submit', 'execution_status', 'execution_cancel']));
   expect(tools.find((tool) => tool.name === 'execution_submit')).toMatchObject({ annotations: { readOnlyHint: false, destructiveHint: true }, _meta: { securitySchemes: [{ type: 'oauth2', scopes: [READ_SCOPE, TRADE_SCOPE] }], ui: { resourceUri: 'ui://verdict/order-review.html' } } });
   const wire = await fetch(`${origin}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${aliceToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 'auth-metadata', method: 'tools/list', params: {} }) });
@@ -203,7 +205,7 @@ it('requires the signed-in exact-origin CSRF form and consumes concurrent confir
 }, 15_000);
 
 it('supports explicitly selected bounded policy submission for a separate user', async () => {
-  expect(await call(bob, 'execution_accounts')).toMatchObject({ gatewayMode: 'policy', brokerMode: 'policy', singleLegConfirmationOnly: false });
+  expect(await call(bob, 'execution_accounts')).toMatchObject({ gatewayMode: 'policy', brokerMode: 'policy', singleLegConfirmationOnly: true });
   const result = await call(bob, 'execution_submit', proposals.bob);
   expect(result).toMatchObject({ state: 'complete', digest: proposals.bob.digest });
   expect(await call(bob, 'execution_status', proposals.bob)).toEqual(result);

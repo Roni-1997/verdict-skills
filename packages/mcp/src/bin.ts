@@ -5,11 +5,9 @@ import { createServer as createHttpServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { type ExecutionClient, ExecutionMode, type KitConfig, type LighterConfig, LighterClient, ToolError, configFromEnv, connectExecution, createLighterTools, createStrategyTools, lighterConfigFromEnv } from '@verdict/core';
-import { createRequestHandler, healthBody, listenLine } from './http.js';
-import { createServer } from './server.js';
+import { type ExecutionClient, ExecutionMode, type LighterConfig, LighterClient, ToolError, connectExecution, createLighterTools, lighterConfigFromEnv } from '@verdict/core';
+import { createRequestHandler } from './http.js';
 import { createLighterServer } from './lighter.js';
-import { createStrategyServer } from './strategy.js';
 import { createExecutionServer, createLocalExecutionServer } from './execution.js';
 
 const { values } = parseArgs({
@@ -30,31 +28,31 @@ const { values } = parseArgs({
 if (values.help) {
   process.stdout.write(
     [
-      'verdict-mcp: Verdict HIP-4 tools as an MCP server',
+      'verdict-mcp: Verdict agent kit for Lighter binary outcome markets',
       '',
-      '  verdict-mcp                 stdio transport (default)',
-      '  verdict-mcp --lighter       Lighter binary outcomes; LIGHTER_NETWORK=devnet|testnet|mainnet, LIGHTER_CREATORS=creator indices',
-      '  verdict-mcp --strategy      HL/Lighter research, conditional plans, paper fills and inventory reconciliation; no execution',
-      '  verdict-mcp --execution     keyless proposal preparation/review for the separate local trading broker',
-      '  verdict-mcp --local-execution  SDK lifecycle over operator-owned Unix broker; stdio only; VERDICT_BROKER_SOCKET and VERDICT_EXECUTION_MODE=per_order|policy required',
-      '  verdict-mcp --hosted-execution --connector-config private.json --http 8787  authenticated account-linked SDK execution; Node 22.13+',
-      '  verdict-mcp --account-service --connector-config private.json --http 8787  Privy account connection, OAuth and SDK execution; Node 22.13+',
-      '  verdict-mcp --http 8787     streamable HTTP on 127.0.0.1:8787/mcp',
+      '  verdict-mcp                 Lighter research over stdio (default)',
+      '  verdict-mcp --lighter       compatibility alias for the same Lighter research server',
+      '  verdict-mcp --execution     keyless single-Lighter-order preparation and review',
+      '  verdict-mcp --local-execution  SDK lifecycle over operator-owned Unix broker; stdio only; VERDICT_BROKER_SOCKET and explicit VERDICT_EXECUTION_MODE=per_order|policy',
+      '  verdict-mcp --hosted-execution --connector-config private.json --http 8787  authenticated Lighter SDK execution; Node 22.13+',
+      '  verdict-mcp --account-service --connector-config private.json --http 8787  Privy account connection, OAuth and Lighter SDK execution; Node 22.13+',
+      '  verdict-mcp --http 8787     keyless Lighter research on http://127.0.0.1:8787/mcp',
       '  verdict-mcp --http 8787 --host 0.0.0.0',
       '',
-      'Environment: VERDICT_NETWORK (testnet|mainnet), VERDICT_VENUE (a deployer venue; unset, blank or all: every deployer), VERDICT_BUILDER_ADDRESS, VERDICT_BUILDER_FEE_TENTHS_BP',
-      'Hosted mode: VERDICT_API_URL=https://hyperverdict.xyz/api/v1 answers list_markets, get_market, compare_market, fair_value, find_hedges',
-      '          and opportunities from the Verdict API instead of the embedded engine; set it on every --http deployment so the server',
-      '          fetches no venue itself. The other tools run in process against Hyperliquid. The server holds no keys in either mode.',
-      "Optional: ODDPOOL_API_KEY routes the engine's Polymarket and Kalshi reads through api.oddpool.com; the key is sent to OddPool on every compare_market",
-      '          and opportunities call, so never set it on a hosted (--http) server.',
+      'Environment: LIGHTER_NETWORK=devnet|testnet|mainnet (default devnet); LIGHTER_CREATORS=comma-separated creator account indices.',
+      'Trading requires an explicitly provisioned account and operator authority. No tool can approve an order or change mode.',
+      'The kit supports Lighter binary outcomes. Cross-venue strategy/arb mode is not part of this MCP.',
       '',
     ].join('\n'),
   );
   process.exit(0);
 }
-if ([values.lighter, values.strategy, values.execution, values['local-execution'], values['hosted-execution'], values['account-service']].filter(Boolean).length > 1) {
-  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one MCP server mode: --lighter, --strategy, --execution, --local-execution, --hosted-execution or --account-service' })}\n`);
+if (values.strategy) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'The Verdict MCP is a Lighter agent trading kit. --strategy is no longer supported; launch verdict-mcp for Lighter research.' })}\n`);
+  process.exit(1);
+}
+if ([values.lighter, values.execution, values['local-execution'], values['hosted-execution'], values['account-service']].filter(Boolean).length > 1) {
+  process.stderr.write(`${JSON.stringify({ error: 'bad_input', message: 'Choose one MCP server mode: --lighter, --execution, --local-execution, --hosted-execution or --account-service' })}\n`);
   process.exit(1);
 }
 if (values['local-execution'] && values.http !== undefined) {
@@ -66,14 +64,11 @@ if ((values['connector-config'] !== undefined && !values['hosted-execution'] && 
   process.exit(1);
 }
 
-// An invalid VERDICT_NETWORK or VERDICT_BUILDER_FEE_TENTHS_BP is one JSON error line and exit 4 (not configured),
-// the same as the CLI, not a stack trace.
-let config: KitConfig;
+// Validate only this mode's configuration; stale HL settings cannot change the Lighter kit.
 let lighterConfig: LighterConfig | undefined;
 let executionClient: ExecutionClient | undefined;
 try {
-  config = configFromEnv(values.lighter || values.execution || values['local-execution'] || values['hosted-execution'] ? {} : process.env);
-  if (values.lighter || values.strategy) lighterConfig = lighterConfigFromEnv();
+  if (!values.execution && !values['local-execution'] && !values['hosted-execution'] && !values['account-service']) lighterConfig = lighterConfigFromEnv();
   if (values['local-execution']) {
     const mode = ExecutionMode.safeParse(process.env.VERDICT_EXECUTION_MODE);
     if (!mode.success) throw new ToolError('Set VERDICT_EXECUTION_MODE=per_order|policy explicitly', 'not_configured');
@@ -84,7 +79,7 @@ try {
   process.exit(4);
 }
 
-const openServer = () => executionClient ? createLocalExecutionServer(executionClient) : values.execution ? createExecutionServer() : values.strategy ? createStrategyServer(createStrategyTools({ config })) : lighterConfig ? createLighterServer(createLighterTools(new LighterClient(lighterConfig))) : createServer(config);
+const openServer = () => executionClient ? createLocalExecutionServer(executionClient) : values.execution ? createExecutionServer() : createLighterServer(createLighterTools(new LighterClient(lighterConfig)));
 
 if (values['hosted-execution'] || values['account-service']) {
   try {
@@ -116,7 +111,7 @@ if (values['hosted-execution'] || values['account-service']) {
     process.exit(1);
   }
   const handler = createRequestHandler({
-    health: () => values.execution ? { ok: true, mode: 'keyless_execution_preparation' } : values.strategy ? { ok: true, mode: 'paper_research', networks: { hl: config.network, lighter: lighterConfig?.network } } : lighterConfig ? { ok: true, exchange: 'lighter', network: lighterConfig.network, mode: 'unsigned' } : healthBody(config),
+    health: () => values.execution ? { ok: true, exchange: 'lighter', mode: 'keyless_execution_preparation' } : { ok: true, exchange: 'lighter', network: lighterConfig?.network, mode: 'unsigned' },
     open: async () => {
       const server = openServer();
       // Stateless: no session ids, one transport per request. The SDK's option type marks
@@ -136,6 +131,6 @@ if (values['hosted-execution'] || values['account-service']) {
   });
   const httpServer = createHttpServer(handler);
   httpServer.listen(port, values.host, () => {
-    process.stderr.write(`${values.execution ? `verdict-execution-preparation listening on http://${values.host}:${port}/mcp (no signing)` : values.strategy ? `verdict-strategy-mcp listening on http://${values.host}:${port}/mcp (paper research only)` : values.lighter ? `verdict-lighter-mcp listening on http://${values.host}:${port}/mcp (no keys or signing)` : listenLine(config, values.host, port)}\n`);
+    process.stderr.write(`${values.execution ? `verdict-execution-preparation listening on http://${values.host}:${port}/mcp (Lighter, no signing)` : `verdict-lighter-mcp listening on http://${values.host}:${port}/mcp (${lighterConfig?.network}, no keys or signing)`}\n`);
   });
 }

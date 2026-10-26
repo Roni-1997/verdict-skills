@@ -5,10 +5,12 @@ preparation, review, preflight, submission, status and exact cancellation over S
 HTTP. It uses the same `connectExecution()` client and official SDK broker as local agents.
 Trading keys stay in the separate private broker process.
 
-This implementation is tested locally with an ephemeral OAuth issuer, real MCP clients,
-the SDK and Python broker, and a simulated venue. It is not deployed, directory-approved
-or tested with funded accounts. `mcp.hyperverdict.xyz` is an example address; this
-repository does not provision a public endpoint or an identity tenant.
+The active hosted kit exposes Lighter binary research and single-Lighter execution.
+The staging account-service endpoint exists at `https://verdict-mcp-staging.vercel.app/mcp`.
+Real sign-in resume and the complete account-to-order acceptance test remain blocked.
+Local tests use an ephemeral OAuth issuer, real MCP clients, the SDK broker, and an inert
+venue. No funded acceptance or directory approval is claimed. `mcp.hyperverdict.xyz`
+below is an example origin for the alternative managed-provider deployment.
 
 ## Identity and trading authority
 
@@ -47,13 +49,12 @@ has a distinct broker socket and accounts; shared account bindings are refused.
 | Gateway mode | Submission | Underlying broker |
 |---|---|---|
 | `per_order` | One exact order requires an independent signed-in browser confirmation. Cancellation requires its own confirmation. | A previously approved bounded `policy` grant |
-| `policy` | The agent may submit inside the operator's existing grant without another browser prompt. Reviewed pairs are supported. | A previously approved bounded `policy` grant |
+| `policy` | The agent may submit a single Lighter order inside the operator's existing grant without another per-order browser prompt. | A previously approved bounded `policy` grant |
 
-Hosted confirmation mode currently supports single orders. A pair under a broker policy
-can proceed to its second leg automatically; calling that separate human approval would
-be misleading. Local terminal `per_order` brokers retain their existing per-leg approvals.
-Hosted `per_order` is a browser consent layer within a bounded policy, not remote access
-to that terminal prompt. Paired policy execution remains sequential and non-atomic.
+Both active modes accept one Lighter order. Other venues and paired proposals are
+rejected at the MCP boundary. Hosted `per_order` is independent browser consent within a
+bounded broker policy. Local per-order execution uses the operator's terminal. A model
+cannot change mode, issue a grant, expand limits, or approve the review itself.
 
 ## Configure the managed provider
 
@@ -100,7 +101,7 @@ parent and preserve broker state. Budgets, templates and cleanup permission rema
 broker's authority. The SDK carries the operator-pinned `expectedGrantId` on every
 hosted broker request, and the selected broker rejects another grant before any mutation.
 This prevents a restart at the same socket from spending a replacement grant.
-the broker independently performs fresh preflight and its final authorization check
+The broker independently performs fresh preflight and its final authorization check
 before transport. No hosted tool provisions credentials, wallets, allowances or grants.
 
 Copy [the example configuration](../examples/connector/config.example.json) into an
@@ -130,10 +131,12 @@ connector does not trust forwarded headers to choose its origin. Route `/mcp`, d
 sockets or credential environments. Bind `--host 0.0.0.0` only inside the intended private
 service network. `GET /healthz` reports process health, not funded account readiness.
 
-Browser login state and short-lived sessions are in process memory, so this version uses
-one connector instance per configuration. A restart requires browser sign-in again.
-Gateway jobs and broker attempts are durable. Preserve both state directories through
-restarts; do not deploy replicas with separate copies of the job database.
+In this external-provider mode, browser login state and short-lived sessions are in
+process memory, so use one connector instance per configuration. A restart requires browser sign-in again.
+Gateway jobs and broker attempts are durable. Preserve both local state directories
+through restarts, and do not deploy replicas with separate copies of the job database.
+The first-party account service also supports provisioned PostgreSQL and an isolated
+hosted signer. Its Vercel staging deployment is described in the [deployment guide](../deploy/README.md).
 
 ## Connect ChatGPT or Claude
 
@@ -165,20 +168,20 @@ change what it does. Confirm the intended host permits the integration before la
 
 ## Recovery and configuration changes
 
-The gateway commits a single dispatch claim to SQLite before any SDK mutation. Concurrent
+The gateway commits a single durable dispatch claim before any SDK mutation. Concurrent
 confirmations, repeated tools, lost responses and gateway restarts do not send it again.
 After an ambiguous result, keep the original proposal and use `execution_status`.
 Never create a replacement proposal merely because a request timed out. The broker's
 own durable attempt fence remains independent of the gateway journal.
 
-A full first-leg fill does not resolve an incomplete pair. If its second leg is unsent,
-unknown, partial or proven zero, both participating accounts remain fenced against new
-autonomous risk across proposals, grants and broker restarts. A balanced full pair or
-proven empty pair can clear that exposure fence without refunding reserved budget.
+A partial or uncertain single-order attempt does not prove that no position exists.
+Keep its original proposal and broker records. Reconciliation must establish the actual
+order state before any newly authorized trade can replace the intended action. The active
+kit has no automatic hedge, unwind, or paired recovery workflow.
 
 Approval expiry cannot be extended by repeating submit. Declining is final for that job.
-Cancellation is a distinct exact-leg job, allowed only for a previously attempted owned
-submission. Its confirmation TTL is independent of proposal expiry; cleanup still needs
+Cancellation is a distinct job for leg 0 of the original single-Lighter proposal, allowed
+only for a previously attempted owned submission. Its confirmation TTL is independent of proposal expiry; cleanup still needs
 the broker's retained own-order cancellation authority and can race fills.
 
 Bindings are loaded at startup. To disable or change one, update the private config and

@@ -1,92 +1,45 @@
-# Execution proposals and local broker
+# Review and execute a Lighter order
 
-Use `verdict execution` for a specifically requested single order or paired trade on HL,
-Lighter or Polymarket. Preparation/review are keyless. `verdict-mcp --execution` exposes
-`execution_prepare`, `execution_review`, `execution_capabilities`; it has no submission,
-signing, account credential or approval tool.
+Signable only through the separate authorized SDK broker. Preparation is unsigned.
 
-Read the repository's `local-runner/README.md` for the separate operator-owned SDK runner,
-installation, credential names, account reads, submission, cancellation and recovery.
-The local runner requires a repository clone and separately installed Python dependencies;
-it is not bundled into the npm CLI or installed automatically by a skill.
+Execution requires a provisioned connection to the operator-owned SDK broker or private hosted signer. The default research MCP only prepares unsigned SDK arguments. See the configured connection's capabilities before using execution tools.
 
-For Polymarket size/depth research, the installed local runner also provides credential-free
-`public-quote` (live capture or saved `public-market` JSON), alongside existing HL/Lighter
-CLI quote commands. It reports partial depth, current curve fees, source clocks and
-limits, without claiming net received shares. See the runner guide for replay flags and
-fee-model limits. A quote is analysis, never permission to prepare or submit an order.
-For an existing unsigned proposal, `public-quote --proposal proposal.json --leg N` checks
-its exact selected Polymarket leg without hand-copying size, asset or limit. An explicit
-index is required. The other leg, net inventory and fee-reserve adequacy remain unassessed.
+## Prepare exact terms
 
-```sh
-verdict execution prepare --file request.json > proposal.json
-verdict execution review --file proposal.json --pretty
-verdict execution validate --file proposal.json
-verdict execution capabilities
-```
+For a hosted maximum-spend buy, call `execution_prepare_lighter_intent` with a stable UUID `intentId`, numeric `market`, `side` of `yes` or `no`, and decimal-string `maxSpendUSDC` including fees. Optional limits are `maxSlippageBps` and `limitPrice`. The service supplies the linked account and reviewed creator scope, reads fresh depth, and derives an IOC proposal. Reusing an intent ID returns its original proposal.
 
-`examples/execution/request.json` is a synthetic HL/Polymarket pair, not tradeable market
-data. Provide exact current rules/titles and account/network identifiers. Reserve fees
-explicitly; do not assume rebates, equal expiry or title matches establish equivalent
-contracts. Lighter uses a market ID, creator and API key index. Polymarket uses a Gamma
-numeric `marketId` and exact CLOB `assetId` (V1 token ID or V2 position ID).
+For an operator-specified order, `execution_prepare` accepts one Lighter leg with explicit account, network, API key index, creator, market, action, side, shares, limit price, fee reserve, and time in force. Other venues and pairs are rejected by the active MCP. The proposal is unsigned and grants no authority.
 
-In per-order mode, show every review line, end the message and wait for a real new human reply. A digest is
-not consent. Hand the unchanged proposal to the operator's dedicated local terminal.
-The agent never handles credentials, drives that terminal or answers its approval prompt.
-Every order needs its own operator approval, including both legs of a pair. Approval of
-one leg cannot authorize the next. Declining a later leg can leave an existing position
-exposed; recovery needs a new separately authorized proposal. These rules apply to
-per-order mode. The operator may instead explicitly start bounded policy mode as described
-below.
-In per-order mode, no signing or submission occurs in the turn that prepared the proposal. Do not install
-SDKs at trade time. Setup is a separate operator task.
+Persist the returned proposal unchanged. Review it with `execution_review` and check current constraints with `execution_preflight` when available. Do not edit the payload, digest, timestamps, or original order identity.
 
-Single orders support native limit TIFs. Pairs require two immediate buys, equal requested
-shares, distinct venues, compatible environments and a manually reviewed rule orientation.
-The broker sends the second only after the first's terminal full fill, confirmed settlement
-and exact net inventory change. Execution is non-atomic; a partial/uncertain leg stops.
-Never call this guaranteed arbitrage. Recovery requires a new separately authorized proposal.
+## Per-order confirmation
 
-Local status reconciles real account state and normalized order lifecycle. Re-running an
-attempted proposal never resubmits. Lost responses and bounded-history misses stay unknown;
-do not classify them as rejection. Polymarket MATCHED is not settled, and gross fill size
-is not net received shares. Account inventory changes assume dedicated accounts without
-external writers. No realized P&L is inferred from balances alone.
+Show every confirmation line, including account, network, creator, market, full settlement rule, action, side, price, size, maximum spend, fee reserve and caps, and expiry. Do not round amounts. Explain that a sell can open the opposite position because reduce-only is unsupported.
 
-Illustrative capability output, as recorded on 2026-10-21 and may differ:
+In `per_order` mode, ask for confirmation and end your message. Wait for an explicit reply in a new message. Preparation and independent approval happen in separate turns. Never fabricate confirmation. A review URL, digest, model statement, or tool result is not approval.
 
-```json
-{"version":1,"hostedSigning":false,"pairs":["hl/lighter","hl/polymarket","lighter/polymarket"],"pairMode":"sequential_full_first"}
-```
+Hosted `execution_submit` returns a review URL for the independently signed-in user to approve the exact order. Local execution requires exact approval in the operator's terminal. Never complete either approval on the user's behalf. A chat reply alone does not authorize the signer.
 
+An abort means stop. Do not ask again. An abort closes the request; a later override is a new request. A changed parameter invalidates the confirmation. Prepare the revised terms and show them again. Urgency does not shorten the approval flow.
 
-## Local agent lifecycle
+## Existing bounded policy
 
-An operator-configured `verdict-mcp --local-execution` adds `execution_preflight`,
-`execution_submit`, `execution_status` and `execution_cancel`. It uses the same SDK
-`connectExecution()` client as CLI lifecycle commands. `VERDICT_BROKER_SOCKET` and
-`VERDICT_EXECUTION_MODE=per_order|policy` are operator configuration, never tool inputs.
-Local execution is stdio only; hosted `--execution` stays keyless.
+In explicitly operator-selected `policy` mode, use only a previously owner-approved bounded grant. Check its account, network, reviewed terms, spend, order count, and expiry. Never change mode, create authority, expand limits, or infer a policy grant from a request to skip approval.
 
-In `per_order`, each order prompts in the operator terminal. In `policy`, a previously
-issued grant binds exact reviewed proposal templates, numeric limits, cumulative gross
-debit, order count and expiry. Only the operator can create or revoke grants. The agent
-cannot select a grant, change mode or supply approval. Do not ask for per-order approval
-when a matching policy already authorizes the order. Present remaining authority from
-`execution_capabilities` and respect all broker blocks.
+## Submit and reconcile
 
-Persist the unchanged proposal before submission. If delivery is unknown, call status
-with that proposal; never prepare a replacement or retry automatically. Status and
-authorized exact-own-order cancellation remain available after expiry/revocation.
-Partial/unknown/net-short results stop the pair and block further autonomous account
-risk pending operator reconciliation. No automatic unwind or recovery trade exists.
+Submit the unchanged original proposal. The broker rechecks authority, market state, balances, fees, and account permissions before official SDK signing. These checks cannot guarantee a fill.
+
+On uncertain delivery, call `execution_status` with the original proposal. Never automatically resubmit or reprepare. A status call can reconcile an original order after proposal or grant expiry. Report acknowledgements, fills, and unknown state separately.
+
+`execution_cancel` takes that original proposal and `leg: 0`. Cancellation can race fills. Reconcile after requesting it, and never substitute an exchange ID for an original client order identity.
+
+## Unsigned SDK arguments
+
+`lighter_build_order` and `lighter_build_cancel` return unsigned `sdkArgs`. The separate operator-controlled signer owns the official SDK handoff and a fresh nonce. They are not submission tools. The market fee estimate includes no configured integrator fee.
+
+Keys, authentication tokens, and signed transactions never enter chat, agent arguments, or the public MCP. Never write ad-hoc signing code at trade time, print a key or signed payload, or use a default research process as a signer.
 
 ## Errors
 
-CLI exit 1: invalid/oversized JSON, unknown fields, bad precision, modified digest,
-incompatible pair, missing rule review, insufficient fee reserve or debit/profit cap.
-Values are hidden in validation errors. Fix inputs and prepare a fresh proposal.
-An expired proposal may be reviewed/reconciled; the broker refuses new submission.
-Broker errors never imply an attempted order failed: use status and official history.
+A validation error sends no order. `delivery_unknown` requires reconciliation, not a read-style retry. Expired or changed proposals need a new review only for a genuinely new trade after the original attempt is resolved. Never declare a failed transport to be a rejected order.

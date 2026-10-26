@@ -12,16 +12,17 @@ const Common = {
   side: z.enum(['yes', 'no']), action: z.enum(['buy', 'sell']), shares: Positive, limitPrice: Price,
   feeReserveUSDC: Money,
 };
+export const LighterExecutionLeg = z.object({ ...Common, venue: z.literal('lighter'), network: z.enum(['devnet', 'testnet', 'mainnet']),
+    account: z.number().int().nonnegative().safe(), apiKeyIndex: z.number().int().min(0).max(254),
+    market: z.number().int().nonnegative().safe(), creator: z.number().int().nonnegative().safe(), tif: z.enum(['ioc', 'gtc', 'post_only']),
+  }).strict();
 export const ExecutionLeg = z.discriminatedUnion('venue', [
   z.object({ ...Common, venue: z.literal('hl'), network: z.enum(['testnet', 'mainnet']), account: Address,
     outcome: z.number().int().min(0).max(999_999_999), tif: z.enum(['Ioc', 'Gtc', 'Alo']),
     builder: z.object({ address: Address, feeTenthsBp: z.number().int().min(0).max(10_000) }).strict(),
     allInFeeBpsCap: Money.refine((v) => Number(v) <= 10_000),
   }).strict(),
-  z.object({ ...Common, venue: z.literal('lighter'), network: z.enum(['devnet', 'testnet', 'mainnet']),
-    account: z.number().int().nonnegative().safe(), apiKeyIndex: z.number().int().min(0).max(254),
-    market: z.number().int().nonnegative().safe(), creator: z.number().int().nonnegative().safe(), tif: z.enum(['ioc', 'gtc', 'post_only']),
-  }).strict(),
+  LighterExecutionLeg,
   z.object({ ...Common, venue: z.literal('polymarket'), network: z.literal('polygon'), account: Address,
     shares: Positive.refine((v) => units(v) % (SCALE / 100n) === 0n, 'Polymarket shares must fit the pinned SDK 0.01 share grid'),
     marketId: z.string().regex(/^\d{1,20}$/),

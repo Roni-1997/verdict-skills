@@ -6,16 +6,16 @@ existing SDK execution gateway. It reuses the existing Privy app. No new identit
 or JWT issuer is needed. Local integration tests use ephemeral identities and wallet
 keys, real MCP OAuth clients and the actual policy broker with an inert venue.
 
-One authenticated endpoint includes HL research, `lighter_*` binary-market research,
-`strategy_*` conditional analysis/paper tools, connection status and `execution_*` lifecycle.
-Research networks are configured independently through the existing environment settings;
-execution uses the exact linked proposal network. Strategy tools still do not verify
-settlement equivalence, authorize trades or guarantee fills/profit. Missing venue data,
-unknown fees and unmatched contract rules remain explicit research limitations.
+One authenticated endpoint includes `lighter_*` binary-market research, connection status,
+and the single-Lighter `execution_*` lifecycle. Research uses explicit Lighter network and
+creator configuration. Execution binds the linked account's exact network and reviewed
+scope. The active MCP rejects other venues and paired proposals before dispatch. Missing
+depth, unknown fees, and incomplete settlement descriptions remain explicit limitations.
 
-The implementation has not been deployed or accepted with funded accounts. App directory
-approval and hosted-client compatibility must be checked with each intended client before
-advertising a public connector. Standard OAuth support alone does not establish approval.
+The staging endpoint exists at `https://verdict-mcp-staging.vercel.app/mcp`. Real Privy
+sign-in resume and the full account-to-order acceptance test remain blocked. No funded
+acceptance or general availability is claimed. Check directory approval and hosted-client
+compatibility with each intended client before advertising a public connector.
 
 ## Connection flow
 
@@ -57,23 +57,24 @@ Unknown wallets may explicitly connect for research only; those grants never acq
 scope when a profile is subsequently provisioned. Start a new reviewed connection instead.
 One verified EVM owner must control every account in a profile, and accounts cannot be
 shared between Privy subjects. The pilot supports EOA ownership proofs; contract wallets
-and Polymarket enrollment are unsupported. Lighter ownership comes from its fresh numeric
-account's L1 owner; it is never guessed from a Hyperliquid address. HL and Lighter networks
-remain independent. Multiple eligible profiles fail closed until the operator resolves them.
+and other-venue enrollment are unsupported. Lighter ownership comes from its fresh numeric
+account's L1 owner. Never infer it from another venue or network. Multiple eligible profiles
+fail closed until the operator resolves them.
 
 ## Execution and revocation
 
 The operator explicitly chooses `per_order` or `policy` in a private immutable profile.
 Both require a previously reviewed bounded broker policy. OAuth consent never creates a
 venue key or expands a budget. Lighter testnet key registration and scope authorization
-use the separate owner reviews described above. The app also offers a separate
-`Verdict Hosted` Hyperliquid agent approval when required.
+use the separate owner reviews described above. The active kit has no other-venue approval
+or execution path.
 
 `per_order` submits one exact order after independent browser authentication and confirmation.
 That browser must authenticate the original connection's subject and authorization reference;
-an MCP bearer cannot approve its own order. Policy mode can execute reviewed templates without
-another prompt, including sequential non-atomic pairs. The broker still enforces fresh
-preflight, budgets, account locks, grant identity/hash and durable send attempts.
+an MCP bearer cannot approve its own order. Explicit policy mode can execute a single
+Lighter order within its existing reviewed grant without another per-order prompt. The
+broker still enforces fresh preflight, budgets, account locks, grant identity/hash, and
+durable send attempts. Neither mode exposes paired trading.
 
 The `consumer_lighter` scope supports one Lighter testnet buy IOC at a time. Fresh markets
 must match the owner-reviewed creator scope and fresh binary-market metadata. Existing
@@ -136,15 +137,22 @@ independently. Compare bytes and pin the SDK commit when releasing both sides.
 
 ## Run and operate
 
-The current runtime uses Node 22.13+ on one persistent instance with a local filesystem. The authority takes
-an exclusive SQLite lock for its lifetime; a second writer fails closed. Do not run this
-stateful runtime unchanged as ephemeral Vercel functions or multiple replicas. The app relay can remain
-on Vercel. State files, markers and journals must survive process/container restarts.
-Missing, replaced, symlinked, permissive or corrupt state fails closed. Back up authority,
-jobs and broker state consistently; restoring an old backup can restore old authorization
-state and requires incident review and credential revocation before resuming.
+The runtime uses Node 22.13+. Choose a storage and signer deployment explicitly:
 
-The [container build](../examples/connector/Dockerfile.account-service) requires an explicitly
+- With `local` storage, use one persistent instance. The authority holds an exclusive
+  SQLite lock, and a second writer fails closed. Preserve state files, markers, and journals
+  across restarts. Do not deploy this local-storage configuration as ephemeral functions.
+- With provisioned `postgres` storage and a `hosted_signer`, the public authority can run
+  on Vercel. Staging uses a free Neon database and a separate private signer with restricted
+  database authority. Runtime processes never initialize missing schemas. Follow the
+  [deployment guide](../deploy/README.md) for role separation and explicit provisioning.
+
+Missing, replaced, symlinked, permissive, or corrupt local state fails closed. Back up
+public authority, jobs, and private broker state consistently. Restoring an old backup can
+restore old authorization and requires incident review and credential revocation before
+resuming.
+
+For the persistent local deployment, the [container build](../examples/connector/Dockerfile.account-service) requires an explicitly
 reviewed Node image digest. Build from a clean tracked checkout, without credentials or state
 in the build context. Run as the dedicated unprivileged broker UID, with a read-only
 root filesystem, dropped capabilities and `no-new-privileges`. Mount only a `0600` config,
