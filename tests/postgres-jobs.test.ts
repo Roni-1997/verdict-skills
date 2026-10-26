@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ExecutionStatus, LighterIntentPlan, prepareExecution } from '../packages/core/src/index.js';
@@ -10,6 +11,7 @@ const testDsn = process.env.VERDICT_TEST_POSTGRES;
 const now = Date.now();
 const stores: PostgresHostedJobs[] = [];
 const pools: Pool[] = [];
+const poolConnections = new Map<Pool, Set<Promise<void>>>();
 let admin: Pool;
 let database: Pool;
 let childUrl: string;
@@ -18,6 +20,35 @@ let databaseId: string;
 const childDatabase = `verdict_mcp_test_jobs_${randomUUID().replaceAll('-', '')}`;
 let created = false;
 
+function createPool(connectionString: string, max: number): Pool {
+  const pool = new Pool({ connectionString, max });
+  const connections = new Set<Promise<void>>();
+  poolConnections.set(pool, connections);
+  pool.on('connect', (client) => {
+    const ended = new Promise<void>((resolve) => {
+      client.once('end', () => { connections.delete(ended); resolve(); });
+    });
+    connections.add(ended);
+  });
+  return pool;
+}
+async function endPool(pool: Pool): Promise<void> {
+  const connections = poolConnections.get(pool);
+  if (!connections) return;
+  // pg-pool resolves end() after removing clients, before their sockets finish closing.
+  await pool.end();
+  await Promise.all(connections);
+  poolConnections.delete(pool);
+}
+async function waitForClosedChildConnections(): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    const result = await admin.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=$1', [childDatabase]);
+    if (result.rows[0].count === 0) return;
+    if (Date.now() >= deadline) throw new Error('Test-owned PostgreSQL connections did not close before database cleanup.');
+    await delay(10);
+  }
+}
 function safeLocalTestUrl(value: string): URL {
   const url = new URL(value);
   const host = url.searchParams.get('host') ?? url.hostname;
@@ -30,7 +61,7 @@ function safeLocalTestUrl(value: string): URL {
   return url;
 }
 function open(): PostgresHostedJobs {
-  const pool = new Pool({ connectionString: childUrl, max: 2 });
+  const pool = createPool(childUrl, 2);
   pools.push(pool);
   const store = new PostgresHostedJobs({ pool, deploymentId, databaseId });
   stores.push(store);
@@ -69,12 +100,12 @@ describe.skipIf(!testDsn)('PostgreSQL hosted jobs with real independent database
     if (!testDsn) throw new Error('Explicit local PostgreSQL test configuration is required.');
     const url = safeLocalTestUrl(testDsn);
     // The input DB is only a safety-checked administrative connection. Never mutate its schemas.
-    admin = new Pool({ connectionString: url.toString(), max: 1 });
+    admin = createPool(url.toString(), 1);
     await admin.query(`CREATE DATABASE ${childDatabase}`);
     created = true;
     url.pathname = `/${childDatabase}`;
     childUrl = url.toString();
-    database = new Pool({ connectionString: childUrl, max: 2 });
+    database = createPool(childUrl, 2);
     await database.query(POSTGRES_JOBS_DDL);
   }, 20_000);
 
@@ -85,13 +116,18 @@ describe.skipIf(!testDsn)('PostgreSQL hosted jobs with real independent database
 
   afterEach(async () => {
     await Promise.all(stores.splice(0).map((store) => store.close()));
-    await Promise.all(pools.splice(0).map((pool) => pool.end()));
+    await Promise.all(pools.splice(0).map(endPool));
   });
 
   afterAll(async () => {
-    await database?.end();
-    if (created) await admin.query(`DROP DATABASE ${childDatabase} WITH (FORCE)`);
-    await admin?.end();
+    try {
+      await Promise.all(stores.splice(0).map((store) => store.close()));
+      await Promise.all([...poolConnections.keys()].filter((pool) => pool !== admin).map(endPool));
+      if (created) {
+        await waitForClosedChildConnections();
+        await admin.query(`DROP DATABASE ${childDatabase}`);
+      }
+    } finally { if (admin) await endPool(admin); }
   });
 
   it('deduplicates concurrent creation and preserves the exact original authorization and expiry', async () => {
@@ -112,7 +148,7 @@ describe.skipIf(!testDsn)('PostgreSQL hosted jobs with real independent database
     const results = await Promise.all([first.claim(claim(job)), second.claim(claim(job))]);
     expect(results.map((result) => result.kind).sort()).toEqual(['already_attempted', 'claimed']);
     await first.close(); await second.close();
-    await Promise.all(pools.splice(0).map((pool) => pool.end()));
+    await Promise.all(pools.splice(0).map(endPool));
     const restarted = open();
     expect(await restarted.claim(claim(job, job.expiresAt + 1))).toMatchObject({ kind: 'already_attempted', job: { state: 'attempted', result: null } });
     await restarted.observe(job.id, observation(job, true));
