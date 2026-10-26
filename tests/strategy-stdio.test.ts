@@ -11,7 +11,7 @@ const bin = fileURLToPath(new URL('../packages/mcp/dist/bin.js', import.meta.url
 const open = (hl = 'testnet', lighter = 'devnet') => new StdioClientTransport({ command: process.execPath, args: [bin, '--strategy'], env: { VERDICT_NETWORK: hl, LIGHTER_NETWORK: lighter }, stderr: 'pipe' });
 
 it('built strategy MCP replays offline inputs and rejects conflicting modes', async () => {
-  const request = z.record(z.unknown()).parse(JSON.parse(readFileSync(new URL('../examples/strategy/assessment.json', import.meta.url), 'utf8')));
+  const request = z.record(z.string(), z.unknown()).parse(JSON.parse(readFileSync(new URL('../examples/strategy/assessment.json', import.meta.url), 'utf8')));
   const transport = open(); const client = new Client({ name: 'strategy-stdio-proof', version: '1' });
   try {
     await client.connect(transport);
@@ -21,8 +21,8 @@ it('built strategy MCP replays offline inputs and rejects conflicting modes', as
     const assessment = await client.callTool({ name: 'strategy_assess_pair', arguments: request });
     expect(assessment.isError).not.toBe(true);
     expect(assessment.structuredContent).toMatchObject({ kind: 'conditional_plan', liveReady: false, selectedDirection: 'hl_yes' });
-    const originalSnapshot = z.record(z.unknown()).parse(request.snapshot);
-    const originalHl = z.record(z.unknown()).parse(originalSnapshot.hl);
+    const originalSnapshot = z.record(z.string(), z.unknown()).parse(request.snapshot);
+    const originalHl = z.record(z.string(), z.unknown()).parse(originalSnapshot.hl);
     const invalidSides = { ...request, snapshot: { ...originalSnapshot, hl: { ...originalHl, sideNames: ['yes'] } } };
     expect((await client.callTool({ name: 'strategy_assess_pair', arguments: invalidSides })).isError).toBe(true);
     const paper = await client.callTool({ name: 'strategy_paper_pair', arguments: { ...request, direction: 'hl_yes', fills: { hl: '9', lighter: '0' } } });

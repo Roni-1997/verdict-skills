@@ -122,9 +122,9 @@ const ResearchResult = z
   .object({
     summary: z.string(),
     cards: z.array(z.unknown()),
-    externalMarkets: z.array(ExternalRef).default([]),
+    externalMarkets: z.array(ExternalRef).prefault([]),
     dataStatus: z.record(z.string(), z.string()),
-    errors: z.record(z.string(), z.unknown()).default({}),
+    errors: z.record(z.string(), z.unknown()).prefault({}),
     evidence: z.array(z.string()),
     optionsImplied: OptionsImplied.optional(),
     route: z.string(),

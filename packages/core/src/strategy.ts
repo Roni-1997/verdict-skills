@@ -59,7 +59,7 @@ export function createStrategyTools(options: StrategyOptions = {}) {
       if (side.bestAsk !== null && side.bestBid !== null && side.bestAsk < side.bestBid) throw new ToolError('HL returned a crossed book; obtain a fresh snapshot', 'upstream');
     }
     const levels = (i: 0 | 1) => book.sides[i].asks.map((l) => ({ price: String(l.px), shares: String(l.sz) }));
-    return source(PairedSnapshot.innerType().shape.hl, {
+    return source(PairedSnapshot.shape.hl, {
       network: cfg.network, outcome, title: m.displayName, rule: m.settlementRule, sideNames: [m.sides[0].name, m.sides[1].name],
       quoteToken: m.quoteToken, expiresAt: epoch(m.expiresAt), asks: { yes: levels(0), no: levels(1) },
       sourceAt: { yes: book.sides[0].time, no: book.sides[1].time }, clock: { requestedAt, receivedAt },
@@ -71,7 +71,7 @@ export function createStrategyTools(options: StrategyOptions = {}) {
     if (m.market_id !== market || BigInt(m.settlement_cap) !== 10n ** BigInt(m.price_decimals)) throw new ToolError('Lighter market identity or unit payout mismatch', 'upstream');
     const yes = b.asks.map((l) => ({ price: l.price, shares: l.shares }));
     const no = b.bids.map((l) => ({ price: amount(SCALE - units(source(StrategyDecimal, l.price))), shares: l.shares }));
-    return source(PairedSnapshot.innerType().shape.lighter, {
+    return source(PairedSnapshot.shape.lighter, {
       network: m.network, market, creator: m.creator, title: m.title, rule: m.settlementRule,
       startsAt: m.start_timestamp, expiresAt: m.end_timestamp, active: m.status === 'active' && !m.is_frozen,
       asks: { yes, no }, clock: { requestedAt, receivedAt }, sourceAt: null, depthTruncated: b.truncated,

@@ -30,14 +30,15 @@ export const ExecutionLeg = z.discriminatedUnion('venue', [
   }).strict(),
 ]);
 export type ExecutionLeg = z.infer<typeof ExecutionLeg>;
-const Legs = z.array(ExecutionLeg).min(1).max(2).pipe(z.union([z.tuple([ExecutionLeg]), z.tuple([ExecutionLeg, ExecutionLeg])]));
+const LegTuple = z.union([z.tuple([ExecutionLeg]), z.tuple([ExecutionLeg, ExecutionLeg])]);
+const Legs = z.array(ExecutionLeg).min(1).max(2).transform((legs) => LegTuple.parse(legs));
 const Review = z.object({
   relationship: z.enum(['same_event_same_orientation', 'same_event_reversed_orientation']),
   notes: z.string().min(20).max(5000),
 }).strict();
-const Policy = z.object({ maxTotalDebitUSDC: Positive, maxLegDebitUSDC: Positive, minConditionalProfitUSDC: Money.default('0') }).strict();
-export const ExecutionRequest = z.object({ legs: Legs, policy: Policy, settlementReview: Review.nullable().default(null),
-  validForSeconds: z.number().int().min(30).max(3600).default(300) }).strict();
+const Policy = z.object({ maxTotalDebitUSDC: Positive, maxLegDebitUSDC: Positive, minConditionalProfitUSDC: Money.prefault('0') }).strict();
+export const ExecutionRequest = z.object({ legs: Legs, policy: Policy, settlementReview: Review.nullable().prefault(null),
+  validForSeconds: z.number().int().min(30).max(3600).prefault(300) }).strict();
 const Epoch = z.number().int().nonnegative().max(8_640_000_000_000_000);
 const Payload = z.object({ version: z.literal(1), requestId: z.string().uuid(), createdAt: Epoch,
   expiresAt: Epoch, legs: Legs, policy: Policy, settlementReview: Review.nullable(),

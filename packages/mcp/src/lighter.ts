@@ -12,7 +12,7 @@ export function createLighterServer(tools: LighterTools = createLighterTools()):
 }
 
 export function registerLighterTools(server: McpServer, tools: LighterTools = createLighterTools(), metadata?: Record<string, unknown>): void {
-  function register(name: keyof LighterTools, schema: z.AnyZodObject, description: string) {
+  function register(name: keyof LighterTools, schema: z.ZodObject, description: string) {
     server.registerTool(`lighter_${name}`, {
       description,
       inputSchema: schema.shape,
@@ -21,7 +21,7 @@ export function registerLighterTools(server: McpServer, tools: LighterTools = cr
     }, async (value: unknown): Promise<CallToolResult> => {
       try {
         const result: unknown = await tools[name](value);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: z.record(z.unknown()).parse(result) };
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: z.record(z.string(), z.unknown()).parse(result) };
       } catch (e) {
         const error = e instanceof ToolError ? { error: e.code, message: e.message } : { error: 'internal', message: 'Lighter tool failed' };
         return { content: [{ type: 'text', text: JSON.stringify(error) }], isError: true };

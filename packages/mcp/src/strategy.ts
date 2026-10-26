@@ -21,7 +21,7 @@ export function registerStrategyTools(server: McpServer, tools: StrategyTools = 
     }, async (input: unknown) => {
       try {
         const result: unknown = await tools[name](input);
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }], structuredContent: z.record(z.unknown()).parse(result) };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }], structuredContent: z.record(z.string(), z.unknown()).parse(result) };
       } catch (e) {
         const error = e instanceof ToolError ? { error: e.code, message: e.message } : { error: 'upstream', message: 'Strategy tool failed (details hidden)' };
         return { content: [{ type: 'text' as const, text: JSON.stringify(error) }], isError: true };

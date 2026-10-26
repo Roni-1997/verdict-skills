@@ -17,6 +17,17 @@ const review = { relationship: 'same_event_same_orientation', notes: 'Operator c
 const request = (legs: unknown[] = [hl]) => ({ legs, policy, ...(legs.length === 2 ? { settlementReview: review } : {}) });
 
 describe('unsigned execution domain', () => {
+  it('keeps omitted safety defaults in the canonical review and rejects null or oversized requests', () => {
+    const now = 1792623100000;
+    const minimal = { legs: [hl], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } };
+    const prepared = prepareExecution(minimal, now, '0189d5e0-1c82-4be1-a667-f5fa7b430171');
+    expect(prepared.payload).toMatchObject({ createdAt: now, expiresAt: now + 300_000, settlementReview: null,
+      policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5', minConditionalProfitUSDC: '0' } });
+    expect(validateExecution(prepared)).toEqual(prepared);
+    expect(() => prepareExecution({ ...minimal, validForSeconds: null })).toThrow('Invalid execution');
+    expect(() => prepareExecution({ ...minimal, policy: { ...minimal.policy, minConditionalProfitUSDC: null } })).toThrow('Invalid execution');
+    for (const legs of [[], [hl, hl, hl]]) expect(() => prepareExecution({ ...minimal, legs })).toThrow('Invalid execution');
+  });
   it('preserves explicit Lighter testnet through canonical execution and linked account schemas', () => {
     const p = prepareExecution(request([{ ...lighter, network: 'testnet' }]));
     expect(validateExecution(p).payload.legs[0]).toMatchObject({ venue: 'lighter', network: 'testnet' });

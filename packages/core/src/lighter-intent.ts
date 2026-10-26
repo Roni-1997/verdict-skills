@@ -9,7 +9,7 @@ const Decimal = z.string().max(40).regex(/^\d{1,15}(?:\.\d{1,12})?$/);
 const Money = z.string().regex(/^\d{1,9}(?:\.\d{1,6})?$/).pipe(z.string().refine((v) => lighterTicks(v, 6) > 0n));
 export const LighterBuyIntent = z.object({
   intentId: z.string().uuid().transform((v) => v.toLowerCase()), market: Id, side: z.enum(['yes', 'no']),
-  maxSpendUSDC: Money, maxSlippageBps: z.number().int().min(0).max(500).default(50),
+  maxSpendUSDC: Money, maxSlippageBps: z.number().int().min(0).max(500).prefault(50),
   limitPrice: Decimal.optional(),
 }).strict();
 export type LighterBuyIntent = z.infer<typeof LighterBuyIntent>;

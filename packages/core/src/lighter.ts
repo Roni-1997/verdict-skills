@@ -26,14 +26,14 @@ export function lighterConfigFromEnv(env: Record<string, string | undefined> = p
 }
 
 export const LIGHTER_INPUTS = {
-  list_markets: z.object({ limit: Id.min(1).max(100).default(50), cursor: Id.optional(), includeExpired: z.boolean().default(false) }).strict(),
+  list_markets: z.object({ limit: Id.min(1).max(100).prefault(50), cursor: Id.optional(), includeExpired: z.boolean().prefault(false) }).strict(),
   get_market: z.object({ market: Id }).strict(),
-  orderbook: z.object({ market: Id, limit: Id.min(1).max(250).default(100) }).strict(),
+  orderbook: z.object({ market: Id, limit: Id.min(1).max(250).prefault(100) }).strict(),
   quote: z.object({ market: Id, side: z.enum(['yes', 'no']), action: z.enum(['buy', 'sell']), size: PositiveDecimal }).strict(),
-  recent_trades: z.object({ market: Id, limit: Id.min(1).max(100).default(50) }).strict(),
+  recent_trades: z.object({ market: Id, limit: Id.min(1).max(100).prefault(50) }).strict(),
   positions: z.object({ account: Id }).strict(),
   fee_schedule: z.object({}).strict(),
-  build_order: z.object({ market: Id, side: z.enum(['yes', 'no']), action: z.enum(['buy', 'sell']), price: PositiveDecimal, size: PositiveDecimal, clientOrderIndex: Id.max(2 ** 48 - 1), tif: z.enum(['gtc', 'ioc', 'post_only']).default('gtc') }).strict(),
+  build_order: z.object({ market: Id, side: z.enum(['yes', 'no']), action: z.enum(['buy', 'sell']), price: PositiveDecimal, size: PositiveDecimal, clientOrderIndex: Id.max(2 ** 48 - 1), tif: z.enum(['gtc', 'ioc', 'post_only']).prefault('gtc') }).strict(),
   build_cancel: z.object({ market: Id, clientOrderIndex: Id.max(2 ** 48 - 1) }).strict(),
 };
 

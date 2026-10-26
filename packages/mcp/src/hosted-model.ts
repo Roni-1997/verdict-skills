@@ -31,8 +31,8 @@ export type Binding = z.infer<typeof Binding>;
 export const HostedConfig = z.object({ publicOrigin: z.string().url(), issuer: z.string().url(),
   browserClientId: z.string().min(1), browserClientSecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
   stateDir: AbsolutePath, bindings: z.array(Binding).max(1000),
-  approvalTtlSeconds: z.number().int().min(30).max(900).default(300),
-  allowInsecureLocalhost: z.boolean().default(false),
+  approvalTtlSeconds: z.number().int().min(30).max(900).prefault(300),
+  allowInsecureLocalhost: z.boolean().prefault(false),
 }).strict().superRefine((config, context) => {
   for (const [field, value] of [['publicOrigin', config.publicOrigin], ['issuer', config.issuer]] as const) {
     const url = new URL(value);
@@ -55,7 +55,7 @@ export type HostedConfig = z.infer<typeof HostedConfig>;
 export type AuthConfig = Pick<HostedConfig, 'publicOrigin' | 'issuer' | 'browserClientId' | 'browserClientSecretEnv' | 'allowInsecureLocalhost'>;
 export const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const Job = z.object({ id: z.string().uuid(), owner: Digest, bindingHash: Digest,
-  authorization: AuthorityRef.nullable().default(null),
+  authorization: AuthorityRef.nullable().prefault(null),
   purpose: z.enum(['submit', 'cancel']), proposal: ExecutionProposal, leg: z.union([z.literal(0), z.literal(1)]).nullable(),
   expiresAt: z.number().int().nonnegative(), state: z.enum(['pending', 'attempted', 'observed', 'declined']),
   result: ExecutionStatus.nullable(),

@@ -11,7 +11,7 @@ const target = { venue: 'lighter', network: 'testnet', account: 99, apiKeyIndex:
 const events = JSON.parse(readFileSync(new URL('./fixtures/lighter/events.json', import.meta.url), 'utf8'));
 const event = z.object({ events: z.array(z.object({ event_id: z.number(), creator_account_index: z.number(), title: z.string(), description: z.string(), order_books: z.array(z.unknown()) })) }).parse(events).events[0];
 if (!event) throw new Error('missing fixture');
-const market = LighterMarket.parse({ ...z.record(z.unknown()).parse(event.order_books[0]), eventId: event.event_id,
+const market = LighterMarket.parse({ ...z.record(z.string(), z.unknown()).parse(event.order_books[0]), eventId: event.event_id,
   creator: event.creator_account_index, title: event.title, settlementRule: event.description, network: 'testnet' });
 function input() {
   return { intent: LighterBuyIntent.parse(intent), target: { ...target }, limits: { creators: [market.creator], maxOrderDebitUSDC: '20' },
