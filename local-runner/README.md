@@ -47,7 +47,7 @@ proposals, MCP configuration or journals.
 | Venue | Operator environment | Requirements |
 |---|---|---|
 | HL | `VERDICT_HL_AGENT_PRIVATE_KEY` | Dedicated agent approved for the proposal account/network; existing builder approval. Main wallet keys are refused. `allInFeeBpsCap` is operator-declared: the kit cannot verify the HIP-4 all-in rate from perp/spot tiers. |
-| Lighter | `VERDICT_LIGHTER_API_PRIVATE_KEY` | API key matching the confirmed account and key index; creator is explicitly bound in the proposal. Devnet chain 300 and mainnet 304 are passed explicitly. |
+| Lighter | `VERDICT_LIGHTER_API_PRIVATE_KEY` | API key matching the confirmed account and key index; creator is explicitly bound in the proposal. Devnet and testnet use separate hosts and account state on chain 300. Mainnet uses chain 304. |
 | Polymarket | `VERDICT_POLYMARKET_PRIVATE_KEY`, `VERDICT_POLYMARKET_DEPOSIT_WALLET`, `VERDICT_POLYMARKET_API_KEY`, `VERDICT_POLYMARKET_API_PASSPHRASE`, `VERDICT_POLYMARKET_API_SECRET` | Existing deployed deposit wallet and pre-existing API credentials/allowances. No automatic wallet deployment, credential creation, approvals or deposits. Owner/session keys retain the SDK's own order visibility rules. |
 
 Optional `VERDICT_NODE_BINARY` specifies an absolute Node 22 executable. Public Node child

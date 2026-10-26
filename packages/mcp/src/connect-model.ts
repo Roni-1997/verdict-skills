@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
-import { ConnectAccountView, ConnectId, ConnectReview } from './connect-contract.js';
+import { ConnectAccountView, ConnectId, ConnectReview, LighterScopePlan } from './connect-contract.js';
 import { AuthorityRef, Binding, HostedError, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
 
 export const opaque = () => randomBytes(32).toString('base64url');
@@ -12,13 +12,21 @@ const Time = z.number().int().nonnegative().safe();
 export const Profile = Binding.omit({ subject: true }).extend({ grantHash: z.string().regex(/^[a-f0-9]{64}$/) });
 export type Profile = z.infer<typeof Profile>;
 export const AccountServiceConfig = z.object({ publicOrigin: z.string().url(), appOrigin: z.string().url(),
-  appNetwork: z.enum(['mainnet', 'testnet']), privyAppId: z.string().min(1).max(256),
-  privyVerificationKey: z.string().min(50).max(8192), relaySecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  appNetwork: z.enum(['mainnet', 'testnet', 'lighter', 'lighter-testnet']), privyAppId: z.string().min(1).max(256),
+  privyVerificationKey: z.string().min(50).max(8192).optional(),
+  privyVerification: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('spki'), key: z.string().min(50).max(8192) }).strict(),
+    z.object({ kind: z.literal('jwks') }).strict(),
+  ]).optional(),
+  lighterProvisioner: z.object({ socketPath: z.string().refine(isAbsolute), brokerSocketRoot: z.string().refine(isAbsolute) }).strict().optional(),
+  relaySecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
   stateDir: z.string().refine(isAbsolute), gatewayJobsDir: z.string().refine(isAbsolute),
   profiles: z.array(Profile).max(1000), allowInsecureLocalhost: z.boolean().default(false),
   refreshTtlSeconds: z.number().int().min(600).max(2_592_000).default(86_400),
   approvalTtlSeconds: z.number().int().min(30).max(900).default(300),
 }).strict().superRefine((config, context) => {
+  if ((config.privyVerificationKey === undefined) === (config.privyVerification === undefined)) context.addIssue({ code: 'custom', message: 'Select exactly one pinned Privy verification method.' });
+  if (config.lighterProvisioner && config.appNetwork !== 'lighter-testnet') context.addIssue({ code: 'custom', message: 'Self-service Lighter pilot requires the explicit lighter-testnet app network.' });
   for (const field of ['publicOrigin', 'appOrigin'] as const) {
     const url = new URL(config[field]);
     const local = config.allowInsecureLocalhost && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -32,7 +40,7 @@ export const AccountServiceConfig = z.object({ publicOrigin: z.string().url(), a
     ids.add(profile.id); sockets.add(profile.brokerSocket);
     for (const account of profile.accounts) {
       const key = `${account.venue}:${account.network}:${account.account}`;
-      if (accounts.has(key) || (account.venue === 'hl' && account.network !== config.appNetwork)) context.addIssue({ code: 'custom', message: 'Accounts must be unique and HL must match the configured app network.' });
+      if (accounts.has(key) || (account.venue === 'hl' && ['mainnet', 'testnet'].includes(config.appNetwork) && account.network !== config.appNetwork)) context.addIssue({ code: 'custom', message: 'Accounts must be unique and HL must match an explicitly selected HL app network.' });
       accounts.add(key);
     }
   }
@@ -55,6 +63,9 @@ export const Transaction = z.object({ id: ConnectId, purpose: z.enum(['oauth', '
   reviewPath: z.string().nullable(), authorization: AuthorityRef.nullable(),
   subject: z.string().nullable(), appSession: z.string().nullable(), review: ConnectReview.nullable(),
   connection: ConnectAccountView.nullable(), receiptHash: z.string().nullable(),
+  lighter: z.object({ enrollmentId: z.string().uuid(), walletAddress: z.string(), proofReviewId: ConnectId,
+    plan: LighterScopePlan.nullable(), activatedProfileId: z.string().nullable(),
+  }).strict().nullable().default(null),
 }).strict();
 export type Transaction = z.infer<typeof Transaction>;
 export const failure = (code = 'invalid_connection') => new HostedError(400, code, 'Connection could not be verified. Start a new connection from the original agent.');

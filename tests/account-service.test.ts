@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportSPKI, generateKeyPair, SignJWT } from 'jose';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { recoverMessageAddress } from 'viem';
 import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -14,8 +16,9 @@ import { connectExecution, prepareExecution, type ExecutionConnectionInspection 
 import { AccountAuthority } from '../packages/mcp/src/connect-authority.js';
 import { createAccountService, readAccountServiceConfig } from '../packages/mcp/src/connect-http.js';
 import { AccountServiceConfig } from '../packages/mcp/src/connect-model.js';
-import { ConnectResponse, type ConnectRequest } from '../packages/mcp/src/connect-contract.js';
-import { READ_SCOPE, TRADE_SCOPE } from '../packages/mcp/src/hosted-model.js';
+import { ConnectResponse, LighterScopePlan, type ConnectRequest } from '../packages/mcp/src/connect-contract.js';
+import { Binding, READ_SCOPE, TRADE_SCOPE } from '../packages/mcp/src/hosted-model.js';
+import type { LighterProvisioner } from '../packages/mcp/src/lighter-provisioner.js';
 
 const wallet = privateKeyToAccount(generatePrivateKey());
 const otherWallet = privateKeyToAccount(generatePrivateKey());
@@ -35,6 +38,7 @@ let server: Server; let origin: string; let config: AccountServiceConfig;
 let authority: AccountAuthority; let service: Awaited<ReturnType<typeof createAccountService>>;
 let signing: Awaited<ReturnType<typeof generateKeyPair>>;
 let inspectOverride: ExecutionConnectionInspection | null = null;
+let provisionerOverride: Pick<LighterProvisioner, 'setup' | 'preview' | 'activate' | 'binding' | 'revoke'> | undefined;
 const clients: Client[] = [];
 
 class Agent implements OAuthClientProvider {
@@ -76,7 +80,7 @@ async function begin(agent = new Agent()) {
   expect(await auth(agent, { serverUrl: `${origin}/mcp`, scope: `${READ_SCOPE} ${TRADE_SCOPE}` })).toBe('REDIRECT');
   if (!agent.location) throw new Error('Missing SDK authorization URL');
   const browser = new Browser(); const start = await browser.fetch(agent.location.href); expect(start.status).toBe(303);
-  const location = new URL(start.headers.get('location') ?? ''); expect(location.origin).toBe(appOrigin); expect(location.searchParams.get('net')).toBe('testnet');
+  const location = new URL(start.headers.get('location') ?? ''); expect(location.origin).toBe(appOrigin); expect(location.searchParams.get('net')).toBe(config.appNetwork);
   const transaction = location.searchParams.get('transaction'); if (!transaction) throw new Error('Missing transaction');
   return { agent, browser, transaction };
 }
@@ -104,7 +108,7 @@ async function mcp(access: string) {
 }
 async function restart() {
   if (service) { server.removeListener('request', service.handle); service.close(); }
-  authority = await AccountAuthority.create(config, async (profile) => inspectOverride ?? (await connectExecution({ expectedMode: 'policy', expectedGrantId: profile.grantId, socketPath })).inspectConnection());
+  authority = await AccountAuthority.create(config, async (profile) => inspectOverride ?? (await connectExecution({ expectedMode: 'policy', expectedGrantId: profile.grantId, socketPath })).inspectConnection(), provisionerOverride);
   service = await createAccountService(config, authority); server.on('request', service.handle);
 }
 beforeAll(async () => {
@@ -129,7 +133,7 @@ beforeAll(async () => {
   process.env.VERDICT_CONNECT_TEST_SECRET = generatePrivateKey();
 }, 20_000);
 beforeEach(async () => {
-  state = await mkdtemp(join(directory, 'case-')); inspectOverride = null;
+  state = await mkdtemp(join(directory, 'case-')); inspectOverride = null; provisionerOverride = undefined;
   config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'testnet', privyAppId: 'test-privy-app', privyVerificationKey: await exportSPKI(signing.publicKey),
     relaySecretEnv: 'VERDICT_CONNECT_TEST_SECRET', stateDir: join(state, 'authority'), gatewayJobsDir: join(state, 'jobs'), allowInsecureLocalhost: true,
     profiles: [{ id: 'alice-profile', enabled: true, mode: 'per_order', brokerSocket: socketPath, grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash,
@@ -299,4 +303,92 @@ it('confirms an exact per-order request through independent product browser auth
   expect((await confirm()).status).toBe(200); expect((await confirm()).status).toBe(200);
   const status = await client.callTool({ name: 'execution_status', arguments: exact }); expect(status.structuredContent).toMatchObject({ state: 'complete' });
   const brokerClient = await connectExecution({ expectedMode: 'policy', socketPath }); expect((await brokerClient.capabilities()).authority).toMatchObject({ remainingOrders: 18 });
+});
+
+async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order') {
+  const enrollmentId = randomUUID(); const planId = randomUUID(); const revision = 'c'.repeat(64); const owner = wallet.address.toLowerCase();
+  const scope = { kind: 'consumer_lighter', version: 1, ownerWallet: owner, network: 'testnet', account: 42, apiKeyIndex: 5, creators: [7], mode,
+    maxOrderDebitUSDC: '10', origin, enrollmentId, epoch: 0 };
+  const plan = LighterScopePlan.parse({ planId, revision, enrollmentId, ownerWallet: owner, network: 'testnet', message: `Synthetic owner-approved ${mode} scope ${planId}; no real venue.`,
+    expiresAt: Date.now() + 120_000, scope, limits: { maxDebitUSDC: inspection.maxDebitUSDC, maxOrders: inspection.maxOrders,
+      expiresAt: inspection.authority.expiresAt, cancelOwnOrders: inspection.authority.cancelOwnOrders } });
+  const binding = Binding.parse({ id: planId, subject, enabled: true, mode, brokerSocket: socketPath,
+    grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash, accounts: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 5 }] });
+  let registered = false; let activated = false; let prepareCalls = 0;
+  const setup = () => ({ enrollmentId, revision, ownerWallet: owner, network: 'testnet' as const, account: 42, apiKeyIndex: 5, publicKey: `0x${'1'.repeat(80)}` });
+  provisionerOverride = {
+    async setup(input) {
+      if (input.subject !== subject) throw new Error('Wrong private owner');
+      if (input.operation === 'prepare') { if (input.walletAddress !== owner) throw new Error('Wrong wallet'); prepareCalls++; }
+      else if (input.enrollmentId !== enrollmentId) throw new Error('Wrong enrollment');
+      if (input.operation === 'register') {
+        if (input.revision !== revision || (await recoverMessageAddress({ message: 'Synthetic registration; no real native transaction.', signature: input.signature as `0x${string}` })).toLowerCase() !== owner) throw new Error('Invalid private owner proof');
+        registered = true;
+      }
+      return registered ? { ...setup(), state: 'ready' } : { ...setup(), state: 'signature_required', nonce: 0, chainId: 300, message: 'Synthetic registration; no real native transaction.', expiresAt: Date.now() + 120_000 };
+    },
+    async preview(id, enrollment) { if (id !== subject || enrollment !== enrollmentId) throw new Error('Wrong private owner'); return plan; },
+    async activate(input) {
+      if (input.subject !== subject || input.enrollmentId !== enrollmentId || input.planId !== planId || input.revision !== revision
+        || (await recoverMessageAddress({ message: plan.message, signature: input.signature as `0x${string}` })).toLowerCase() !== owner) throw new Error('Wrong private scope proof');
+      activated = true; return binding;
+    },
+    async binding(id) { return id === subject && activated ? binding : null; },
+    async revoke() { activated = false; return { revoked: true }; },
+  };
+  const linked = binding.accounts[0]; if (!linked) throw new Error('Missing fixture linked account');
+  inspectOverride = { ...inspection, templates: [], scope: plan.scope, accounts: [{ account: linked, ownerWallet: owner, agentAddress: null,
+    checks: { registration: 'ready', builder: 'ready' }, checkedAt: Date.now(), notes: ['Inert inspection fixture; no real registration or order.'] }] };
+  config = AccountServiceConfig.parse({ ...config, profiles: [], appNetwork: 'lighter-testnet', lighterProvisioner: { socketPath: join(state, 'control.sock'), brokerSocketRoot: directory } });
+  await restart(); return { enrollmentId, plan, binding, prepareCalls: () => prepareCalls };
+}
+
+it.each(['per_order', 'policy'] as const)('self-service %s enrollment binds owner proofs, stored scope and original OAuth client without model-selected accounts', async (mode) => {
+  const fixture = await consumerFixture(mode); const flow = await begin(); const accessToken = await identity();
+  const review = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (review.kind !== 'review') throw new Error('Missing owner review'); expect(review.connection.kind).toBe('read_only');
+  const proof = await wallet.signMessage({ message: review.message });
+  const setupRequest = { operation: 'lighter_setup', transaction: flow.transaction, accessToken, reviewId: review.reviewId, signature: proof } as const;
+  expect((await relay({ ...setupRequest, signature: await otherWallet.signMessage({ message: review.message }) })).status).toBe(400);
+  expect(fixture.prepareCalls()).toBe(0);
+  const setup = await result(setupRequest); expect(setup).toMatchObject({ kind: 'lighter_setup', state: { kind: 'owner_signature' } });
+  expect((await relay({ operation: 'lighter_status', transaction: flow.transaction, accessToken: await identity('did:privy:bob') })).status).toBe(400);
+  expect((await relay({ operation: 'lighter_status', transaction: flow.transaction, accessToken }, { 'x-verdict-app-session': 'b'.repeat(64) })).status).toBe(400);
+  if (setup.kind !== 'lighter_setup' || setup.state.kind !== 'owner_signature') throw new Error('Missing registration');
+  const registration = setup.state.registration;
+  const scoped = await result({ operation: 'lighter_register', transaction: flow.transaction, accessToken, enrollmentId: registration.enrollmentId,
+    revision: registration.revision, signature: await wallet.signMessage({ message: registration.message }) });
+  if (scoped.kind !== 'lighter_setup' || scoped.state.kind !== 'scope_signature') throw new Error('Missing scope');
+  const plan = scoped.state.plan;
+  expect(plan.scope).toMatchObject({ mode, account: 42, apiKeyIndex: 5, origin });
+  expect((await relay({ operation: 'lighter_activate', transaction: flow.transaction, accessToken, enrollmentId: plan.enrollmentId,
+    planId: randomUUID(), revision: plan.revision, signature: await wallet.signMessage({ message: plan.message }) })).status).toBe(400);
+  const activated = await result({ operation: 'lighter_activate', transaction: flow.transaction, accessToken, enrollmentId: plan.enrollmentId,
+    planId: plan.planId, revision: plan.revision, signature: await wallet.signMessage({ message: plan.message }) });
+  expect(activated).toMatchObject({ state: { kind: 'ready', connection: { kind: 'executable', mode, policy: { scope: { kind: 'consumer_lighter' }, templates: [] } } } });
+  const { completion } = await consent(flow.transaction, accessToken); const callback = await flow.browser.fetch(completion.completionUrl);
+  const code = new URL(callback.headers.get('location') ?? '').searchParams.get('code'); if (!code) throw new Error('Missing native OAuth code');
+  expect(await auth(flow.agent, { serverUrl: `${origin}/mcp`, authorizationCode: code })).toBe('AUTHORIZED');
+  expect(flow.agent.saved?.scope).toContain(TRADE_SCOPE);
+  await restart(); expect(authority.binding(subject)).toEqual(fixture.binding);
+  const status = await result({ operation: 'status', accessToken }); expect(status).toMatchObject({ connection: { kind: 'executable', mode } });
+  if (status.kind !== 'connections' || !flow.agent.saved) throw new Error('Missing current connection');
+  await result({ operation: 'disconnect', accessToken, connectionId: status.connections[0]?.id ?? '' });
+  await expect(authority.authenticate(`Bearer ${flow.agent.saved.access_token}`, READ_SCOPE)).rejects.toMatchObject({ code: 'invalid_token' });
+});
+
+it('does not let an independently signed-in same-subject client approve another connection’s order', async () => {
+  const original = await connect(); const originalClient = await mcp(original.tokens.access_token); const first = prepareExecution(request);
+  const requested = await originalClient.callTool({ name: 'execution_submit', arguments: first });
+  const firstPath = new URL((requested.structuredContent as { approvalUrl: string }).approvalUrl).pathname;
+  const other = await connect(); const otherClient = await mcp(other.tokens.access_token); const second = prepareExecution(request);
+  const secondPending = await otherClient.callTool({ name: 'execution_submit', arguments: second });
+  const secondPath = new URL((secondPending.structuredContent as { approvalUrl: string }).approvalUrl).pathname;
+  const browser = new Browser(); const start = await browser.fetch(secondPath); const transaction = new URL(start.headers.get('location') ?? '').searchParams.get('transaction') ?? '';
+  const { completion } = await consent(transaction, await identity()); await browser.fetch(completion.completionUrl);
+  const html = await (await browser.fetch(secondPath)).text(); const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? '';
+  const before = await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities();
+  const denied = await browser.fetch(firstPath, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, decision: 'confirm' }) });
+  expect(denied.status).toBe(403); expect(await denied.json()).toMatchObject({ error: 'review_connection_required' });
+  expect((await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities()).authority).toEqual(before.authority);
 });

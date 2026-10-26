@@ -91,7 +91,7 @@ function check(p: ExecutionProposal['payload']): void {
     if (profit <= 0n || profit < units(p.policy.minConditionalProfitUSDC)) throw new ToolError('Worst-limit conditional payoff does not clear the required profit after fee reserves', 'bad_input');
   } else if (p.settlementReview !== null) throw new ToolError('Settlement pair review applies only to two-leg requests', 'bad_input');
 }
-export function prepareExecution(value: unknown, now = Date.now(), requestId = randomUUID()): ExecutionProposal {
+export function prepareExecution(value: unknown, now = Date.now(), requestId: string = randomUUID()): ExecutionProposal {
   const p = parse(ExecutionRequest, value);
   const payload = parse(Payload, { version: 1, requestId, createdAt: now, expiresAt: now + p.validForSeconds * 1000, legs: p.legs, policy: p.policy, settlementReview: p.settlementReview, pairMode: 'sequential_full_first' });
   check(payload);
@@ -102,7 +102,7 @@ export function validateExecution(value: unknown): ExecutionProposal {
   if (executionDigest(p.payload) !== p.digest) throw new ToolError('Execution proposal changed; prepare it again and obtain new confirmation', 'bad_input');
   return p;
 }
-export function executionConfirmation(value: unknown) {
+export function executionConfirmation(value: unknown, environment: 'local' | 'hosted' = 'local') {
   const p = validateExecution(value);
   return { ...p, confirmation: [
     ...p.payload.legs.flatMap((l, i) => [
@@ -115,8 +115,10 @@ export function executionConfirmation(value: unknown) {
     `Policy: total debit cap ${p.payload.policy.maxTotalDebitUSDC}, per-leg debit cap ${p.payload.policy.maxLegDebitUSDC}, minimum conditional profit ${p.payload.policy.minConditionalProfitUSDC} USDC.`,
     ...(p.payload.settlementReview ? [`Operator settlement hypothesis ${p.payload.settlementReview.relationship}: ${p.payload.settlementReview.notes}`] : []),
     ...(p.payload.legs.length === 2 ? ['Non-atomic sequential execution: each order needs its own separate operator approval. The second order is sent only after a confirmed complete first fill, its own approval and fresh preflight. Declining the second order, or partial, uncertain or failed fills, can leave exposed inventory. Recovery orders require separate confirmation.'] : []),
-    'UNSIGNED. No account eligibility, balance, fee, contract-equivalence or fill guarantee. The local broker rechecks venue metadata, permissions and balances before signing. Fees are reserved estimates, not venue-enforced limits.',
-    `Digest ${p.digest}. In per-order mode, show all lines, end the message and wait for a real new reply; each order also needs exact operator-terminal confirmation. Policy mode requires a previously approved bounded operator grant. A digest identifies content, not authority. Only the operator-owned local broker may sign.`,
+    `UNSIGNED. No account eligibility, balance, fee, contract-equivalence or fill guarantee. The ${environment === 'hosted' ? 'private hosted' : 'local'} broker rechecks venue metadata, permissions and balances before signing. Fees are reserved estimates, not venue-enforced limits.`,
+    environment === 'hosted'
+      ? `Digest ${p.digest}. In per-order mode only the independently signed-in review page can approve this exact order; neither the agent nor an MCP tool can approve it. Policy mode requires an explicitly selected, previously owner-approved bounded grant. Venue keys are held by the private hosted signer and are not exposed to your agent. Broker limits are application controls; Lighter API keys have broader venue powers. A digest identifies content, not authority.`
+      : `Digest ${p.digest}. In per-order mode, show all lines, end the message and wait for a real new reply; each order also needs exact operator-terminal confirmation. Policy mode requires a previously approved bounded operator grant. A digest identifies content, not authority. Only the operator-owned local broker may sign.`,
   ] };
 }
 export function executionCapabilities() {

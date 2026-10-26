@@ -235,7 +235,7 @@ LIGHTER_NETWORKS = {
 
 
 class Lighter:
-    def __init__(self, leg, *, signer=None, bridge=node_call):
+    def __init__(self, leg, *, signer=None, bridge=node_call, api_private_key=None):
         network = leg.get("network")
         if not isinstance(network, str) or network not in LIGHTER_NETWORKS:
             raise BrokerError("Lighter network must be devnet, testnet or mainnet")
@@ -255,7 +255,7 @@ class Lighter:
                         broker_adapter.before_transport()
                     return await super().send_tx(tx_type=tx_type, tx_info=tx_info)
             return DeadlineSigner(url=self.host, account_index=leg["account"], chain_id=chain_id,
-                                        api_private_keys={leg["apiKeyIndex"]: secret("VERDICT_LIGHTER_API_PRIVATE_KEY")})
+                                        api_private_keys={leg["apiKeyIndex"]: api_private_key if api_private_key is not None else secret("VERDICT_LIGHTER_API_PRIVATE_KEY")})
         self.signer = signer or self.loop.run_until_complete(create())
         self.orders = lighter.OrderApi(self.signer.api_client)
         self.bridge = bridge
@@ -316,10 +316,21 @@ class Lighter:
                              "--price", leg["limitPrice"], "--size", leg["shares"], "--tif", leg["tif"],
                              "--client-order-index", str(int(client_id[:12], 16))], self.env(leg))
         m = built["market"]
+        if (m.get("market_id") != leg["market"] or m.get("network") != leg["network"]
+                or m.get("market_type") != "binary_options" or m.get("status") != "active" or m.get("is_frozen") is not False
+                or type(m.get("start_timestamp")) is not int or type(m.get("end_timestamp")) is not int
+                or not m["start_timestamp"] <= time.time() * 1000 < m["end_timestamp"]
+                or type(m.get("price_decimals")) is not int or not 0 <= m["price_decimals"] <= 12
+                or m.get("settlement_cap") != 10 ** m["price_decimals"]):
+            raise BrokerError("Fresh Lighter binary market identity or trading window is unsupported")
         if m["creator"] != leg["creator"]:
             raise BrokerError("Lighter creator changed")
         check_rule(leg, m["title"], m["settlementRule"])
         book = self.bridge(["lighter", "book", str(leg["market"])], self.env(leg))
+        immutable = ("market_id", "network", "creator", "title", "settlementRule", "status", "is_frozen", "start_timestamp", "end_timestamp",
+                     "price_decimals", "size_decimals", "settlement_cap", "taker_fee", "maker_fee", "is_taker_fee_enabled", "is_maker_fee_enabled")
+        if any(book.get("market", {}).get(key) != m.get(key) for key in immutable):
+            raise BrokerError("Fresh Lighter book metadata changed after proposal validation")
         takes_ask = (leg["side"] == "yes") == (leg["action"] == "buy")
         levels = book["asks" if takes_ask else "bids"]
         check_depth(leg, [(D(l["price"]) if leg["side"] == "yes" else 1 - D(l["price"]), l["shares"]) for l in levels])
@@ -334,7 +345,9 @@ class Lighter:
         if active.code != 200 or active.orders:
             raise BrokerError("Lighter market has other open orders; cancel/reconcile them separately")
         rate = max(D(m["taker_fee"]) if m["is_taker_fee_enabled"] else D(0), D(m["maker_fee"]) if m["is_maker_fee_enabled"] else D(0)) / 100
-        return Preflight(str(owned), str(cash), fee_round(D(leg["shares"]) * rate / 4), built["sdkArgs"], started)
+        if not rate.is_finite() or not 0 <= rate <= 1:
+            raise BrokerError("Fresh Lighter fee coefficient is unsupported")
+        return Preflight(str(owned), str(cash), fee_round(D(leg["shares"]) * rate / 4), built["sdkArgs"], started, m["end_timestamp"] / 1000)
 
     def submit(self, leg, client_id, preflight):
         self.deadline = send_deadline(preflight)

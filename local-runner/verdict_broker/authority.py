@@ -7,6 +7,7 @@ import re
 import time
 import uuid
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 from .core import BrokerError, D, account_key, node_call
 
@@ -51,6 +52,14 @@ def _debit(proposal):
                 if l["action"] == "buy" else 0) + _units(l["feeReserveUSDC"]) for l in proposal["payload"]["legs"])
 
 
+def _reservation_debit(grant, proposal):
+    if grant.get("kind") != "consumer_lighter":
+        return _debit(proposal)
+    # USDC charged units: round notional AND fee up independently, never use floats.
+    return sum((((_units(l["shares"]) * _units(l["limitPrice"]) + 10**18 - 1) // 10**18)
+                + (_units(l["feeReserveUSDC"]) + 10**6 - 1) // 10**6) * 10**6 for l in proposal["payload"]["legs"])
+
+
 def _matches(proposal, template):
     p, t = proposal["payload"], template["payload"]
     if len(p["legs"]) != len(t["legs"]) or p["pairMode"] != t["pairMode"] or p["settlementReview"] != t["settlementReview"]:
@@ -67,8 +76,72 @@ def _matches(proposal, template):
             and D(p["policy"]["minConditionalProfitUSDC"]) >= D(t["policy"]["minConditionalProfitUSDC"]))
 
 
+def consumer_scope(value):
+    keys = {"kind", "version", "ownerWallet", "network", "account", "apiKeyIndex", "creators", "mode",
+            "maxOrderDebitUSDC", "origin", "enrollmentId", "epoch"}
+    if not isinstance(value, dict) or set(value) != keys:
+        raise BrokerError("Invalid consumer scope")
+    address = value["ownerWallet"]
+    if (value["kind"] != "consumer_lighter" or type(value["version"]) is not int or value["version"] != 1
+            or not isinstance(address, str) or not re.fullmatch(r"0x[0-9a-f]{40}", address) or address == "0x" + "0" * 40
+            or value["network"] != "testnet" or type(value["account"]) is not int or not 0 <= value["account"] <= 9_007_199_254_740_991
+            or type(value["apiKeyIndex"]) is not int or not 5 <= value["apiKeyIndex"] <= 254
+            or value["mode"] not in {"per_order", "policy"} or type(value["epoch"]) is not int or not 0 <= value["epoch"] <= 9_007_199_254_740_991):
+        raise BrokerError("Invalid consumer target")
+    creators = value["creators"]
+    if (not isinstance(creators, list) or not 1 <= len(creators) <= 64
+            or any(type(c) is not int or not 0 <= c <= 9_007_199_254_740_991 for c in creators)
+            or len(set(creators)) != len(creators)):
+        raise BrokerError("Consumer creators must be explicit unique account indices")
+    _id(value["enrollmentId"])
+    origin = urlsplit(value["origin"])
+    if origin.scheme != "https" or not origin.hostname or origin.username or origin.password or origin.path or origin.query or origin.fragment:
+        raise BrokerError("Consumer origin must be a fixed HTTPS origin")
+    _money(value["maxOrderDebitUSDC"], positive=True)
+    return value
+
+
+def consumer_message(grant, subject, plan_id):
+    limits = {k: grant[k] for k in ("maxDebitUSDC", "maxOrders", "expiresAt", "cancelOwnOrders")}
+    return ("Authorize Verdict hosted trading\nPlan: " + _id(plan_id) + "\nRevision: " + grant["grantHash"]
+            + "\nScope: " + json.dumps(grant["scope"], sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            + "\nLimits: " + json.dumps(limits, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            + "\nThis authorizes the displayed hosted custody, execution mode and finite trading limits. No withdrawal or transfer API is exposed.")
+
+
+def recover_owner(message, signature):
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+    if not isinstance(signature, str) or not re.fullmatch(r"0x[0-9a-fA-F]{130}", signature):
+        raise BrokerError("Invalid owner signature")
+    try:
+        return Account.recover_message(encode_defunct(text=message), signature=signature).lower()
+    except Exception:
+        raise BrokerError("Owner signature could not be verified") from None
+
+
+def issue_consumer_grant(store, grant, *, subject, plan_id, signature):
+    """Only a privately persisted exact plan can call this; no approving callback."""
+    _manifest(grant)
+    if grant.get("kind") != "consumer_lighter" or recover_owner(consumer_message(grant, subject, plan_id), signature) != grant["scope"]["ownerWallet"]:
+        raise BrokerError("Owner did not authorize the exact consumer scope")
+    with store.authority_locked():
+        grants, _ = _ledger(store)
+        if grant["grantId"] in grants:
+            if grants[grant["grantId"]] != grant:
+                raise BrokerError("Consumer grant changed")
+            return grant
+        store.write_once(f"scope-proof-{grant['grantId']}.json", {"subject": subject, "planId": plan_id, "signature": signature})
+        store.write_once(f"grant-{grant['grantId']}.json", {"grantId": grant["grantId"], "grantHash": grant["grantHash"]})
+        store.append("authority", {"type": "grant_issued", "grant": grant})
+    return grant
+
+
 def _manifest(value):
     keys = {"grantId", "grantHash", "issuedAt", "expiresAt", "templates", "maxDebitUSDC", "maxOrders", "cancelOwnOrders"}
+    consumer = isinstance(value, dict) and value.get("kind") == "consumer_lighter"
+    if consumer:
+        keys = (keys - {"templates"}) | {"kind", "scope"}
     if not isinstance(value, dict) or set(value) != keys:
         raise BrokerError("Grant registry corrupt")
     _id(value["grantId"])
@@ -77,7 +150,13 @@ def _manifest(value):
     if (type(value["issuedAt"]) is not int or type(value["expiresAt"]) is not int
             or value["issuedAt"] < 0 or not value["issuedAt"] < value["expiresAt"] <= 8_640_000_000_000_000
             or type(value["maxOrders"]) is not int or not 1 <= value["maxOrders"] <= 1_000_000
-            or type(value["cancelOwnOrders"]) is not bool or not isinstance(value["templates"], list) or not 1 <= len(value["templates"]) <= 32):
+            or type(value["cancelOwnOrders"]) is not bool):
+        raise BrokerError("Grant registry corrupt")
+    if consumer:
+        consumer_scope(value["scope"])
+        if _money(value["scope"]["maxOrderDebitUSDC"], positive=True) > _money(value["maxDebitUSDC"], positive=True):
+            raise BrokerError("Consumer per-order cap exceeds total")
+    elif not isinstance(value["templates"], list) or not 1 <= len(value["templates"]) <= 32:
         raise BrokerError("Grant registry corrupt")
     _money(value["maxDebitUSDC"], positive=True)
     return value
@@ -237,7 +316,7 @@ class PolicyAuthority:
     def describe(self):
         grant, reservations = self._load()
         usage = [r for r in reservations.values() if r["grantId"] == self.grant_id]
-        accounts = {account_key(l) for t in grant["templates"] for l in t["payload"]["legs"]}
+        accounts = self._accounts(grant)
         risk = "revoked" if self._revoked(grant) else "expired" if self.clock() * 1000 >= grant["expiresAt"] else "unresolved" if self.store.unresolved_accounts() & accounts else "active"
         return {"mode": "policy", "grantId": self.grant_id, "grantHash": grant["grantHash"], "expiresAt": grant["expiresAt"], "newRisk": risk,
                 "remainingDebitUSDC": _amount(_units(grant["maxDebitUSDC"]) - sum(_units(r["debitUSDC"]) for r in usage)),
@@ -246,6 +325,8 @@ class PolicyAuthority:
     def inspection_manifest(self):
         """Saved public scope only; callers hold the authority lock."""
         grant, _ = self._load()
+        if grant.get("kind") == "consumer_lighter":
+            return {"maxDebitUSDC": grant["maxDebitUSDC"], "maxOrders": grant["maxOrders"], "templates": [], "scope": grant["scope"]}
         templates = [node_call(["execution", "validate", "--input", json.dumps(p, ensure_ascii=False)]) for p in grant["templates"]]
         if templates != grant["templates"]:
             raise BrokerError("Saved grant templates are not canonical")
@@ -255,7 +336,15 @@ class PolicyAuthority:
         grant, reservations = self._load()
         if self._revoked(grant) or self.clock() * 1000 >= grant["expiresAt"]:
             raise BrokerError("Grant expired or revoked; no new risk authorized")
-        if not any(_matches(proposal, template) for template in grant["templates"]):
+        if grant.get("kind") == "consumer_lighter":
+            scope = grant["scope"]
+            legs = proposal["payload"]["legs"]
+            if (len(legs) != 1 or any(legs[0].get(k) != v for k, v in {
+                    "venue": "lighter", "network": scope["network"], "account": scope["account"], "apiKeyIndex": scope["apiKeyIndex"],
+                    "action": "buy", "tif": "ioc"}.items()) or legs[0].get("creator") not in scope["creators"]
+                    or _reservation_debit(grant, proposal) > _units(scope["maxOrderDebitUSDC"])):
+                raise BrokerError("Proposal exceeds owner-reviewed consumer scope")
+        elif not any(_matches(proposal, template) for template in grant["templates"]):
             raise BrokerError("Proposal exceeds the operator-reviewed template scope")
         accounts = {account_key(l) for l in proposal["payload"]["legs"]}
         if accounts & self.store.unresolved_accounts(exclude_digest=proposal["digest"]):
@@ -266,9 +355,24 @@ class PolicyAuthority:
                 raise BrokerError("Proposal reservation belongs to another grant")
         else:
             usage = [r for r in reservations.values() if r["grantId"] == self.grant_id]
-            if (sum(_units(r["debitUSDC"]) for r in usage) + _debit(proposal) > _units(grant["maxDebitUSDC"])
+            if (sum(_units(r["debitUSDC"]) for r in usage) + _reservation_debit(grant, proposal) > _units(grant["maxDebitUSDC"])
                     or sum(r["orders"] for r in usage) + len(proposal["payload"]["legs"]) > grant["maxOrders"]):
                 raise BrokerError("Cumulative operator debit/order budget exceeded")
+
+    def _accounts(self, grant):
+        if grant.get("kind") == "consumer_lighter":
+            return {account_key({"venue": "lighter", **grant["scope"]})}
+        return {account_key(l) for t in grant["templates"] for l in t["payload"]["legs"]}
+
+    def verify_connection(self, leg, inspection):
+        grant, _ = self._load()
+        if grant.get("kind") == "consumer_lighter" and (inspection.get("ownerWallet") != grant["scope"]["ownerWallet"]
+                or inspection.get("checks", {}).get("registration") != "ready"):
+            raise BrokerError("Consumer account owner or key registration changed")
+
+    def expected_owner(self):
+        grant, _ = self._load()
+        return grant["scope"]["ownerWallet"] if grant.get("kind") == "consumer_lighter" else None
 
     def reserved(self, proposal):
         _, reservations = self._load()
@@ -279,7 +383,7 @@ class PolicyAuthority:
         grant, reservations = self._load()
         if proposal["digest"] in reservations:
             raise BrokerError("Existing reservation without an attempt; reconcile manually, never resume")
-        debit, orders = _debit(proposal), len(proposal["payload"]["legs"])
+        debit, orders = _reservation_debit(grant, proposal), len(proposal["payload"]["legs"])
         self.store.append("authority", {"type": "reserved", "grantId": self.grant_id, "grantHash": grant["grantHash"],
                                       "proposalDigest": proposal["digest"], "debitUSDC": _amount(debit), "orders": orders})
         self.store.append(proposal["digest"], {"type": "policy_reserved", "grantId": self.grant_id, "grantHash": grant["grantHash"]})

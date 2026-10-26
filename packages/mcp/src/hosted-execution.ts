@@ -63,7 +63,7 @@ export class HostedExecution {
     return actual;
   }
 
-  private grant(capabilities: LocalExecutionCapabilities | ExecutionPreflight, context: Context): void {
+  private grant(capabilities: Pick<LocalExecutionCapabilities | ExecutionPreflight, 'authority'>, context: Context): void {
     if (capabilities.authority.mode !== 'policy' || capabilities.authority.grantId !== context.binding.grantId
       || (context.binding.grantHash !== undefined && capabilities.authority.grantHash !== context.binding.grantHash)) {
       throw new HostedError(503, 'broker_authority_mismatch', 'The operator trading policy does not match this linked account.');
@@ -71,6 +71,8 @@ export class HostedExecution {
   }
 
   private async client(principal: Principal, context: Context, scope: ConnectorScope): Promise<ExecutionClient> {
+    this.current(principal, context, scope);
+    await this.runtime?.ensureBinding?.(principal);
     this.current(principal, context, scope);
     const client = await this.connect({ expectedMode: 'policy', expectedGrantId: context.binding.grantId, socketPath: context.binding.brokerSocket });
     this.current(principal, context, scope);
@@ -162,10 +164,26 @@ export class HostedExecution {
     return proposal;
   }
 
+  async intentContext(principal: Principal) {
+    const context = this.context(principal, READ_SCOPE); const client = await this.client(principal, context, READ_SCOPE);
+    const inspection = await client.inspectConnection(); this.current(principal, context, READ_SCOPE);
+    if (!('scope' in inspection) || inspection.scope.kind !== 'consumer_lighter' || inspection.scope.mode !== context.binding.mode
+      || inspection.scope.origin !== this.config.publicOrigin || inspection.accounts.length !== 1) throw new HostedError(403, 'consumer_connection_required', 'Connect a reviewed hosted Lighter account before preparing a budget-based trade.');
+    const account = context.binding.accounts[0]; const verified = inspection.accounts[0]?.account;
+    if (account?.venue !== 'lighter' || !verified || JSON.stringify(account) !== JSON.stringify(verified)
+      || account.account !== inspection.scope.account || account.network !== inspection.scope.network || account.apiKeyIndex !== inspection.scope.apiKeyIndex) throw new HostedError(503, 'broker_authority_mismatch', 'The hosted Lighter scope does not match this account.');
+    this.grant(inspection, context);
+    const readiness = inspection.accounts[0];
+    const accountReady = readiness !== undefined && readiness.ownerWallet === inspection.scope.ownerWallet && readiness.checks.registration === 'ready'
+      && readiness.checks.builder === 'ready' && readiness.checkedAt >= Date.now() - 60_000 && readiness.checkedAt <= Date.now() + 5000;
+    return { account, scope: inspection.scope, bindingHash: context.bindingHash, authorityExpiresAt: inspection.authority.expiresAt,
+      authorityRisk: inspection.authority.newRisk, accountReady };
+  }
+
   async review(principal: Principal, value: unknown): Promise<ReturnType<typeof executionConfirmation>> {
     const context = this.context(principal, READ_SCOPE); const proposal = this.proposal(value);
     this.accountsMatch(context, proposal);
-    return executionConfirmation(proposal);
+    return executionConfirmation(proposal, 'hosted');
   }
 
   async preflight(principal: Principal, value: unknown): Promise<ExecutionPreflight> {
@@ -248,7 +266,10 @@ export class HostedExecution {
   async reviewJob(principal: Principal, id: string): Promise<Job> {
     const context = this.context(principal, READ_SCOPE); const job = this.jobs.get(id);
     if (!job || job.owner !== context.owner) throw new HostedError(404, 'order_not_found', 'This order request is unavailable.');
-    this.checkJob(job, context); return job;
+    this.checkJob(job, context);
+    if (job.authorization && (!principal.authorization || JSON.stringify(job.authorization) !== JSON.stringify(principal.authorization))) throw new HostedError(403, 'review_connection_required', 'Sign in for the original agent connection to review this order.');
+    this.runtime?.assertJobActive(job);
+    return job;
   }
 
   async confirm(principal: Principal, id: string): Promise<HostedMutation> {

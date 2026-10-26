@@ -1,17 +1,18 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Response } from 'express';
-import { importSPKI, jwtVerify } from 'jose';
 import { recoverMessageAddress } from 'viem';
 import { z } from 'zod';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, InvalidTargetError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { OAuthClientInformationFullSchema, type OAuthClientInformationFull, type OAuthTokenRevocationRequest, type OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { connectExecution, ExecutionConnectionInspection, executionConfirmation, validateExecution } from '@verdict/core';
-import { CONNECT_PROTOCOL, ConnectAccountView, ConnectRequest, ConnectResponse, ConnectTransactionView } from './connect-contract.js';
-import { AccountServiceConfig, Browser, Code, Credential, Enrollment, Grant, Transaction, failure, hash, opaque, ownerHash, type Profile } from './connect-model.js';
+import { CONNECT_PROTOCOL, ConnectAccountView, ConnectAddress, ConnectRequest, ConnectResponse, ConnectTransactionView, LighterSetup, type LighterSetupState } from './connect-contract.js';
+import { AccountServiceConfig, Browser, Code, Credential, Enrollment, Grant, Transaction, Profile, failure, hash, opaque, ownerHash } from './connect-model.js';
 import { ConnectStore } from './connect-store.js';
 import { Binding, HostedError, Principal, READ_SCOPE, TRADE_SCOPE, requireScope, type BrowserSession, type ConnectorScope, type Job } from './hosted-model.js';
 import type { HostedRuntime, ReviewJobIdentity } from './hosted-security.js';
+import { createPrivyIdentity } from './privy-identity.js';
+import { LighterProvisioner, type ProvisionerSetup } from './lighter-provisioner.js';
 
 const ClientRecord = z.object({ metadata: z.unknown(), secret: z.string().nullable() }).strict();
 const emptyView = (reason = 'No verified trading account is provisioned. This connection permits research only.'): ConnectAccountView => ({ kind: 'read_only', reason, scopes: [READ_SCOPE] });
@@ -20,6 +21,8 @@ const identical = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringi
 const safeEqual = (a: string, b: string) => timingSafeEqual(Buffer.from(hash(a)), Buffer.from(hash(b)));
 const transactionLifetime = 300_000;
 type Inspect = (profile: Profile) => Promise<ExecutionConnectionInspection>;
+type Provisioner = Pick<LighterProvisioner, 'setup' | 'preview' | 'activate' | 'binding' | 'revoke'>;
+const ManagedProfile = z.object({ subject: z.string(), walletAddress: ConnectAddress, profile: Profile }).strict();
 
 /** Product account authorization; independent from Privy JWTs and from broker trade policy. */
 export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
@@ -31,8 +34,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
   private readonly secure: boolean;
 
   private constructor(readonly config: AccountServiceConfig, private readonly store: ConnectStore,
-    private readonly key: Awaited<ReturnType<typeof importSPKI>>, private readonly relaySecret: string,
-    private readonly inspect: Inspect) {
+    private readonly verifyIdentity: (token: string) => Promise<string>, private readonly relaySecret: string,
+    private readonly inspect: Inspect, private readonly provisioner: Provisioner | null) {
     this.resource = `${config.publicOrigin}/mcp`; this.secure = new URL(config.publicOrigin).protocol === 'https:';
     this.cookieName = this.secure ? '__Host-verdict-connect' : 'verdict_connect';
     this.browserName = this.secure ? '__Host-verdict-review' : 'verdict_review';
@@ -40,11 +43,12 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
   static async create(input: AccountServiceConfig, inspect: Inspect = async (profile) => {
     const client = await connectExecution({ expectedMode: 'policy', expectedGrantId: profile.grantId, socketPath: profile.brokerSocket });
     return client.inspectConnection();
-  }): Promise<AccountAuthority> {
+  }, provisioner?: Provisioner): Promise<AccountAuthority> {
     const config = AccountServiceConfig.parse(input); const secret = process.env[config.relaySecretEnv];
     if (!secret || Buffer.byteLength(secret) < 32 || Buffer.byteLength(secret) > 4096) throw new HostedError(503, 'relay_configuration', 'Configure a private random relay secret of at least 32 bytes.');
-    const key = await importSPKI(config.privyVerificationKey, 'ES256');
-    return new AccountAuthority(config, new ConnectStore(config.stateDir), key, secret, inspect);
+    const verifyIdentity = await createPrivyIdentity(config);
+    return new AccountAuthority(config, new ConnectStore(config.stateDir), verifyIdentity, secret, inspect,
+      provisioner ?? (config.lighterProvisioner ? new LighterProvisioner(config.lighterProvisioner) : null));
   }
   close() { this.store.close(); }
   setReviewLookup(lookup: (id: string) => ReviewJobIdentity | null) { this.reviewLookup = lookup; }
@@ -117,11 +121,14 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     const tx = this.store.get('transaction', id, Transaction);
     if (!tx || tx.completed || tx.expiresAt <= Date.now()) throw failure(); return tx;
   }
+  private profile(id: string): Profile | null {
+    return this.config.profiles.find((item) => item.id === id && item.enabled) ?? this.store.get('managed-profile', id, ManagedProfile)?.profile ?? null;
+  }
   private grant(id: string, epoch?: number): Grant {
     const grant = this.store.get('grant', id, Grant);
     if (!grant || grant.revoked || grant.expiresAt <= Date.now() || (epoch !== undefined && grant.epoch !== epoch)) throw new InvalidTokenError('Connection expired or revoked.');
     if (grant.profileId !== null) {
-      const profile = this.config.profiles.find((item) => item.id === grant.profileId && item.enabled);
+      const profile = this.profile(grant.profileId);
       const enrollment = this.store.enrollment(grant.subject, Enrollment);
       if (!profile || profileRevision(profile) !== grant.revision || enrollment?.profileId !== profile.id || enrollment.revision !== grant.revision) throw new InvalidTokenError('Trading connection changed.');
     }
@@ -146,8 +153,15 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
   }
   binding(subject: string): Binding | null {
     const enrollment = this.store.enrollment(subject, Enrollment); if (!enrollment) return null;
-    const profile = this.config.profiles.find((item) => item.id === enrollment.profileId && item.enabled);
+    const profile = this.profile(enrollment.profileId);
     return profile && profileRevision(profile) === enrollment.revision ? Binding.parse({ ...profile, subject }) : null;
+  }
+  async ensureBinding(principal: Principal): Promise<void> {
+    this.assertActive(principal); const enrollment = this.store.enrollment(principal.subject, Enrollment);
+    if (!enrollment || !this.store.get('managed-profile', enrollment.profileId, ManagedProfile)) return;
+    const current = this.binding(principal.subject); const actual = await this.provisioner?.binding(principal.subject);
+    this.assertActive(principal);
+    if (!current || !actual || !identical(current, actual)) throw new HostedError(503, 'connection_changed', 'The original hosted trading connection is unavailable or changed.');
   }
   private credential(namespace: 'access' | 'refresh', value: string) { return /^[A-Za-z0-9_-]{43}$/.test(value) ? this.store.get(namespace, hash(value), Credential) : null; }
   private access(token: string) {
@@ -213,20 +227,23 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     });
   }
   private async identity(token: string): Promise<string> {
-    try {
-      const { payload } = await jwtVerify(token, this.key, { algorithms: ['ES256'], issuer: 'privy.io', audience: this.config.privyAppId,
-        requiredClaims: ['iss', 'sub', 'aud', 'iat', 'exp', 'sid'], maxTokenAge: '1h', clockTolerance: 5 });
-      if (typeof payload.sub !== 'string' || !/^did:privy:[A-Za-z0-9_-]{1,256}$/.test(payload.sub) || typeof payload.sid !== 'string' || payload.sid.length > 512) throw new Error();
-      return payload.sub;
-    } catch { throw new HostedError(401, 'invalid_identity', 'Sign in to Verdict again before connecting.'); }
+    return this.verifyIdentity(token);
   }
   private async inspectProfile(profile: Profile): Promise<ExecutionConnectionInspection> {
+    const managed = this.store.get('managed-profile', profile.id, ManagedProfile);
+    if (managed) {
+      const actual = await this.provisioner?.binding(managed.subject);
+      if (!actual || !identical(actual, Binding.parse({ ...profile, subject: managed.subject }))) throw new HostedError(503, 'profile_unavailable', 'The original isolated trading broker is unavailable.');
+    }
     const inspection = ExecutionConnectionInspection.parse(await this.inspect(profile));
     if (inspection.authority.grantId !== profile.grantId || inspection.authority.grantHash !== profile.grantHash
       || inspection.authority.newRisk !== 'active' || inspection.authority.expiresAt <= Date.now()) throw new HostedError(503, 'profile_unavailable', 'The operator trading policy is unavailable or has changed.');
     const accountKey = (value: unknown) => JSON.stringify(value);
     if (!identical(inspection.accounts.map((row) => accountKey(row.account)).sort(), profile.accounts.map(accountKey).sort())) throw new HostedError(503, 'profile_mismatch', 'The broker accounts do not match the provisioned connection.');
     for (const template of inspection.templates) validateExecution(template);
+    if ('scope' in inspection && (inspection.scope.mode !== profile.mode || inspection.scope.origin !== this.config.publicOrigin
+      || inspection.accounts.some((row) => row.account.venue !== 'lighter' || row.account.network !== inspection.scope.network
+        || row.account.account !== inspection.scope.account || row.account.apiKeyIndex !== inspection.scope.apiKeyIndex || row.ownerWallet !== inspection.scope.ownerWallet))) throw new HostedError(503, 'profile_mismatch', 'The consumer trading scope does not match its account, mode or owner.');
     return inspection;
   }
   private view(profile: Profile, inspection: ExecutionConnectionInspection, scopes: Grant['scopes']): ConnectAccountView {
@@ -240,12 +257,13 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
       accounts: profile.accounts.map(({ venue, network, account }) => ({ venue, network, account: String(account) })), scopes, blockers, approvals,
       policy: { grantHash: inspection.authority.grantHash, expiresAt: inspection.authority.expiresAt, maxDebitUSDC: inspection.maxDebitUSDC, maxOrders: inspection.maxOrders,
         remainingDebitUSDC: inspection.authority.remainingDebitUSDC, remainingOrders: inspection.authority.remainingOrders, cancelOwnOrders: inspection.authority.cancelOwnOrders,
-        templates: inspection.templates.map((template) => ({ digest: template.digest, confirmation: executionConfirmation(template).confirmation })) } });
+        templates: inspection.templates.map((template) => ({ digest: template.digest, confirmation: executionConfirmation(template).confirmation })),
+        scope: 'scope' in inspection ? inspection.scope : { kind: 'ordered_templates' } } });
   }
   private async connection(subject: string, wallet: string | null, scopes: Grant['scopes']): Promise<ConnectAccountView> {
     const enrollment = this.store.enrollment(subject, Enrollment);
     if (enrollment) {
-      const profile = this.config.profiles.find((item) => item.id === enrollment.profileId && item.enabled);
+      const profile = this.profile(enrollment.profileId);
       if (!profile || profileRevision(profile) !== enrollment.revision || (wallet !== null && enrollment.walletAddress !== wallet)) throw new HostedError(409, 'connection_changed', 'This account connection changed. Contact the operator.');
       const inspection = await this.inspectProfile(profile);
       if (!inspection.accounts.every((row) => row.ownerWallet === enrollment.walletAddress)) throw failure('ownership_changed');
@@ -273,6 +291,69 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     return ConnectResponse.parse({ protocol: CONNECT_PROTOCOL, kind: 'connections', connection, connections });
   }
   async status(principal: Principal) { this.assertActive(principal); return this.statusSubject(principal.subject); }
+  private async setupView(tx: Transaction, subject: string, setup: ProvisionerSetup): Promise<ConnectResponse> {
+    if (!tx.lighter || setup.enrollmentId !== tx.lighter.enrollmentId || setup.ownerWallet !== tx.lighter.walletAddress || setup.network !== 'testnet') throw failure();
+    let state: LighterSetupState;
+    if (setup.state === 'funding_required') state = { kind: 'funding_signature', enrollmentId: setup.enrollmentId, revision: setup.revision,
+      owner: setup.ownerWallet, network: setup.network, message: setup.message, expiresAt: setup.expiresAt };
+    else if (setup.state === 'signature_required') state = { kind: 'owner_signature', registration: {
+      enrollmentId: setup.enrollmentId, revision: setup.revision, owner: setup.ownerWallet, network: setup.network, chainId: setup.chainId,
+      accountIndex: setup.account, apiKeyIndex: setup.apiKeyIndex, publicKey: setup.publicKey, nonce: setup.nonce, message: setup.message, expiresAt: setup.expiresAt } };
+    else if (setup.state === 'registering') state = { kind: 'registration_pending', enrollmentId: setup.enrollmentId };
+    else if (setup.state === 'blocked') state = { kind: 'blocked', enrollmentId: setup.enrollmentId, code: 'lighter_setup_blocked', message: setup.reason };
+    else if (tx.lighter.activatedProfileId) state = { kind: 'ready', connection: await this.connection(subject, tx.lighter.walletAddress, tx.scopes) };
+    else {
+      const plan = await this.provisioner?.preview(subject, setup.enrollmentId);
+      if (!plan || plan.enrollmentId !== setup.enrollmentId || plan.ownerWallet !== setup.ownerWallet || plan.scope.origin !== this.config.publicOrigin
+        || plan.scope.ownerWallet !== setup.ownerWallet || plan.scope.account !== setup.account || plan.scope.apiKeyIndex !== setup.apiKeyIndex
+        || plan.scope.enrollmentId !== setup.enrollmentId || plan.scope.network !== setup.network || plan.expiresAt <= Date.now()) throw failure();
+      this.store.transaction(() => { const current = this.transaction(tx.id);
+        if (!current.lighter || current.subject !== subject || current.appSession !== tx.appSession) throw failure();
+        this.saveTransaction({ ...current, lighter: { ...current.lighter, plan } }); });
+      state = { kind: 'scope_signature', plan };
+    }
+    return LighterSetup.parse({ protocol: CONNECT_PROTOCOL, kind: 'lighter_setup', transaction: tx.id, state });
+  }
+  private async lighterApp(request: Extract<ConnectRequest, { operation: 'lighter_setup' | 'lighter_faucet' | 'lighter_register' | 'lighter_status' | 'lighter_activate' }>, tx: Transaction, subject: string): Promise<ConnectResponse> {
+    if (!this.provisioner || !this.config.lighterProvisioner || this.config.appNetwork !== 'lighter-testnet' || tx.purpose !== 'oauth' || !tx.scopes.includes(TRADE_SCOPE) || tx.receiptHash !== null) throw failure();
+    if (request.operation === 'lighter_setup') {
+      if (!tx.review || tx.review.reviewId !== request.reviewId || tx.subject !== subject) throw failure();
+      const owner = (await recoverMessageAddress({ message: tx.review.message, signature: request.signature as `0x${string}` })).toLowerCase();
+      if (owner !== tx.review.walletAddress || (tx.lighter && tx.lighter.walletAddress !== owner)) throw failure('invalid_wallet_proof');
+      if (tx.lighter) return this.setupView(tx, subject, await this.provisioner.setup({ operation: 'status', subject, enrollmentId: tx.lighter.enrollmentId }));
+      const setup = await this.provisioner.setup({ operation: 'prepare', subject, walletAddress: owner });
+      if (setup.ownerWallet !== owner) throw failure();
+      const updated = this.store.transaction(() => { const current = this.transaction(tx.id);
+        if (!identical(current, tx)) throw failure();
+        const next = { ...current, lighter: { enrollmentId: setup.enrollmentId, walletAddress: owner, proofReviewId: request.reviewId, plan: null, activatedProfileId: null } };
+        this.saveTransaction(next); return next; });
+      return this.setupView(updated, subject, setup);
+    }
+    if (!tx.lighter || tx.subject !== subject) throw failure();
+    if (request.operation === 'lighter_status') return this.setupView(tx, subject, await this.provisioner.setup({ operation: 'status', subject, enrollmentId: tx.lighter.enrollmentId }));
+    if (request.enrollmentId !== tx.lighter.enrollmentId) throw failure();
+    if (request.operation !== 'lighter_activate') return this.setupView(tx, subject, await this.provisioner.setup({ operation: request.operation === 'lighter_faucet' ? 'faucet' : 'register',
+      subject, enrollmentId: request.enrollmentId, revision: request.revision, signature: request.signature }));
+    const plan = tx.lighter.plan;
+    if (!plan || plan.planId !== request.planId || plan.revision !== request.revision || plan.expiresAt <= Date.now()) throw failure();
+    const binding = await this.provisioner.activate({ operation: 'activate', subject, enrollmentId: request.enrollmentId, planId: request.planId, revision: request.revision, signature: request.signature });
+    const { subject: ownerSubject, ...fields } = binding; const profile = Profile.parse(fields);
+    if (ownerSubject !== subject || profile.id !== plan.planId || profile.mode !== plan.scope.mode || this.config.profiles.some((item) => item.id === profile.id)) throw failure();
+    const inspection = await this.inspectProfile(profile);
+    if (!('scope' in inspection) || !identical(inspection.scope, plan.scope) || inspection.maxDebitUSDC !== plan.limits.maxDebitUSDC
+      || inspection.maxOrders !== plan.limits.maxOrders || inspection.authority.expiresAt !== plan.limits.expiresAt
+      || inspection.authority.cancelOwnOrders !== plan.limits.cancelOwnOrders || inspection.accounts.some((row) => row.ownerWallet !== tx.lighter?.walletAddress || row.checks.registration !== 'ready' || row.checks.builder !== 'ready')) throw failure();
+    this.store.transaction(() => {
+      const current = this.transaction(tx.id); if (!current.lighter || current.subject !== subject || current.appSession !== tx.appSession) throw failure();
+      const previous = this.store.enrollment(subject, Enrollment);
+      if (previous && previous.profileId !== profile.id) for (const grant of this.store.all('grant', Grant).filter((grant) => grant.subject === subject && !grant.revoked)) this.revoke(grant);
+      this.store.put('managed-profile', profile.id, { subject, walletAddress: current.lighter.walletAddress, profile }, inspection.authority.expiresAt);
+      this.store.replaceEnrollment(subject, profile.id, { subject, profileId: profile.id, revision: profileRevision(profile), walletAddress: current.lighter.walletAddress });
+      this.saveTransaction({ ...current, lighter: { ...current.lighter, activatedProfileId: profile.id } });
+    });
+    return LighterSetup.parse({ protocol: CONNECT_PROTOCOL, kind: 'lighter_setup', transaction: tx.id,
+      state: { kind: 'ready', connection: await this.connection(subject, tx.lighter.walletAddress, tx.scopes) } });
+  }
   async app(input: unknown, headers: { authorization?: string; session?: string; origin?: string }): Promise<ConnectResponse> {
     if (!headers.authorization || !safeEqual(headers.authorization, `Relay ${this.relaySecret}`) || headers.origin !== this.config.appOrigin || !/^[a-f0-9]{64}$/.test(headers.session ?? '')) throw new HostedError(403, 'invalid_relay', 'Invalid connection relay.');
     const request = ConnectRequest.parse(input); const appSession = headers.session ?? '';
@@ -293,6 +374,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     if (tx.purpose === 'review') {
       if (!tx.authorization || this.grant(tx.authorization.grantId, tx.authorization.epoch).subject !== subject) throw failure();
     }
+    if (request.operation === 'lighter_setup' || request.operation === 'lighter_faucet' || request.operation === 'lighter_register' || request.operation === 'lighter_status' || request.operation === 'lighter_activate') return this.lighterApp(request, tx, subject);
     if (request.operation === 'challenge') {
       const connection = await this.connection(subject, request.walletAddress, tx.scopes); const reviewId = opaque();
       const message = `Connect Verdict agent\nTransaction: ${tx.id}\nReview: ${reviewId}\nPurpose: ${tx.purpose}\nClient: ${tx.clientId}\nRedirect: ${tx.redirectUri}\nResource: ${tx.resource}\nSubject: ${subject}\nWallet: ${request.walletAddress}\nPermissions: ${connection.scopes.join(' ')}\nReview digest: ${hash(JSON.stringify(connection))}\nExpires: ${tx.expiresAt}\nThis proof connects this client to the displayed account and limits. It never creates a broker policy or authorizes a withdrawal.`;
@@ -323,7 +405,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
       const tx = this.completion(url, cookieHeader, 'oauth'); if (!tx.subject || !tx.connection || !tx.review) throw failure();
       // Resolve the exact immutable reviewed profile, never a browser-supplied account selector.
       if (tx.connection.kind === 'executable') {
-        const reviewed = tx.connection; const exact = this.config.profiles.find((item) => item.id === reviewed.profileId && item.enabled);
+        const reviewed = tx.connection; const exact = this.profile(reviewed.profileId);
         if (!exact || profileRevision(exact) !== reviewed.revision || reviewed.policy.expiresAt <= Date.now()) throw failure();
         const enrollment = this.store.enrollment(tx.subject, Enrollment);
         if (enrollment && (enrollment.profileId !== reviewed.profileId || enrollment.revision !== reviewed.revision || enrollment.walletAddress !== tx.review.walletAddress)) throw failure();

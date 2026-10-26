@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ExecutionStatus, validateExecution } from '@verdict/core';
+import { ExecutionStatus, LighterIntentPlan, validateExecution } from '@verdict/core';
 import { z } from 'zod';
-import { Digest, HostedError, Job } from './hosted-model.js';
+import { AuthorityRef, Digest, HostedError, Job } from './hosted-model.js';
 
 const Input = Job.pick({ owner: true, bindingHash: true, purpose: true, proposal: true, leg: true, expiresAt: true, authorization: true })
   .extend({ expiresAt: z.number().int().nonnegative().safe() });
@@ -14,9 +14,15 @@ const Lookup = Job.pick({ owner: true, purpose: true, leg: true }).extend({ dige
 type Lookup = z.input<typeof Lookup>;
 const Claim = Job.pick({ id: true, owner: true, bindingHash: true }).extend({ now: z.number().int().nonnegative().safe() }).strict();
 type Claim = z.input<typeof Claim>;
-const Marker = z.object({ version: z.literal(1), databaseId: z.string().uuid() }).strict();
+const Marker = z.object({ version: z.literal(1), databaseId: z.string().uuid(), intentVersion: z.literal(1).optional() }).strict();
 const Row = z.object({ id: z.string(), owner: z.string(), binding_hash: z.string(), purpose: z.string(),
   digest: z.string(), leg: z.number().int(), data: z.string().max(1_048_576),
+}).strict();
+const IntentIdentity = z.object({ owner: Digest, bindingHash: Digest, authorization: AuthorityRef,
+  intentId: z.string().uuid(), inputHash: Digest }).strict();
+type IntentIdentity = z.infer<typeof IntentIdentity>;
+const IntentRow = z.object({ owner: Digest, binding_hash: Digest, grant_id: z.string().uuid(), epoch: z.number().int().nonnegative().safe(),
+  intent_id: z.string().uuid(), input_hash: Digest, claim_id: z.string().uuid(), lease_until: z.number().int().nonnegative().safe(), data: z.string().max(1_048_576).nullable(),
 }).strict();
 
 function storageError(): HostedError {
@@ -99,7 +105,7 @@ export class HostedJobs {
       const databaseExists = existsSync(this.databasePath);
       if (markerExists !== databaseExists) throw storageError();
       if (!markerExists) {
-        this.marker = { version: 1, databaseId: randomUUID() };
+        this.marker = { version: 1, databaseId: randomUUID(), intentVersion: 1 };
         createFile(this.markerPath, `${JSON.stringify(this.marker)}\n`);
         syncDirectory(stateDir);
         createFile(this.databasePath, '');
@@ -123,6 +129,23 @@ export class HostedJobs {
       }
       const metadata = z.object({ value: z.string() }).strict().parse(database.prepare("SELECT value FROM metadata WHERE key='database_id'").get());
       if (metadata.value !== this.marker.databaseId) throw storageError();
+      const intentTable = database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='lighter_intents'").get();
+      if (markerExists && this.marker.intentVersion === 1 && !intentTable) throw storageError();
+      if (!markerExists || this.marker.intentVersion === undefined) {
+        database.exec(`BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS lighter_intents (
+          owner TEXT NOT NULL, binding_hash TEXT NOT NULL, grant_id TEXT NOT NULL, epoch INTEGER NOT NULL,
+          intent_id TEXT NOT NULL, input_hash TEXT NOT NULL, claim_id TEXT NOT NULL, lease_until INTEGER NOT NULL, data TEXT,
+          PRIMARY KEY(owner,binding_hash,grant_id,epoch,intent_id)) STRICT;`);
+        database.prepare("INSERT OR IGNORE INTO metadata(key,value) VALUES ('intent_version','1')").run();
+        database.exec('COMMIT');
+        if (this.marker.intentVersion === undefined) {
+          const next = { ...this.marker, intentVersion: 1 } satisfies z.output<typeof Marker>;
+          const temporary = join(stateDir, `.jobs-upgrade-${randomUUID()}`);
+          createFile(temporary, `${JSON.stringify(next)}\n`); renameSync(temporary, this.markerPath); syncDirectory(stateDir);
+          this.marker = next;
+        }
+      }
+      if (database.prepare("SELECT value FROM metadata WHERE key='intent_version'").get()?.value !== '1') throw storageError();
       const integrity = z.object({ integrity_check: z.literal('ok') }).strict().parse(database.prepare('PRAGMA integrity_check').get());
       if (integrity.integrity_check !== 'ok') throw storageError();
       this.database = database;
@@ -138,7 +161,7 @@ export class HostedJobs {
     if (!root.isDirectory() || root.uid !== process.getuid?.() || (root.mode & 0o7777) !== 0o700) throw storageError();
     const identity = privateFile(this.databasePath);
     if (identity.dev !== this.identity.dev || identity.ino !== this.identity.ino
-      || readMarker(this.markerPath).databaseId !== this.marker.databaseId) throw storageError();
+      || JSON.stringify(readMarker(this.markerPath)) !== JSON.stringify(this.marker)) throw storageError();
   }
   private safe<T>(operation: () => T): T {
     try { this.guard(); return operation(); }
@@ -235,6 +258,52 @@ export class HostedJobs {
       this.write(declined);
       return declined;
     }));
+  }
+
+  claimIntent(value: IntentIdentity & { now: number }): { kind: 'prepared'; plan: LighterIntentPlan } | { kind: 'claimed'; claimId: string } {
+    const input = parse(IntentIdentity.extend({ now: z.number().int().nonnegative().safe() }), value);
+    return this.safe(() => this.transaction(() => {
+      const args = [input.owner, input.bindingHash, input.authorization.grantId, input.authorization.epoch, input.intentId];
+      const value = this.database.prepare('SELECT * FROM lighter_intents WHERE owner=? AND binding_hash=? AND grant_id=? AND epoch=? AND intent_id=?').get(...args);
+      if (value !== undefined) {
+        const row = IntentRow.parse(value);
+        if (row.input_hash !== input.inputHash) throw new HostedError(409, 'intent_changed', 'This intent ID already belongs to a different trade request.');
+        if (row.data !== null) {
+          const plan = LighterIntentPlan.parse(JSON.parse(row.data)); validateExecution(plan.proposal);
+          if (plan.proposal.payload.requestId !== input.intentId) throw storageError();
+          return { kind: 'prepared', plan };
+        }
+        if (row.lease_until > input.now) throw new HostedError(409, 'intent_preparing', 'This intent is being prepared. Retry the same intent ID after its read completes.');
+      }
+      const claimId = randomUUID();
+      this.database.prepare(`INSERT INTO lighter_intents(owner,binding_hash,grant_id,epoch,intent_id,input_hash,claim_id,lease_until,data)
+        VALUES (?,?,?,?,?,?,?,?,NULL) ON CONFLICT(owner,binding_hash,grant_id,epoch,intent_id)
+        DO UPDATE SET claim_id=excluded.claim_id,lease_until=excluded.lease_until`)
+        .run(...args, input.inputHash, claimId, input.now + 30_000);
+      return { kind: 'claimed', claimId };
+    }));
+  }
+
+  saveIntent(value: IntentIdentity & { claimId: string; plan: LighterIntentPlan }): LighterIntentPlan {
+    const input = parse(IntentIdentity.extend({ claimId: z.string().uuid(), plan: LighterIntentPlan }), value);
+    const plan = { ...input.plan, proposal: validateExecution(input.plan.proposal) };
+    if (plan.proposal.payload.requestId !== input.intentId) throw new HostedError(400, 'invalid_intent', 'Proposal does not match the reserved intent.');
+    const data = JSON.stringify(plan);
+    if (Buffer.byteLength(data) > 1_048_576) throw new HostedError(400, 'invalid_intent', 'Prepared intent exceeds its state size limit.');
+    return this.safe(() => this.transaction(() => {
+      const result = this.database.prepare(`UPDATE lighter_intents SET data=? WHERE owner=? AND binding_hash=? AND grant_id=? AND epoch=? AND intent_id=? AND input_hash=? AND claim_id=? AND data IS NULL`)
+        .run(data, input.owner, input.bindingHash, input.authorization.grantId, input.authorization.epoch, input.intentId, input.inputHash, input.claimId);
+      if (result.changes !== 1) throw new HostedError(409, 'intent_claim_changed', 'The intent preparation claim changed. Retrieve the same intent ID; do not submit an unsaved proposal.');
+      return plan;
+    }));
+  }
+
+  abandonIntent(value: IntentIdentity & { claimId: string }): void {
+    const input = parse(IntentIdentity.extend({ claimId: z.string().uuid() }), value);
+    this.safe(() => {
+      this.database.prepare(`UPDATE lighter_intents SET lease_until=0 WHERE owner=? AND binding_hash=? AND grant_id=? AND epoch=? AND intent_id=? AND input_hash=? AND claim_id=? AND data IS NULL`)
+        .run(input.owner, input.bindingHash, input.authorization.grantId, input.authorization.epoch, input.intentId, input.inputHash, input.claimId);
+    });
   }
   close(): void {
     if (this.closed) return;

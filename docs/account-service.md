@@ -38,6 +38,21 @@ advertising a public connector. Standard OAuth support alone does not establish 
    Access expires after at most five minutes. Refresh rotates, retains narrowed scopes and
    has an absolute lifetime. Reusing a consumed refresh token revokes the whole connection.
 
+With `lighterProvisioner` configured, the Lighter testnet flow also supports a new hosted
+venue key. The browser first proves ownership. A separate wallet signature requests test
+funds when the owner has no testnet account. Another signature registers a new key in a
+free slot from 5 through 254. The browser's existing key in slot 4 stays untouched.
+The private signer stores the new key encrypted before returning its public registration
+review. A claimed registration can only reconcile, including after a restart.
+
+The owner then signs the exact creator scope, mode, per-order cap, total cap, order count
+and expiry. This signature creates bounded broker authority. Final OAuth consent remains
+a separate review. Lighter API keys have broader venue powers than trading. Broker limits
+are application controls, and the private service holds custody of the hosted API key.
+The native registration message binds key, nonce, account and slot, but does not include
+a network or review expiry. The application verifies those separately. A renewed review
+with an unchanged nonce is not a new cryptographic expiry on that native signature.
+
 Unknown wallets may explicitly connect for research only; those grants never acquire trade
 scope when a profile is subsequently provisioned. Start a new reviewed connection instead.
 One verified EVM owner must control every account in a profile, and accounts cannot be
@@ -50,15 +65,28 @@ remain independent. Multiple eligible profiles fail closed until the operator re
 
 The operator explicitly chooses `per_order` or `policy` in a private immutable profile.
 Both require a previously reviewed bounded broker policy. OAuth consent never creates a
-venue key, expands a budget, changes a template or authorizes a withdrawal. The app offers
-a separate `Verdict Hosted` Hyperliquid agent approval when required. Builder allowances
-and missing Lighter key registration remain visible blockers, resolved separately.
+venue key or expands a budget. Lighter testnet key registration and scope authorization
+use the separate owner reviews described above. The app also offers a separate
+`Verdict Hosted` Hyperliquid agent approval when required.
 
 `per_order` submits one exact order after independent browser authentication and confirmation.
 That browser must authenticate the original connection's subject and authorization reference;
 an MCP bearer cannot approve its own order. Policy mode can execute reviewed templates without
 another prompt, including sequential non-atomic pairs. The broker still enforces fresh
 preflight, budgets, account locks, grant identity/hash and durable send attempts.
+
+The `consumer_lighter` scope supports one Lighter testnet buy IOC at a time. Fresh markets
+must match the owner-reviewed creator scope and fresh binary-market metadata. Existing
+exact-template grants keep their original matching rules. Consumer enrollment does not
+enable paired orders, sells, withdrawals or arbitrary signer calls.
+
+`execution_prepare_lighter_intent` takes `intentId`, `market`, `side` and `maxSpendUSDC`.
+The spend cap includes fees. `maxSlippageBps` defaults to 50, or `limitPrice` supplies an
+exact market tick. The SDK derives account, key, creator, title and settlement rules from
+the verified connection and public venue data. It floors size and rounds fee reserves up.
+An intent ID retains its original proposal across retries and restarts. Changed inputs
+conflict, and expired proposals are never refreshed under the same intent ID. Keep the
+returned proposal for `execution_submit` and `execution_status`. Preparing sends no order.
 
 Disconnect from `/connect/agent` revokes OAuth access, refresh and browser sessions immediately.
 Pending jobs retain their originating authorization reference; a later login or same-subject
@@ -78,18 +106,20 @@ outside the checkout and make it owner-only `0600`. All example hosts and IDs ar
 |---|---|
 | `publicOrigin` | The intended HTTPS connector origin; exact resource is this origin plus `/mcp` |
 | `appOrigin` | Actual staging app HTTPS origin, with the new app route/relay deployed |
-| `appNetwork` | Explicit HL app network; use `testnet` for initial acceptance |
+| `appNetwork` | Explicit app network; use `lighter-testnet` for self-service Lighter enrollment |
 | `privyAppId` | The app's existing `VITE_PRIVY_APP_ID`, matched exactly |
-| `privyVerificationKey` | The same Privy app's ES256 public SPKI verification key; never a private key |
+| `privyVerification` | `{ "kind": "jwks" }` reads bounded public ES256 keys from the exact configured Privy app, with rotation support |
+| `privyVerificationKey` | Legacy pinned public SPKI alternative; never a private key |
 | `relaySecretEnv` | Name of a private random shared relay secret, at least 32 bytes |
 | `profiles` | Dedicated operator account/socket, grant ID/hash, allowed accounts and chosen mode |
 | `stateDir`, `gatewayJobsDir` | Separate persistent, owner-only `0700` directories |
+| `lighterProvisioner` | Fixed private `socketPath` and `brokerSocketRoot` for the independently configured Lighter testnet signer |
 
 In Vercel server-only staging settings, configure `VERDICT_CONNECTOR_ORIGIN`,
 `VERDICT_CONNECTOR_APP_ORIGIN` and `VERDICT_CONNECTOR_RELAY_SECRET`. The relay secret
 must match the authority's environment and must never use a `VITE_` name. Configure the
-actual app origin in the existing Privy dashboard's allowed login origins. Verification-key
-rotation requires a coordinated authority restart; changing the relay secret requires
+actual app origin in the existing Privy dashboard's allowed login origins. Pinned SPKI
+rotation requires a coordinated authority restart. Changing the relay secret requires
 coordinated app/authority configuration and invalidates stored confidential-client secrets.
 
 Provision a dedicated broker using the [broker setup](../local-runner/README.md), review
@@ -97,17 +127,18 @@ canonical templates and issue its grant through the operator approval command. C
 `connectExecution({expectedMode:'policy',expectedGrantId,socketPath}).inspectConnection()`
 to get the exact policy hash, original and remaining limits, owner, agent and readiness.
 Copy those identities into the private profile. Enable only that reviewed profile. The
-connection UI cannot provision unknown users' venue keys or fund their trading accounts.
+legacy profile path does not provision venue keys. The optional private Lighter provisioner
+supports the separate self-service testnet flow. Mainnet enrollment and funding are unsupported.
 
-The connection protocol is `verdict-connect/1`. The app copies
+The connection protocol is `verdict-connect/2`. The app copies
 `packages/mcp/src/connect-contract.ts` as a leaf schema so the two repositories build
 independently. Compare bytes and pin the SDK commit when releasing both sides.
 
 ## Run and operate
 
-Use Node 22.13+ on one persistent instance with a local filesystem. The authority takes
+The current runtime uses Node 22.13+ on one persistent instance with a local filesystem. The authority takes
 an exclusive SQLite lock for its lifetime; a second writer fails closed. Do not run this
-stateful pilot as ephemeral Vercel functions or multiple replicas. The app relay can remain
+stateful runtime unchanged as ephemeral Vercel functions or multiple replicas. The app relay can remain
 on Vercel. State files, markers and journals must survive process/container restarts.
 Missing, replaced, symlinked, permissive or corrupt state fails closed. Back up authority,
 jobs and broker state consistently; restoring an old backup can restore old authorization

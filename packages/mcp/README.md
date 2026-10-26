@@ -12,6 +12,13 @@ for the matching Verdict app route. It combines research and the same SDK execut
 lifecycle. See the [account service guide](../../docs/account-service.md). It is locally
 tested with fake venues, not deployed or accepted with funded accounts.
 
+The optional private Lighter testnet provisioner adds owner-approved hosted key registration
+and bounded buy-IOC authority. `execution_prepare_lighter_intent` prepares a fresh-market
+buy from a maximum USDC spend including fees. `execution_submit` then returns the exact
+browser review in `per_order` mode, or uses the explicitly reviewed `policy` grant.
+The current durable runtime uses local SQLite and private Unix sockets. Running it on
+Vercel Functions requires a shared durable store and isolated signer transport.
+
 `verdict-mcp --strategy` serves seven `strategy_*` research/calculation tools, three prompts
 (`paired_market_research`, `paper_leg_failure`, `inventory_exposure_check`) and the
 `verdict-strategy://capabilities` resource. This separate mode supports HL/Lighter snapshots,

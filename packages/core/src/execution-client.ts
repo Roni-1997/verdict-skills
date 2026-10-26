@@ -20,7 +20,7 @@ const Authority = z.discriminatedUnion('mode', [
   }).strict(),
 ]);
 
-/** Public account identity, selected only from an operator-approved execution template. */
+/** Public account identity, selected only from a reviewed template or consumer scope. */
 export const ExecutionLinkedAccount = z.discriminatedUnion('venue', [
   ExecutionLeg.options[0].pick({ venue: true, network: true, account: true }),
   ExecutionLeg.options[1].pick({ venue: true, network: true, account: true, apiKeyIndex: true }),
@@ -29,7 +29,13 @@ export const ExecutionLinkedAccount = z.discriminatedUnion('venue', [
 export type ExecutionLinkedAccount = z.infer<typeof ExecutionLinkedAccount>;
 const PublicAddress = z.string().regex(/^0x[0-9a-f]{40}$/);
 const ConnectionCheck = z.enum(['ready', 'missing', 'unknown']);
-export const ExecutionConnectionInspection = z.object({
+export const ConsumerLighterScope = z.object({ kind: z.literal('consumer_lighter'), version: z.literal(1), ownerWallet: PublicAddress,
+  network: z.literal('testnet'), account: z.number().int().nonnegative().safe(), apiKeyIndex: z.number().int().min(5).max(254),
+  creators: z.array(z.number().int().nonnegative().safe()).min(1).max(64), mode: ExecutionMode,
+  maxOrderDebitUSDC: Decimal, origin: z.string().url(), enrollmentId: z.string().uuid(), epoch: z.number().int().nonnegative().safe(),
+}).strict();
+export type ConsumerLighterScope = z.infer<typeof ConsumerLighterScope>;
+const Inspection = z.object({
   kind: z.literal('execution_connection_inspection'), authority: Authority.options[1],
   maxDebitUSDC: Decimal, maxOrders: z.number().int().positive().safe(),
   templates: z.array(ExecutionProposal).min(1).max(32),
@@ -40,6 +46,9 @@ export const ExecutionConnectionInspection = z.object({
   }).strict()).min(1).max(64),
   fundedAcceptanceVerified: z.literal(false),
 }).strict();
+export const ExecutionConnectionInspection = z.union([Inspection,
+  Inspection.extend({ templates: z.tuple([]), scope: ConsumerLighterScope }).strict(),
+]);
 export type ExecutionConnectionInspection = z.infer<typeof ExecutionConnectionInspection>;
 
 export const LocalExecutionCapabilities = z.object({
@@ -223,11 +232,12 @@ export async function connectExecution(options: ExecutionConnectionOptions): Pro
       try {
         for (const template of result.templates) validateExecution(template);
         const accountKey = (account: ExecutionLinkedAccount) => JSON.stringify(account);
-        const expected = new Set(result.templates.flatMap((template) => template.payload.legs.map((leg) => {
+        const expected = new Set(('scope' in result ? [accountKey(ExecutionLinkedAccount.parse({ venue: 'lighter',
+          network: result.scope.network, account: result.scope.account, apiKeyIndex: result.scope.apiKeyIndex }))] : result.templates.flatMap((template) => template.payload.legs.map((leg) => {
           const { venue, network, account } = leg;
           return accountKey(ExecutionLinkedAccount.parse({ venue, network, account,
             ...(leg.venue === 'lighter' ? { apiKeyIndex: leg.apiKeyIndex } : {}) }));
-        })));
+        }))));
         const actual = result.accounts.map((row) => accountKey(row.account));
         if (actual.length !== expected.size || new Set(actual).size !== actual.length || actual.some((key) => !expected.has(key))) throw invalidResponse();
       } catch { throw invalidResponse(); }

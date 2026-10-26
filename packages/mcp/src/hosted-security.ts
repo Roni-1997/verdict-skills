@@ -6,6 +6,7 @@ export type ConnectorSecurity = Pick<ConnectorAuth, 'metadata' | 'challenge' | '
 export interface HostedRuntime {
   readonly auth: ConnectorSecurity;
   binding(subject: string): Binding | null;
+  ensureBinding?(principal: Principal): Promise<void>;
   assertActive(principal: Principal): void;
   assertJobActive(job: Job): void;
   status(principal: Principal): Promise<unknown>;

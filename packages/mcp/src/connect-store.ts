@@ -96,5 +96,8 @@ export class ConnectStore {
   enroll(subject: string, profile: string, value: unknown) {
     this.guard(); this.db.prepare('INSERT INTO enrollments VALUES (?,?,?)').run(subject, profile, JSON.stringify(value));
   }
+  replaceEnrollment(subject: string, profile: string, value: unknown) {
+    this.guard(); this.db.prepare('INSERT INTO enrollments VALUES (?,?,?) ON CONFLICT(subject) DO UPDATE SET profile=excluded.profile,data=excluded.data').run(subject, profile, JSON.stringify(value));
+  }
   close() { if (!this.closed) { this.closed = true; this.db.close(); } }
 }

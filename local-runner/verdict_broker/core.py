@@ -280,6 +280,10 @@ class Broker:
             authority = self.authority.describe()
             manifest = self.authority.inspection_manifest()
             groups = {}
+            if "scope" in manifest:
+                scope = manifest["scope"]
+                account = {"venue": "lighter", **{k: scope[k] for k in ("network", "account", "apiKeyIndex")}}
+                groups[json.dumps(account, sort_keys=True)] = (account, [account])
             for template in manifest["templates"]:
                 for leg in template["payload"]["legs"]:
                     account = {k: leg[k] for k in ("venue", "network", "account")}
@@ -325,6 +329,8 @@ class Broker:
         self._valid_now(proposal)
         leg = proposal["payload"]["legs"][index]
         result = adapter.preflight(leg, identity(proposal, index))
+        if hasattr(self.authority, "expected_owner") and self.authority.expected_owner() is not None:
+            self.authority.verify_connection(leg, adapter.inspect_connection([leg]))
         self._valid_now(proposal)
         if self.clock() - result.checked_at > 5 or result.checked_at > self.clock() + 1:
             raise BrokerError("Preflight is stale; no order sent")
@@ -336,6 +342,8 @@ class Broker:
         if leg["action"] == "sell" and D(result.inventory) < D(leg["shares"]):
             raise BrokerError("Sell exceeds available holdings; naked sells are disabled")
         deadlines = [proposal["payload"]["expiresAt"] / 1000, result.checked_at + 5]
+        if result.valid_until is not None:
+            deadlines.append(result.valid_until)
         authority_expiry = self.authority.expiry()
         if authority_expiry is not None:
             deadlines.append(authority_expiry)

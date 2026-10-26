@@ -20,7 +20,8 @@ def confirmation(review):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Operator-owned SDK broker with per-order or explicitly issued policy authority")
-    parser.add_argument("command", choices=["review", "submit", "status", "cancel", "account", "doctor", "public-market", "public-quote", "serve", "grant-create", "grant-inspect", "grant-revoke"])
+    parser.add_argument("command", choices=["review", "submit", "status", "cancel", "account", "doctor", "public-market", "public-quote", "serve", "grant-create", "grant-inspect", "grant-revoke", "provisioner-serve"])
+    parser.add_argument("--config", type=Path, help="Private operator provisioner configuration")
     parser.add_argument("--proposal", type=Path)
     parser.add_argument("--leg", type=int, help="Zero-based leg; required for proposal quotes, defaults to 0 for account/cancel")
     parser.add_argument("--venue", choices=["hl", "lighter", "polymarket"])
@@ -48,6 +49,20 @@ def main(argv=None):
     # SDK DEBUG logs may contain signed transaction data. Never enable them here.
     logging.disable(logging.DEBUG)
     try:
+        if args.command == "provisioner-serve":
+            if args.config is None or args.socket is None or args.mode is not None or args.grant_id is not None:
+                raise BrokerError("provisioner-serve requires fixed --config and --socket; no mode/grant overrides")
+            if not args.config.is_file() or args.config.is_symlink() or args.config.stat().st_size > 65536:
+                raise BrokerError("Invalid private provisioner config file")
+            from .provisioner import Provisioner, serve_provisioner
+            service = Provisioner(json_load(args.config.read_text()))
+            try:
+                serve_provisioner(args.socket, service)
+            finally:
+                service.close()
+            return 0
+        if args.config is not None:
+            raise BrokerError("--config applies only to provisioner-serve")
         if args.mode is not None and args.command != "serve":
             raise BrokerError("--mode applies only to serve; one-shot submit/cancel require per-order confirmation")
         if args.socket is not None and args.command != "serve":
