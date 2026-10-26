@@ -18,7 +18,7 @@ export const ExecutionLeg = z.discriminatedUnion('venue', [
     builder: z.object({ address: Address, feeTenthsBp: z.number().int().min(0).max(10_000) }).strict(),
     allInFeeBpsCap: Money.refine((v) => Number(v) <= 10_000),
   }).strict(),
-  z.object({ ...Common, venue: z.literal('lighter'), network: z.enum(['devnet', 'mainnet']),
+  z.object({ ...Common, venue: z.literal('lighter'), network: z.enum(['devnet', 'testnet', 'mainnet']),
     account: z.number().int().nonnegative().safe(), apiKeyIndex: z.number().int().min(0).max(254),
     market: z.number().int().nonnegative().safe(), creator: z.number().int().nonnegative().safe(), tif: z.enum(['ioc', 'gtc', 'post_only']),
   }).strict(),
@@ -122,7 +122,7 @@ export function executionConfirmation(value: unknown) {
 export function executionCapabilities() {
   return { version: 1, hostedSigning: false, localBroker: 'local-runner/verdict_broker', venues: {
     hl: { networks: ['testnet', 'mainnet'], orders: ['Ioc', 'Gtc', 'Alo'], cancel: 'client order id', signing: 'official hyperliquid-python-sdk sign_l1_action' },
-    lighter: { networks: ['devnet', 'mainnet'], orders: ['ioc', 'gtc', 'post_only'], cancel: 'original client order index', signing: 'official lighter-sdk SignerClient' },
+    lighter: { networks: ['devnet', 'testnet', 'mainnet'], orders: ['ioc', 'gtc', 'post_only'], cancel: 'original client order index', signing: 'official lighter-sdk SignerClient' },
     polymarket: { networks: ['polygon'], orders: ['FAK', 'FOK', 'GTC', 'GTD'], cancel: 'order id', signing: 'official unified polymarket-client' },
   }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first', orderApproval: 'operator_selected', executionModes: ['per_order', 'policy'], defaultMode: 'per_order',
   note: 'Capabilities describe implemented local adapters, not proof of funded live acceptance. Private account integration needs operator credentials. Policy mode requires an existing bounded operator grant. No automated market-equivalence guarantee or blanket strategy authorization.' };

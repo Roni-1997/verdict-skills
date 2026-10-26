@@ -116,6 +116,23 @@ describe('local execution SDK over a real Unix socket', () => {
     }
   });
 
+  it('preserves Lighter testnet in inspected accounts without accepting an unknown network', () => {
+    const account = { venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 5 };
+    expect(ExecutionLinkedAccount.parse(account)).toEqual(account);
+    expect(() => ExecutionLinkedAccount.parse({ ...account, network: 'unknown' })).toThrow();
+    const p = prepareExecution({ legs: [{ ...account, market: 123, creator: 7, title: 'Oracle event',
+      settlementRule: 'The specified oracle resolves YES when the closing value exceeds 100.',
+      side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'ioc',
+    }], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } });
+    const inspection = ExecutionConnectionInspection.parse({ kind: 'execution_connection_inspection',
+      authority: capabilities('policy').authority, maxDebitUSDC: '25', maxOrders: 7, templates: [p],
+      accounts: [{ account, ownerWallet: `0x${'1'.repeat(40)}`, agentAddress: null,
+        checks: { registration: 'ready', builder: 'ready' }, checkedAt: Date.now(), notes: [] }],
+      fundedAcceptanceVerified: false,
+    });
+    expect(inspection.accounts[0]?.account).toEqual(account);
+  });
+
   it('requires a pinned policy for inspection before issuing an inspection request', async () => {
     for (const mode of ['policy', 'per_order'] satisfies ExecutionMode[]) {
       const broker = await server((_request, socket) => reply(socket, capabilities(mode)));

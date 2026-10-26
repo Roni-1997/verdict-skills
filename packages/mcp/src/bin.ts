@@ -33,7 +33,7 @@ if (values.help) {
       'verdict-mcp: Verdict HIP-4 tools as an MCP server',
       '',
       '  verdict-mcp                 stdio transport (default)',
-      '  verdict-mcp --lighter       Lighter binary outcomes; LIGHTER_NETWORK=devnet|mainnet, LIGHTER_CREATORS=creator indices',
+      '  verdict-mcp --lighter       Lighter binary outcomes; LIGHTER_NETWORK=devnet|testnet|mainnet, LIGHTER_CREATORS=creator indices',
       '  verdict-mcp --strategy      HL/Lighter research, conditional plans, paper fills and inventory reconciliation; no execution',
       '  verdict-mcp --execution     keyless proposal preparation/review for the separate local trading broker',
       '  verdict-mcp --local-execution  SDK lifecycle over operator-owned Unix broker; stdio only; VERDICT_BROKER_SOCKET and VERDICT_EXECUTION_MODE=per_order|policy required',

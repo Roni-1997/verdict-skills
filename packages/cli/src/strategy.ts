@@ -10,7 +10,7 @@ Commands:
 ${Object.values(STRATEGY_DOCS).map((d) => `  ${d.command.padEnd(12)} ${d.description}`).join('\n')}
 Snapshot example: verdict strategy snapshot --input '{"outcome":42,"market":4555}'
 Omit market for the existing HL/Polymarket/Kalshi reference comparison only.
-Environment: VERDICT_NETWORK=testnet|mainnet; LIGHTER_NETWORK=devnet|mainnet, independent defaults.
+Environment: VERDICT_NETWORK=testnet|mainnet; LIGHTER_NETWORK=devnet|testnet|mainnet, independent defaults.
 Assess/paper/reconcile replay caller-supplied JSON without network access or account keys.
 Plans have liveReady=false. Conditional payoff is a caller assumption, not verified equivalence or guaranteed arbitrage.
 Exit codes: 0 report produced (inspect kind/reasons), 1 bad input, 2 not found, 3 upstream, 4 not configured.

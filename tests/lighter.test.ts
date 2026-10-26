@@ -29,9 +29,31 @@ const order = { market: MARKET, side: 'yes', action: 'buy', price: '0.35', size:
 describe('Lighter binary outcomes using public response fixtures', () => {
   it('defaults to devnet with no creators enabled for orders, independently of Hyperliquid', () => {
     expect(lighterConfigFromEnv({ VERDICT_NETWORK: 'mainnet' })).toEqual({ network: 'devnet', creators: [] });
-    expect(() => lighterConfigFromEnv({ LIGHTER_NETWORK: 'testnet' })).toThrow('LIGHTER_NETWORK');
+    expect(lighterConfigFromEnv({ LIGHTER_NETWORK: 'testnet' })).toEqual({ network: 'testnet', creators: [] });
+    expect(() => lighterConfigFromEnv({ LIGHTER_NETWORK: 'unknown' })).toThrow('LIGHTER_NETWORK');
     expect(() => lighterConfigFromEnv({ LIGHTER_CREATORS: 'secret-value' })).toThrow('value hidden');
     expect(lighterConfigFromEnv({ LIGHTER_CREATORS: '9, 1' }).creators).toEqual([9, 1]);
+  });
+  it.each([
+    ['devnet', 'https://devnet.zklighter.elliot.ai', 300],
+    ['testnet', 'https://testnet.zklighter.elliot.ai', 300],
+    ['mainnet', 'https://mainnet.zklighter.elliot.ai', 304],
+  ] as const)('keeps %s research, unsigned signing domain and provenance on its exact host', async (network, origin, chainId) => {
+    const calls: URL[] = [];
+    const fetcher: typeof fetch = async (url) => {
+      calls.push(new URL(String(url)));
+      return new Response(JSON.stringify(fixture('events')));
+    };
+    const tools = createLighterTools(new LighterClient(lighterConfigFromEnv({ LIGHTER_NETWORK: network, LIGHTER_CREATORS: '761897' }), { fetch: fetcher, now: () => NOW }));
+    expect(await tools.get_market({ market: MARKET })).toMatchObject({ network, market: { network, market_id: MARKET } });
+    expect(await tools.build_order(order)).toMatchObject({ network, chainId, unsigned: true, market: { network } });
+    expect(calls).toHaveLength(2);
+    expect(calls.every(url => url.origin === origin && url.pathname === '/api/v1/events')).toBe(true);
+  });
+  it('rejects unknown direct network configuration before making a request', () => {
+    const fetcher = vi.fn();
+    expect(() => Reflect.construct(LighterClient, [{ network: 'unknown', creators: [] }, { fetch: fetcher }])).toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it('reads real market rules, precision, fee flags and a single complete page', async () => {
     const { tools, calls } = harness();

@@ -55,6 +55,17 @@ function direction(result: ReturnType<typeof assessPair>, id = 'hl_yes') {
 }
 
 describe('strategy snapshot and discovery', () => {
+  it('keeps explicit Lighter testnet in paired research without relabelling devnet', async () => {
+    const s = await snapshot();
+    const testnet = { ...s, hl: { ...s.hl, network: 'testnet' }, lighter: { ...s.lighter, network: 'testnet' } };
+    expect(PairedSnapshot.parse(testnet).lighter.network).toBe('testnet');
+    expect(assess(testnet)).toMatchObject({ networks: { hl: 'testnet', lighter: 'testnet' } });
+    expect(reconcilePair({ pair: testnet.pair, networks: { hl: 'testnet', lighter: 'testnet' }, at: NOW,
+      expected: { hl: { yes: '0', no: '0' }, lighter: { yes: '0', no: '0' } },
+      observed: { hl: { yes: '0', no: '0', observedAt: NOW }, lighter: { yes: '0', no: '0', observedAt: NOW } },
+    })).toMatchObject({ networks: { hl: 'testnet', lighter: 'testnet' } });
+    expect(() => PairedSnapshot.parse({ ...testnet, lighter: { ...testnet.lighter, network: 'unknown' } })).toThrow();
+  });
   it('captures actual adapter data, complements NO from bids, and retains both source clocks', async () => {
     const { tools } = harness(); const s = PairedSnapshot.parse(await tools.snapshot({ outcome: OUTCOME, market: MARKET }));
     expect(s.lighter.asks.no).toEqual([{ price: '0.54', shares: '5.0000' }, { price: '0.55', shares: '5.0000' }]);

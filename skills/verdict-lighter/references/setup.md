@@ -31,7 +31,7 @@ Do not run Lighter's upstream installer to install this adapter; it installs a d
 
 | Setting | Meaning |
 |---|---|
-| `LIGHTER_NETWORK` | `devnet` (default, chain 300) or `mainnet` (chain 304). Never infer it from Hyperliquid configuration. |
+| `LIGHTER_NETWORK` | `devnet` (default, chain 300), `testnet` (chain 300), or `mainnet` (chain 304). Testnet uses `https://testnet.zklighter.elliot.ai`; its accounts and markets are separate from devnet. Never infer it from Hyperliquid configuration. |
 | `LIGHTER_CREATORS` | Comma-separated creator account indices. When absent, discovery reads all creators but unsigned order/cancel preparation is disabled. When configured, discovery filters that page and payload tools enforce the same allowlist. An empty filtered page can still have a next cursor. |
 
 Use creator indices verified by the operator on the selected network. No mainnet Verdict

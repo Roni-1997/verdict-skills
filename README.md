@@ -52,7 +52,9 @@ architecture and keeps signing with the caller. The default Hyperliquid interfac
 
 The nine Lighter tools cover market discovery/details, fresh books, executable YES/NO quotes,
 recent prints, public binary positions, fee tiers, and unsigned order/cancel preparation.
-Configure `LIGHTER_NETWORK=devnet|mainnet`; the default is devnet. Payload tools additionally
+Configure `LIGHTER_NETWORK=devnet|testnet|mainnet`; the default is devnet. Testnet uses
+`https://testnet.zklighter.elliot.ai` and signing chain 300. Devnet and testnet have separate
+accounts and market IDs even though both use chain 300. Payload tools additionally
 require `LIGHTER_CREATORS` to identify the allowed market creators. No credentials are needed.
 
 See the [Lighter skill](skills/verdict-lighter/SKILL.md) and its

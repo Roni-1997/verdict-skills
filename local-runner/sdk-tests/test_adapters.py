@@ -147,11 +147,17 @@ class LighterSDKTest(unittest.TestCase):
     def test_adapter_constructor_passes_chain_not_hostname_inference(self):
         private, _, error = lighter.create_api_key()
         self.assertIsNone(error)
-        with patch.dict("os.environ", {"VERDICT_LIGHTER_API_PRIVATE_KEY": private}):
-            adapter = Lighter(LIGHTER)
-            try:
-                self.assertEqual(adapter.signer.chain_id, 300)
-            finally: adapter.close()
+        for network, host, chain in [
+            ("devnet", "https://devnet.zklighter.elliot.ai", 300),
+            ("testnet", "https://testnet.zklighter.elliot.ai", 300),
+            ("mainnet", "https://mainnet.zklighter.elliot.ai", 304),
+        ]:
+            with self.subTest(network=network), patch.dict("os.environ", {"VERDICT_LIGHTER_API_PRIVATE_KEY": private}):
+                adapter = Lighter({**LIGHTER, "network": network})
+                try:
+                    self.assertEqual(adapter.host, host)
+                    self.assertEqual(adapter.signer.chain_id, chain)
+                finally: adapter.close()
 
     def test_deadline_after_slow_native_nonce_signing_prevents_transport(self):
         private, _, _ = lighter.create_api_key()

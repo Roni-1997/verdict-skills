@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { describe, expect, it } from 'vitest';
-import { executionConfirmation, prepareExecution, validateExecution } from '../packages/core/src/execution.js';
+import { executionCapabilities, executionConfirmation, prepareExecution, validateExecution } from '../packages/core/src/execution.js';
 import { runCli } from '../packages/cli/src/index.js';
 
 const ACCOUNT = `0x${'1'.repeat(40)}`;
@@ -17,6 +17,14 @@ const review = { relationship: 'same_event_same_orientation', notes: 'Operator c
 const request = (legs: unknown[] = [hl]) => ({ legs, policy, ...(legs.length === 2 ? { settlementReview: review } : {}) });
 
 describe('unsigned execution domain', () => {
+  it('preserves explicit Lighter testnet through canonical execution and linked account schemas', () => {
+    const p = prepareExecution(request([{ ...lighter, network: 'testnet' }]));
+    expect(validateExecution(p).payload.legs[0]).toMatchObject({ venue: 'lighter', network: 'testnet' });
+    expect(executionConfirmation(p).confirmation.join('\n')).toContain('lighter testnet');
+    expect(executionCapabilities().venues.lighter.networks).toEqual(['devnet', 'testnet', 'mainnet']);
+    expect(() => prepareExecution(request([{ ...lighter, network: 'unknown' }]))).toThrow('Invalid execution');
+    expect(() => prepareExecution(request([hl, { ...lighter, network: 'testnet' }]))).toThrow('mainnet');
+  });
   it.each([hl, lighter, polymarket])('prepares a native $venue single order without credentials', (leg) => {
     const p = prepareExecution(request([leg]));
     expect(validateExecution(p)).toEqual(p);

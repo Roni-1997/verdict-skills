@@ -15,8 +15,8 @@ def public_market(venue, network, market_id):
         market = node_call(["market", market_id], env)
         book = node_call(["book", market_id], env)
     elif venue == "lighter":
-        if network not in {"devnet", "mainnet"}:
-            raise BrokerError("Lighter network must be devnet or mainnet")
+        if network not in {"devnet", "testnet", "mainnet"}:
+            raise BrokerError("Lighter network must be devnet, testnet or mainnet")
         env = {"LIGHTER_NETWORK": network}
         market = node_call(["lighter", "market", market_id], env)
         book = node_call(["lighter", "book", market_id], env)

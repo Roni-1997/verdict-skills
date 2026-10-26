@@ -5,18 +5,19 @@ import { ToolError } from './tools.js';
 const Id = z.number().int().nonnegative().safe();
 const Decimal = z.string().max(80).regex(/^\d+(?:\.\d+)?$/);
 const PositiveDecimal = Decimal.refine((v) => Number(v) > 0, 'must be positive');
-const Network = z.enum(['devnet', 'mainnet']);
+const Network = z.enum(['devnet', 'testnet', 'mainnet']);
 const HOSTS = {
   devnet: { rest: 'https://devnet.zklighter.elliot.ai', chainId: 300 },
+  testnet: { rest: 'https://testnet.zklighter.elliot.ai', chainId: 300 },
   mainnet: { rest: 'https://mainnet.zklighter.elliot.ai', chainId: 304 },
-} as const;
+} as const satisfies Record<z.infer<typeof Network>, { rest: string; chainId: 300 | 304 }>;
 
 export const LighterConfig = z.object({ network: Network, creators: z.array(Id) });
 export type LighterConfig = z.infer<typeof LighterConfig>;
 
 export function lighterConfigFromEnv(env: Record<string, string | undefined> = process.env): LighterConfig {
   const network = Network.safeParse(env.LIGHTER_NETWORK ?? 'devnet');
-  if (!network.success) throw new ToolError('LIGHTER_NETWORK must be devnet or mainnet (value hidden)', 'not_configured');
+  if (!network.success) throw new ToolError('LIGHTER_NETWORK must be devnet, testnet or mainnet (value hidden)', 'not_configured');
   const raw = env.LIGHTER_CREATORS?.trim();
   const creators = raw ? raw.split(',').map((v) => /^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN) : [];
   const parsed = z.array(Id).safeParse(creators);

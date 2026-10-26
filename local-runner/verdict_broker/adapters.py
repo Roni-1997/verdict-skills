@@ -227,14 +227,24 @@ class Hyperliquid:
         self.http.close()
 
 
+LIGHTER_NETWORKS = {
+    "devnet": ("https://devnet.zklighter.elliot.ai", 300),
+    "testnet": ("https://testnet.zklighter.elliot.ai", 300),
+    "mainnet": ("https://mainnet.zklighter.elliot.ai", 304),
+}
+
+
 class Lighter:
     def __init__(self, leg, *, signer=None, bridge=node_call):
+        network = leg.get("network")
+        if not isinstance(network, str) or network not in LIGHTER_NETWORKS:
+            raise BrokerError("Lighter network must be devnet, testnet or mainnet")
+        self.host, chain_id = LIGHTER_NETWORKS[network]
         import lighter
         logging.getLogger("lighter").setLevel(logging.WARNING)
         self.loop = asyncio.new_event_loop()
         self.deadline = None
         self.before_transport = None
-        self.host = "https://mainnet.zklighter.elliot.ai" if leg["network"] == "mainnet" else "https://devnet.zklighter.elliot.ai"
         async def create():
             broker_adapter = self
             class DeadlineSigner(lighter.SignerClient):
@@ -244,7 +254,7 @@ class Lighter:
                     if broker_adapter.before_transport is not None:
                         broker_adapter.before_transport()
                     return await super().send_tx(tx_type=tx_type, tx_info=tx_info)
-            return DeadlineSigner(url=self.host, account_index=leg["account"], chain_id=304 if leg["network"] == "mainnet" else 300,
+            return DeadlineSigner(url=self.host, account_index=leg["account"], chain_id=chain_id,
                                         api_private_keys={leg["apiKeyIndex"]: secret("VERDICT_LIGHTER_API_PRIVATE_KEY")})
         self.signer = signer or self.loop.run_until_complete(create())
         self.orders = lighter.OrderApi(self.signer.api_client)

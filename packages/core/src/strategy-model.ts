@@ -29,7 +29,7 @@ export const PairedSnapshot = z.object({
     asks: Asks, sourceAt: z.object({ yes: Epoch, no: Epoch }).strict(), clock: Clock, knownBuilderBps: StrategyDecimal.nullable(),
   }).strict(),
   lighter: z.object({
-    network: z.enum(['devnet', 'mainnet']), market: LighterId, creator: z.number().int().nonnegative().safe(),
+    network: z.enum(['devnet', 'testnet', 'mainnet']), market: LighterId, creator: z.number().int().nonnegative().safe(),
     title: z.string().max(10_000), rule: z.string().max(50_000).nullable(), startsAt: Epoch, expiresAt: Epoch,
     active: z.boolean(), asks: Asks, clock: Clock, sourceAt: z.null(), depthTruncated: z.boolean(),
     sizeDecimals: z.number().int().min(0).max(12),
@@ -71,7 +71,7 @@ export const STRATEGY_INPUTS = {
   scan_pairs: z.object({ pairs: z.array(StrategyPair).min(1).max(8), ...AssessFields }).strict(),
   paper_pair: z.object({ snapshot: PairedSnapshot, at: Epoch, ...AssessFields, direction: z.enum(['hl_yes', 'hl_no']), fills: z.object({ hl: StrategyDecimal, lighter: StrategyDecimal }).strict() }).strict(),
   reconcile_pair: z.object({
-    pair: StrategyPair, networks: z.object({ hl: z.enum(['testnet', 'mainnet']), lighter: z.enum(['devnet', 'mainnet']) }).strict(),
+    pair: StrategyPair, networks: z.object({ hl: z.enum(['testnet', 'mainnet']), lighter: z.enum(['devnet', 'testnet', 'mainnet']) }).strict(),
     at: Epoch, expected: Inventories,
     observed: z.object({ hl: Inventory.extend({ observedAt: Epoch }).strict(), lighter: Inventory.extend({ observedAt: Epoch }).strict() }).strict(),
     maxAgeMs: z.number().int().min(1).max(60_000).default(5000),
