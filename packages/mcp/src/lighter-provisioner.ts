@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ConnectAddress, LighterScopePlan } from './connect-contract.js';
 import type { AccountServiceConfig } from './connect-model.js';
 import { Binding, HostedError } from './hosted-model.js';
+import { PrivateSignerClient, ProvisionerRequest } from './private-signer-client.js';
 
 const Id = z.string().uuid(); const Revision = z.string().regex(/^[a-f0-9]{64}$/);
 const NumberId = z.number().int().nonnegative().safe();
@@ -18,19 +19,7 @@ export const ProvisionerSetup = z.discriminatedUnion('state', [
   z.object({ ...Identity, state: z.literal('blocked'), reason: z.string().min(1).max(1000) }).strict(),
 ]);
 export type ProvisionerSetup = z.infer<typeof ProvisionerSetup>;
-const Subject = z.string().regex(/^did:privy:[A-Za-z0-9_-]{1,256}$/);
-const Signature = z.string().regex(/^0x[0-9a-fA-F]{130}$/);
-const Fields = { subject: Subject, enrollmentId: Id };
-const Request = z.discriminatedUnion('operation', [
-  z.object({ operation: z.literal('prepare'), subject: Subject, walletAddress: ConnectAddress }).strict(),
-  z.object({ operation: z.literal('status'), ...Fields }).strict(),
-  z.object({ operation: z.literal('faucet'), ...Fields, revision: Revision, signature: Signature }).strict(),
-  z.object({ operation: z.literal('register'), ...Fields, revision: Revision, signature: Signature }).strict(),
-  z.object({ operation: z.literal('preview'), ...Fields }).strict(),
-  z.object({ operation: z.literal('activate'), ...Fields, planId: Id, revision: Revision, signature: Signature }).strict(),
-  z.object({ operation: z.literal('binding'), subject: Subject }).strict(),
-  z.object({ operation: z.literal('revoke'), subject: Subject, profileId: z.string().min(1).max(128) }).strict(),
-]);
+const Request = ProvisionerRequest;
 type Request = z.infer<typeof Request>;
 const Envelope = z.union([z.object({ ok: z.literal(true), result: z.unknown() }).strict(),
   z.object({ ok: z.literal(false), error: z.object({ code: z.string().max(128), message: z.string().max(1000) }).strict() }).strict()]);
@@ -38,15 +27,19 @@ const unavailable = () => new HostedError(503, 'lighter_setup_unavailable', 'Hos
 
 /** Finite private control protocol. No browser input selects a path, mode, limit or native method. */
 export class LighterProvisioner {
-  constructor(private readonly config: NonNullable<AccountServiceConfig['lighterProvisioner']>) {}
+  private readonly remote: PrivateSignerClient | null;
+  constructor(private readonly config: NonNullable<AccountServiceConfig['lighterProvisioner']>, remote?: PrivateSignerClient) { this.remote = config.kind === 'hosted_signer' ? remote ?? new PrivateSignerClient(config) : null; }
   private decode<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> { const parsed = schema.safeParse(value); if (!parsed.success) throw unavailable(); return parsed.data; }
   private async request(input: Request): Promise<unknown> {
     const request = Request.parse(input);
+    if (this.remote) return this.remote.operation(request);
+    if (this.config.kind !== 'local_socket') throw unavailable();
+    const socketPath = this.config.socketPath;
     try {
-      const [socket, parent] = await Promise.all([lstat(this.config.socketPath), lstat(dirname(this.config.socketPath))]);
+      const [socket, parent] = await Promise.all([lstat(socketPath), lstat(dirname(socketPath))]);
       if (!socket.isSocket() || socket.uid !== process.getuid?.() || (socket.mode & 0o077) !== 0 || !parent.isDirectory() || parent.uid !== process.getuid?.() || (parent.mode & 0o077) !== 0) throw unavailable();
       return await new Promise((resolve, reject) => {
-        const socket = connect({ path: this.config.socketPath }); let done = false; let size = 0; const chunks: Buffer[] = [];
+        const socket = connect({ path: socketPath }); let done = false; let size = 0; const chunks: Buffer[] = [];
         const finish = (error: Error | null, value?: unknown) => { if (done) return; done = true; clearTimeout(timer); socket.destroy(); if (error) reject(error); else resolve(value); };
         const timer = setTimeout(() => finish(unavailable()), 25_000);
         socket.on('error', () => finish(unavailable())); socket.on('close', () => { if (!done) finish(unavailable()); });
@@ -67,9 +60,13 @@ export class LighterProvisioner {
   private bindingValue(value: unknown, subject: string): Binding | null {
     const result = this.decode(z.object({ binding: Binding.nullable() }).strict(), value); const binding = result.binding;
     if (!binding) return null;
-    const path = relative(this.config.brokerSocketRoot, binding.brokerSocket);
-    if (!path || path.startsWith('..') || binding.subject !== subject || !binding.enabled || !binding.grantHash || binding.accounts.length !== 1
+    if (binding.subject !== subject || !binding.enabled || !binding.grantHash || binding.accounts.length !== 1
       || binding.accounts.some((account) => account.venue !== 'lighter' || account.network !== 'testnet' || account.apiKeyIndex < 5)) throw unavailable();
+    if (this.config.kind === 'local_socket') {
+      if (binding.execution.kind !== 'local_socket') throw unavailable();
+      const path = relative(this.config.brokerSocketRoot, binding.execution.socketPath);
+      if (!path || path.startsWith('..')) throw unavailable();
+    } else if (binding.execution.kind !== 'hosted_signer' || binding.execution.profileId !== binding.id) throw unavailable();
     return binding;
   }
   async setup(input: Extract<Request, { operation: 'prepare' | 'status' | 'faucet' | 'register' }>): Promise<ProvisionerSetup> { return this.decode(ProvisionerSetup, await this.request(input)); }

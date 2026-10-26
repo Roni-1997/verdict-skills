@@ -107,7 +107,7 @@ async function mcp(access: string) {
   await client.connect(transport as unknown as Parameters<typeof client.connect>[0]); return client;
 }
 async function restart() {
-  if (service) { server.removeListener('request', service.handle); service.close(); }
+  if (service) { server.removeListener('request', service.handle); await service.close(); }
   authority = await AccountAuthority.create(config, async (profile) => inspectOverride ?? (await connectExecution({ expectedMode: 'policy', expectedGrantId: profile.grantId, socketPath })).inspectConnection(), provisionerOverride);
   service = await createAccountService(config, authority); server.on('request', service.handle);
 }
@@ -135,14 +135,14 @@ beforeAll(async () => {
 beforeEach(async () => {
   state = await mkdtemp(join(directory, 'case-')); inspectOverride = null; provisionerOverride = undefined;
   config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'testnet', privyAppId: 'test-privy-app', privyVerificationKey: await exportSPKI(signing.publicKey),
-    relaySecretEnv: 'VERDICT_CONNECT_TEST_SECRET', stateDir: join(state, 'authority'), gatewayJobsDir: join(state, 'jobs'), allowInsecureLocalhost: true,
-    profiles: [{ id: 'alice-profile', enabled: true, mode: 'per_order', brokerSocket: socketPath, grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash,
+    relaySecretEnv: 'VERDICT_CONNECT_TEST_SECRET', storage: { kind: 'local', stateDir: join(state, 'authority'), gatewayJobsDir: join(state, 'jobs') }, allowInsecureLocalhost: true,
+    profiles: [{ id: 'alice-profile', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: socketPath }, grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash,
       accounts: [{ venue: 'hl', network: 'testnet', account: wallet.address.toLowerCase() }] }] });
   await restart();
 });
 afterEach(async () => {
   await Promise.allSettled(clients.splice(0).map((client) => client.close()));
-  server.removeListener('request', service.handle); service.close();
+  server.removeListener('request', service.handle); await service.close();
 });
 afterAll(async () => {
   if (server) { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
@@ -156,7 +156,7 @@ it('connects through real SDK discovery, DCR, PKCE, Privy-style identity, wallet
   expect(tools).toEqual(expect.arrayContaining(['list_markets', 'lighter_quote', 'strategy_scan_pairs', 'connection_status', 'execution_submit', 'execution_cancel']));
   const accounts = await client.callTool({ name: 'execution_accounts', arguments: {} }); expect(accounts.isError).not.toBe(true);
   expect(accounts.structuredContent).toMatchObject({ gatewayMode: 'per_order', accounts: [{ account: wallet.address.toLowerCase() }] });
-  const disk = (await readFile(join(config.stateDir, 'authority.sqlite'))).toString('latin1');
+  const disk = (await readFile(join(join(state, 'authority'), 'authority.sqlite'))).toString('latin1');
   for (const secret of [flow.tokens.access_token, flow.tokens.refresh_token ?? '', await identity()]) if (secret) expect(disk).not.toContain(secret);
   expect(JSON.stringify(accounts)).not.toContain(socketPath);
 });
@@ -224,7 +224,7 @@ it('requires authenticated relay, fixed app origin, private files and a unique v
 it('refuses a second authority writer and fails closed on a replaced durable database', async () => {
   await expect(AccountAuthority.create(config)).rejects.toMatchObject({ code: 'authority_storage' });
   const flow = await connect();
-  const database = join(config.stateDir, 'authority.sqlite'); await rename(database, `${database}.saved`); await writeFile(database, '', { mode: 0o600 });
+  const database = join(join(state, 'authority'), 'authority.sqlite'); await rename(database, `${database}.saved`); await writeFile(database, '', { mode: 0o600 });
   expect((await fetch(`${origin}/mcp`, { headers: { authorization: `Bearer ${flow.tokens.access_token}` } })).status).toBe(401);
   await expect(authority.authenticate(`Bearer ${flow.tokens.access_token}`, READ_SCOPE)).rejects.toMatchObject({ code: 'invalid_token' });
 });
@@ -262,7 +262,7 @@ it('keeps client revocation available when broker readiness changes and bounds i
 it('supports confidential client authentication without storing its secret in plaintext', async () => {
   const response = await fetch(`${origin}/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: ['https://agent.example/callback'], token_endpoint_auth_method: 'client_secret_post', client_name: 'Confidential agent' }) });
   expect(response.status).toBe(201); const client = await response.json() as { client_id: string; client_secret: string };
-  expect(client.client_secret).toHaveLength(64); expect((await readFile(join(config.stateDir, 'authority.sqlite'))).toString('latin1')).not.toContain(client.client_secret);
+  expect(client.client_secret).toHaveLength(64); expect((await readFile(join(join(state, 'authority'), 'authority.sqlite'))).toString('latin1')).not.toContain(client.client_secret);
   expect((await authority.clientsStore.getClient(client.client_id))?.client_secret).toBe(client.client_secret);
   await restart(); expect((await authority.clientsStore.getClient(client.client_id))?.client_secret).toBe(client.client_secret);
   const denied = await token({ client_id: client.client_id, client_secret: 'wrong', grant_type: 'refresh_token', refresh_token: 'a'.repeat(43), resource: `${origin}/mcp` });
@@ -305,14 +305,14 @@ it('confirms an exact per-order request through independent product browser auth
   const brokerClient = await connectExecution({ expectedMode: 'policy', socketPath }); expect((await brokerClient.capabilities()).authority).toMatchObject({ remainingOrders: 18 });
 });
 
-async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order') {
+async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order', beforePreview?: () => Promise<void>) {
   const enrollmentId = randomUUID(); const planId = randomUUID(); const revision = 'c'.repeat(64); const owner = wallet.address.toLowerCase();
   const scope = { kind: 'consumer_lighter', version: 1, ownerWallet: owner, network: 'testnet', account: 42, apiKeyIndex: 5, creators: [7], mode,
     maxOrderDebitUSDC: '10', origin, enrollmentId, epoch: 0 };
   const plan = LighterScopePlan.parse({ planId, revision, enrollmentId, ownerWallet: owner, network: 'testnet', message: `Synthetic owner-approved ${mode} scope ${planId}; no real venue.`,
     expiresAt: Date.now() + 120_000, scope, limits: { maxDebitUSDC: inspection.maxDebitUSDC, maxOrders: inspection.maxOrders,
       expiresAt: inspection.authority.expiresAt, cancelOwnOrders: inspection.authority.cancelOwnOrders } });
-  const binding = Binding.parse({ id: planId, subject, enabled: true, mode, brokerSocket: socketPath,
+  const binding = Binding.parse({ id: planId, subject, enabled: true, mode, execution: { kind: 'local_socket', socketPath: socketPath },
     grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash, accounts: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 5 }] });
   let registered = false; let activated = false; let prepareCalls = 0;
   const setup = () => ({ enrollmentId, revision, ownerWallet: owner, network: 'testnet' as const, account: 42, apiKeyIndex: 5, publicKey: `0x${'1'.repeat(80)}` });
@@ -327,7 +327,7 @@ async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order') {
       }
       return registered ? { ...setup(), state: 'ready' } : { ...setup(), state: 'signature_required', nonce: 0, chainId: 300, message: 'Synthetic registration; no real native transaction.', expiresAt: Date.now() + 120_000 };
     },
-    async preview(id, enrollment) { if (id !== subject || enrollment !== enrollmentId) throw new Error('Wrong private owner'); return plan; },
+    async preview(id, enrollment) { if (id !== subject || enrollment !== enrollmentId) throw new Error('Wrong private owner'); await beforePreview?.(); return plan; },
     async activate(input) {
       if (input.subject !== subject || input.enrollmentId !== enrollmentId || input.planId !== planId || input.revision !== revision
         || (await recoverMessageAddress({ message: plan.message, signature: input.signature as `0x${string}` })).toLowerCase() !== owner) throw new Error('Wrong private scope proof');
@@ -339,7 +339,7 @@ async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order') {
   const linked = binding.accounts[0]; if (!linked) throw new Error('Missing fixture linked account');
   inspectOverride = { ...inspection, templates: [], scope: plan.scope, accounts: [{ account: linked, ownerWallet: owner, agentAddress: null,
     checks: { registration: 'ready', builder: 'ready' }, checkedAt: Date.now(), notes: ['Inert inspection fixture; no real registration or order.'] }] };
-  config = AccountServiceConfig.parse({ ...config, profiles: [], appNetwork: 'lighter-testnet', lighterProvisioner: { socketPath: join(state, 'control.sock'), brokerSocketRoot: directory } });
+  config = AccountServiceConfig.parse({ ...config, profiles: [], appNetwork: 'lighter-testnet', lighterProvisioner: { kind: 'local_socket', socketPath: join(state, 'control.sock'), brokerSocketRoot: directory } });
   await restart(); return { enrollmentId, plan, binding, prepareCalls: () => prepareCalls };
 }
 
@@ -370,7 +370,7 @@ it.each(['per_order', 'policy'] as const)('self-service %s enrollment binds owne
   const code = new URL(callback.headers.get('location') ?? '').searchParams.get('code'); if (!code) throw new Error('Missing native OAuth code');
   expect(await auth(flow.agent, { serverUrl: `${origin}/mcp`, authorizationCode: code })).toBe('AUTHORIZED');
   expect(flow.agent.saved?.scope).toContain(TRADE_SCOPE);
-  await restart(); expect(authority.binding(subject)).toEqual(fixture.binding);
+  await restart(); expect(await authority.binding(subject)).toEqual(fixture.binding);
   const status = await result({ operation: 'status', accessToken }); expect(status).toMatchObject({ connection: { kind: 'executable', mode } });
   if (status.kind !== 'connections' || !flow.agent.saved) throw new Error('Missing current connection');
   await result({ operation: 'disconnect', accessToken, connectionId: status.connections[0]?.id ?? '' });
@@ -391,4 +391,23 @@ it('does not let an independently signed-in same-subject client approve another 
   const denied = await browser.fetch(firstPath, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, decision: 'confirm' }) });
   expect(denied.status).toBe(403); expect(await denied.json()).toMatchObject({ error: 'review_connection_required' });
   expect((await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities()).authority).toEqual(before.authority);
+});
+
+it('does not overwrite a newer browser review with a stale private scope preview response', async () => {
+  let entered = () => {}; let release = () => {};
+  const started = new Promise<void>(resolve => { entered = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; });
+  await consumerFixture('per_order', async () => { entered(); await gate; });
+  const flow = await begin(); const accessToken = await identity();
+  const review = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (review.kind !== 'review') throw new Error('Missing owner review');
+  const setup = await result({ operation: 'lighter_setup', transaction: flow.transaction, accessToken, reviewId: review.reviewId, signature: await wallet.signMessage({ message: review.message }) });
+  if (setup.kind !== 'lighter_setup' || setup.state.kind !== 'owner_signature') throw new Error('Missing registration');
+  const registration = setup.state.registration;
+  const pending = relay({ operation: 'lighter_register', transaction: flow.transaction, accessToken, enrollmentId: registration.enrollmentId,
+    revision: registration.revision, signature: await wallet.signMessage({ message: registration.message }) });
+  await started;
+  const newer = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (newer.kind !== 'review') throw new Error('Missing updated review');
+  expect(newer.reviewId).not.toBe(review.reviewId); release(); expect((await pending).status).toBe(400);
+  expect(await result({ operation: 'lighter_status', transaction: flow.transaction, accessToken })).toMatchObject({ state: { kind: 'scope_signature' } });
 });

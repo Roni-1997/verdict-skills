@@ -1,7 +1,7 @@
-"""Private testnet enrollment. Only public, finite commands cross its Unix socket.
+"""Private testnet enrollment through finite local or authenticated hosted ports.
 
-Run in the private container: the public container mounts sockets only, not this
-database, wrapping credential, worker state or process namespace.
+The public runtime receives account/profile references, never wrapping credentials,
+native account keys, private database access or selectable signer methods.
 """
 from __future__ import annotations
 
@@ -98,7 +98,9 @@ class Vault:
         except Exception:
             raise BrokerError("Enrollment vault authentication failed; no authority restored") from None
 
-    def save(self, record):
+    def save(self, record, *, expected_version=None):
+        if expected_version is not None:
+            raise BrokerError("Local vault is owned by its single supervisor, not a PostgreSQL version")
         nonce = os.urandom(12)
         raw = json.dumps(record, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()
         cipher = self.AES.new(self.key, self.AES.MODE_GCM, nonce=nonce)
@@ -111,6 +113,12 @@ class Vault:
                                 (record["subject"], record["owner"], record["id"], sealed))
         except sqlite3.IntegrityError:
             raise BrokerError("This venue owner already belongs to a different identity") from None
+        return record
+
+    @contextlib.contextmanager
+    def locked(self, subject):
+        # Local service owns a lifetime exclusive supervisor lock and serial control loop.
+        yield
 
     def count(self):
         return self.db.execute("SELECT count(*) FROM enrollments").fetchone()[0]
@@ -119,7 +127,7 @@ class Vault:
         self.db.close()
 
 
-def _native_process(pipe, operation, data):
+def _native_process(pipe, operation, data, transport_check=False):
     """One key/account per process; no shared native client map or env mutation."""
     logging.disable(logging.DEBUG)
     try:
@@ -144,6 +152,10 @@ def _native_process(pipe, operation, data):
                 if operation == "check":
                     return {"ready": client.check_client() is None}
                 if operation == "send":
+                    if transport_check:
+                        pipe.send({"transport_check": True})
+                        if not pipe.poll(5) or pipe.recv() is not True:
+                            raise BrokerError("Private enrollment lock was lost before transport")
                     result = await client.send_tx(tx_type=data["txType"], tx_info=data["txInfo"])
                     return {"accepted": result.code == 200}
                 raise BrokerError("Unknown private native operation")
@@ -156,16 +168,33 @@ def _native_process(pipe, operation, data):
         pipe.close()
 
 
-def native_call(operation, data):
+def _native_child(pipe, operation, data, transport_check):
+    # This runs only in the new process. Provider credentials and other accounts
+    # must never become native-client ambient authority.
+    allowed = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "VERDICT_NODE_BINARY") if k in os.environ}
+    os.environ.clear()
+    os.environ.update(allowed)
+    _native_process(pipe, operation, data, transport_check)
+
+
+def native_call(operation, data, *, before_transport=None):
     context = multiprocessing.get_context("spawn")
-    parent, child = context.Pipe(duplex=False)
-    process = context.Process(target=_native_process, args=(child, operation, data), daemon=True)
+    parent, child = context.Pipe(duplex=True)
+    process = context.Process(target=_native_child, args=(child, operation, data, before_transport is not None), daemon=True)
     process.start()
     child.close()
     try:
         if not parent.poll(25):
             raise BrokerError("Native operation timed out; reconcile original enrollment")
         result = parent.recv()
+        if result == {"transport_check": True}:
+            if before_transport is None or operation != "send":
+                raise BrokerError("Unexpected private native transport request")
+            before_transport()
+            parent.send(True)
+            if not parent.poll(25):
+                raise BrokerError("Native send unresolved; reconcile original enrollment")
+            result = parent.recv()
         if "error" in result:
             raise BrokerError(result["error"])
         return result
@@ -178,11 +207,12 @@ def native_call(operation, data):
 
 
 class TestnetVenue:
-    def __init__(self, native=native_call):
+    def __init__(self, native=native_call, *, transport_guard=None):
         import requests
         self.http = requests.Session()
         self.http.trust_env = False
         self.native = native
+        self.transport_guard = transport_guard
 
     def get(self, path, **params):
         result = self.http.get(HOST + "/api/v1/" + path, params=params, timeout=15, allow_redirects=False)
@@ -247,6 +277,8 @@ class TestnetVenue:
     def faucet(self, owner):
         # Explicit owner-signed control command only; never callable from reads.
         for transfer in ("true", "false"):
+            if self.transport_guard is not None:
+                self.transport_guard()
             if self.get("faucet", l1_address=owner, do_l1_transfer=transfer)["code"] != 200:
                 raise BrokerError("Testnet faucet unavailable; check original account")
 
@@ -259,10 +291,16 @@ class TestnetVenue:
     def send(self, record, signature):
         tx = json_load(record["txInfo"])
         tx["L1Sig"] = signature
-        return self.native("send", {**record, "txInfo": json.dumps(tx, separators=(",", ":"))})
+        data = {**record, "txInfo": json.dumps(tx, separators=(",", ":"))}
+        if self.transport_guard is not None:
+            return self.native("send", data, before_transport=self.transport_guard)
+        return self.native("send", data)
 
     def ready(self, record):
         return self.native("check", record)["ready"] is True
+
+    def close(self):
+        self.http.close()
 
 
 def _broker_worker(socket_path, state_path, grant_id, target, private_key, ready_pipe):
@@ -302,7 +340,7 @@ class Workers:
         child = self.children.get(binding["id"])
         if child is not None and child.is_alive():
             return
-        path = self.socket_dir / (binding["id"] + ".sock")
+        path = Path(binding["execution"]["socketPath"])
         # Only this private supervisor owns these UUID paths; public container cannot unlink directories.
         if path.exists():
             mode = path.lstat()
@@ -343,11 +381,17 @@ class Workers:
 
 
 class Provisioner:
-    def __init__(self, config, *, venue=None, workers=None, clock=time.time):
-        expected = {"origin", "stateDir", "socketDir", "wrappingKeyFile", "mode", "creators", "maxOrderDebitUSDC", "maxDebitUSDC", "maxOrders", "grantTtlSeconds"}
+    def __init__(self, config, *, venue=None, workers=None, clock=time.time, vault=None, store_factory=None):
+        common = {"origin", "mode", "creators", "maxOrderDebitUSDC", "maxDebitUSDC", "maxOrders", "grantTtlSeconds"}
+        runtime = config.get("runtime", "local_socket") if isinstance(config, dict) else None
+        if runtime not in {"local_socket", "hosted_signer"}:
+            raise BrokerError("Private execution runtime must be explicit")
+        expected = common | ({"stateDir", "socketDir", "wrappingKeyFile"} if runtime == "local_socket" else {"runtime"})
+        if isinstance(config, dict) and "runtime" in config:
+            expected.add("runtime")
         if not isinstance(config, dict) or set(config) != expected:
             raise BrokerError("Invalid private provisioner configuration")
-        self.config, self.clock = config, clock
+        self.config, self.clock, self.runtime = config, clock, runtime
         # Reuse the independently strict scope parser for operator settings.
         consumer_scope({"kind": "consumer_lighter", "version": 1, "ownerWallet": "0x" + "1" * 40, "network": "testnet", "account": 1,
                         "apiKeyIndex": 5, "creators": config["creators"], "mode": config["mode"], "maxOrderDebitUSDC": config["maxOrderDebitUSDC"],
@@ -356,19 +400,48 @@ class Provisioner:
             raise BrokerError("Private per-order ceiling exceeds total")
         integer(config["maxOrders"], 1, 1_000_000)
         integer(config["grantTtlSeconds"], 60, 86400)
-        for path in ("stateDir", "socketDir", "wrappingKeyFile"):
-            if not Path(config[path]).is_absolute():
-                raise BrokerError("Private configuration requires absolute paths")
-        self.vault = Vault(config["stateDir"], config["wrappingKeyFile"])
-        self.lock_fd = os.open(Path(config["stateDir"]) / "supervisor.lock", os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR, 0o600)
-        try:
-            fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(self.lock_fd)
-            self.vault.close()
-            raise BrokerError("Private supervisor already owns this vault") from None
+        self.lock_fd = None
+        if runtime == "local_socket":
+            if vault is not None or store_factory is not None:
+                raise BrokerError("Local private runtime cannot mix PostgreSQL storage ports")
+            for path in ("stateDir", "socketDir", "wrappingKeyFile"):
+                if not Path(config[path]).is_absolute():
+                    raise BrokerError("Private configuration requires absolute paths")
+            self.vault = Vault(config["stateDir"], config["wrappingKeyFile"])
+            self.lock_fd = os.open(Path(config["stateDir"]) / "supervisor.lock", os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(self.lock_fd)
+                self.vault.close()
+                raise BrokerError("Private supervisor already owns this vault") from None
+        else:
+            if vault is None or store_factory is None or workers is not None:
+                raise BrokerError("Hosted private runtime requires explicit vault and broker-store ports")
+            self.vault = vault
+        self.store_factory = store_factory
         self.venue = venue or TestnetVenue()
-        self.workers = workers or Workers(config["stateDir"], config["socketDir"])
+        self.workers = (workers or Workers(config["stateDir"], config["socketDir"])) if runtime == "local_socket" else None
+
+    def _save(self, record):
+        return self.vault.save(record, expected_version=getattr(record, "version", None))
+
+    @contextlib.contextmanager
+    def _store(self, record, *, create=False):
+        store = self.store_factory(record, create=create) if self.store_factory else Store(Path(self.config["stateDir"]) / record["id"])
+        try:
+            yield store
+        finally:
+            if hasattr(store, "close"):
+                store.close()
+
+    def _binding(self, record):
+        plan, grant = record["plan"], record["grant"]
+        execution = ({"kind": "local_socket", "socketPath": str(Path(self.config["socketDir"]) / (plan["planId"] + ".sock"))}
+                     if self.runtime == "local_socket" else {"kind": "hosted_signer", "profileId": plan["planId"]})
+        return {"id": plan["planId"], "subject": record["subject"], "enabled": True, "mode": grant["scope"]["mode"], "execution": execution,
+                "grantId": grant["grantId"], "grantHash": grant["grantHash"],
+                "accounts": [{"venue": "lighter", "network": "testnet", "account": record["account"], "apiKeyIndex": record["apiKeyIndex"]}]}
 
     def now(self):
         return int(self.clock() * 1000)
@@ -408,7 +481,7 @@ class Provisioner:
         # Save newly generated key BEFORE building a message; crash resumes this exact key.
         record.update(account=account, apiKeyIndex=slot, state="allocated", **self.venue.generate())
         record["publicKey"] = key_hex(record["publicKey"])
-        self.vault.save(record)
+        record = self._save(record)
         return self._registration(record)
 
     def _registration(self, record):
@@ -416,19 +489,19 @@ class Provisioner:
         current = self.venue.keys(record["account"]).get(record["apiKeyIndex"])
         if current is not None and not empty_key(current) and current != record["publicKey"]:
             record["state"] = "blocked"
-            self.vault.save(record)
+            record = self._save(record)
             return record
         if self.venue.funding_required(record["account"], record["owner"]):
             if record.get("faucetClaimed"):
                 record["state"] = "blocked"
-                self.vault.save(record)
+                record = self._save(record)
                 return record
             return self._funding_review(record)
         record["nonce"] = self.venue.nonce(record["account"], record["apiKeyIndex"])
         record.update(self.venue.registration(record))
         record.update(state="signature_required", expiresAt=self.now() + 300_000)
         record["revision"] = _hash({k: record[k] for k in ("id", "owner", "account", "apiKeyIndex", "publicKey", "nonce", "message", "expiresAt")})
-        self.vault.save(record)
+        record = self._save(record)
         return record
 
     def _funding_review(self, record):
@@ -437,7 +510,7 @@ class Provisioner:
         fields.update({k: record[k] for k in ("account", "apiKeyIndex", "publicKey") if k in record})
         record["revision"] = _hash(fields)
         record["message"] = funding_message(record)
-        self.vault.save(record)
+        record = self._save(record)
         return record
 
     def _reconcile(self, record):
@@ -456,10 +529,10 @@ class Provisioner:
             key = self.venue.keys(record["account"]).get(record["apiKeyIndex"])
             if key == record["publicKey"] and self.venue.ready(record):
                 record["state"] = "ready"
-                self.vault.save(record)
+                record = self._save(record)
             elif key is not None and not empty_key(key):
                 record["state"] = "blocked"
-                self.vault.save(record)
+                record = self._save(record)
         return record
 
     def _proof(self, record, request):
@@ -475,6 +548,11 @@ class Provisioner:
         subject = request["subject"]
         if not isinstance(subject, str) or not re.fullmatch(r"did:privy:[A-Za-z0-9_-]{1,256}", subject):
             raise BrokerError("Invalid provisioning subject")
+        with self.vault.locked(subject):
+            return self._dispatch_locked(request)
+
+    def _dispatch_locked(self, request):
+        subject = request["subject"]
         operation = request["operation"]
         for field in ("enrollmentId", "planId", "profileId"):
             if field in request:
@@ -491,13 +569,14 @@ class Provisioner:
             record = {"id": str(uuid.uuid4()), "subject": subject, "owner": owner, "state": "funding_required", "expiresAt": self.now() + 300_000}
             record["revision"] = _hash(record)
             record["message"] = funding_message(record)
-            self.vault.save(record)
+            record = self._save(record)
             return self._view(self._prepare_key(record))
         if operation == "binding":
             record = self.vault.read(subject)
             if record is None or record.get("revoked") or "binding" not in record:
                 return {"binding": None}
-            self.workers.ensure(record)
+            if self.workers is not None:
+                self.workers.ensure(record)
             return {"binding": record["binding"]}
         if operation == "revoke":
             prior = self.vault.read(subject)
@@ -511,7 +590,7 @@ class Provisioner:
             if record["state"] != "funding_required" or record.get("faucetClaimed"):
                 raise BrokerError("Faucet already requested or not required; inspect original account")
             record["faucetClaimed"] = True
-            self.vault.save(record)
+            record = self._save(record)
             self.venue.faucet(record["owner"])
             return self._view(self._prepare_key(record))
         if operation == "register":
@@ -529,14 +608,14 @@ class Provisioner:
             if self.venue.funding_required(record["account"], record["owner"]):
                 if record.get("faucetClaimed"):
                     record["state"] = "blocked"
-                    self.vault.save(record)
+                    record = self._save(record)
                     return self._view(record)
                 return self._view(self._funding_review(record))
             if self.venue.nonce(record["account"], record["apiKeyIndex"]) != record["nonce"]:
                 raise BrokerError("Registration nonce changed; original review is no longer valid")
             record["state"] = "registering"
             record["registrationSignature"] = request["signature"]
-            self.vault.save(record)
+            record = self._save(record)
             try:
                 self.venue.send(record, request["signature"])
             except Exception:
@@ -561,7 +640,7 @@ class Provisioner:
                                   "message": consumer_message(grant, subject, plan_id), "expiresAt": grant["expiresAt"], "scope": grant["scope"],
                                   "limits": {k: grant[k] for k in ("maxDebitUSDC", "maxOrders", "expiresAt", "cancelOwnOrders")}}
                 record["grant"] = grant
-                self.vault.save(record)
+                record = self._save(record)
             if record["plan"]["expiresAt"] <= self.now():
                 raise BrokerError("The original scope expired; explicit operator renewal is required, no grant recreated")
             return record["plan"]
@@ -572,29 +651,34 @@ class Provisioner:
             self.venue.verify_owner(record["account"], record["owner"])
             if self.venue.keys(record["account"]).get(record["apiKeyIndex"]) != record["publicKey"] or not self.venue.ready(record):
                 raise BrokerError("Private hosted key registration changed")
-            store = Store(Path(self.config["stateDir"]) / record["id"])
-            issue_consumer_grant(store, record["grant"], subject=subject, plan_id=plan["planId"], signature=request["signature"])
+            if plan["message"] != consumer_message(record["grant"], subject, plan["planId"]) or recover_owner(plan["message"], request["signature"]) != record["owner"]:
+                raise BrokerError("Owner did not authorize the exact immutable private scope")
+            with self._store(record, create="binding" not in record) as store:
+                issue_consumer_grant(store, record["grant"], subject=subject, plan_id=plan["planId"], signature=request["signature"])
             if "binding" not in record:
-                record["binding"] = {"id": plan["planId"], "subject": subject, "enabled": True, "mode": record["grant"]["scope"]["mode"],
-                                     "brokerSocket": str(Path(self.config["socketDir"]) / (plan["planId"] + ".sock")),
-                                     "grantId": record["grant"]["grantId"], "grantHash": record["grant"]["grantHash"],
-                                     "accounts": [{"venue": "lighter", "network": "testnet", "account": record["account"], "apiKeyIndex": record["apiKeyIndex"]}]}
-                self.vault.save(record)
-            self.workers.ensure(record)
+                record["binding"] = self._binding(record)
+                record = self._save(record)
+            if self.workers is not None:
+                self.workers.ensure(record)
             return {"binding": record["binding"]}
         if operation == "revoke":
             if record.get("binding", {}).get("id") != request["profileId"]:
                 raise BrokerError("Unknown private profile")
-            revoke_grant(Store(Path(self.config["stateDir"]) / record["id"]), record["grant"]["grantId"])
+            with self._store(record) as store:
+                revoke_grant(store, record["grant"]["grantId"])
             record["revoked"] = True
-            self.vault.save(record)
+            record = self._save(record)
             return {"revoked": True}
         raise BrokerError("Unsupported private operation")
 
     def close(self):
-        self.workers.close()
+        if self.workers is not None:
+            self.workers.close()
+        if hasattr(self.venue, "close"):
+            self.venue.close()
         self.vault.close()
-        os.close(self.lock_fd)
+        if self.lock_fd is not None:
+            os.close(self.lock_fd)
 
 
 def serve_provisioner(socket_path, provisioner):

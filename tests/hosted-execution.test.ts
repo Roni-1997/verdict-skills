@@ -94,10 +94,10 @@ async function connect(options: ExecutionConnectionOptions): Promise<ExecutionCl
 beforeEach(async () => {
   directory = await mkdtemp('/tmp/verdict-hosted-gateway-'); jobs = openJobs();
   config = HostedConfig.parse({ publicOrigin: 'https://mcp.verdict.example', issuer,
-    browserClientId: 'browser-client', stateDir: join(directory, 'state'), approvalTtlSeconds: 30,
-    bindings: [{ id: 'alice', subject: 'alice', enabled: true, mode: 'per_order', brokerSocket: '/operator/alice.sock', grantId: GRANT,
+    browserClientId: 'browser-client', storage: { kind: 'local', stateDir: join(directory, 'state') }, approvalTtlSeconds: 30,
+    bindings: [{ id: 'alice', subject: 'alice', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: '/operator/alice.sock' }, grantId: GRANT,
       accounts: [{ venue: 'hl', network: 'testnet', account: ADDRESS }, { venue: 'lighter', network: 'devnet', account: 42, apiKeyIndex: 2 }] },
-    { id: 'bob', subject: 'bob', enabled: true, mode: 'policy', brokerSocket: '/operator/bob.sock', grantId: BOB_GRANT,
+    { id: 'bob', subject: 'bob', enabled: true, mode: 'policy', execution: { kind: 'local_socket', socketPath: '/operator/bob.sock' }, grantId: BOB_GRANT,
       accounts: [{ venue: 'hl', network: 'testnet', account: BOB_ADDRESS }] }],
   });
   alice = new FakeClient(); bob = new FakeClient(BOB_GRANT); connections = [];

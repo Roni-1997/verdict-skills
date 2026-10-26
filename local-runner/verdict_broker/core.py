@@ -107,6 +107,39 @@ class Adapter(Protocol):
     def close(self) -> None: ...
 
 
+def unresolved_accounts(journals, *, exclude_digest=None):
+    unresolved = set()
+    for digest, events in journals:
+        if digest == exclude_digest:
+            continue
+        proposal = next((e.get("proposal") for e in events if e.get("type") == "approved" and "proposal" in e), None)
+        quantities = {}
+        for attempt in (e for e in events if e.get("type") == "attempt_started"):
+            i = attempt.get("leg")
+            if (not isinstance(proposal, dict) or type(i) is not int or i < 0
+                    or i >= len(proposal.get("payload", {}).get("legs", []))):
+                raise BrokerError("Attempt journal lacks its canonical proposal; reconcile manually")
+            leg = proposal["payload"]["legs"][i]
+            terminal = next((e.get("observation") for e in events if e.get("type") == "terminal_observation" and e.get("leg") == i), None)
+            resolved = False
+            if terminal is not None:
+                try:
+                    filled, delta = D(terminal["filled"]), D(terminal["netInventoryChange"])
+                    resolved = (terminal["state"] in TERMINAL and terminal["settled"] is True and filled.is_finite() and delta.is_finite()
+                                and ((filled == D(leg["shares"]) and delta == D(leg["shares"])) or (filled == 0 and delta == 0)))
+                except (KeyError, TypeError, ArithmeticError, ValueError):
+                    raise BrokerError("Terminal observation journal corrupt") from None
+            if not resolved:
+                unresolved.add(account_key(leg))
+            quantities[i] = filled if resolved else None
+        if quantities and len(proposal["payload"]["legs"]) == 2:
+            first, second = quantities.get(0, D(0)), quantities.get(1, D(0))
+            # Individually terminal orders can still leave the pair directionally exposed.
+            if first is None or second is None or first != second:
+                unresolved.update(account_key(leg) for leg in proposal["payload"]["legs"])
+    return unresolved
+
+
 class Store:
     def __init__(self, root: Path):
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -114,6 +147,13 @@ class Store:
         if not stat.S_ISDIR(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o077:
             raise BrokerError("Broker state directory must be owned by you, mode 0700, and not a symlink")
         self.root = root
+
+    @property
+    def identity(self):
+        return ("filesystem", str(self.root.resolve()))
+
+    def private_names(self, prefix, suffix):
+        return sorted(path.name for path in self.root.iterdir() if path.name.startswith(prefix) and path.name.endswith(suffix))
 
     def _open(self, name, flags):
         fd = os.open(self.root / name, flags | os.O_NOFOLLOW, 0o600)
@@ -177,36 +217,7 @@ class Store:
                 yield path.stem, self.read(path.stem)
 
     def unresolved_accounts(self, *, exclude_digest=None):
-        unresolved = set()
-        for digest, events in self.proposal_journals():
-            if digest == exclude_digest:
-                continue
-            proposal = next((e.get("proposal") for e in events if e.get("type") == "approved" and "proposal" in e), None)
-            quantities = {}
-            for attempt in (e for e in events if e.get("type") == "attempt_started"):
-                i = attempt.get("leg")
-                if (not isinstance(proposal, dict) or type(i) is not int or i < 0
-                        or i >= len(proposal.get("payload", {}).get("legs", []))):
-                    raise BrokerError("Attempt journal lacks its canonical proposal; reconcile manually")
-                leg = proposal["payload"]["legs"][i]
-                terminal = next((e.get("observation") for e in events if e.get("type") == "terminal_observation" and e.get("leg") == i), None)
-                resolved = False
-                if terminal is not None:
-                    try:
-                        filled, delta = D(terminal["filled"]), D(terminal["netInventoryChange"])
-                        resolved = (terminal["state"] in TERMINAL and terminal["settled"] is True and filled.is_finite() and delta.is_finite()
-                                    and ((filled == D(leg["shares"]) and delta == D(leg["shares"])) or (filled == 0 and delta == 0)))
-                    except (KeyError, TypeError, ArithmeticError, ValueError):
-                        raise BrokerError("Terminal observation journal corrupt") from None
-                if not resolved:
-                    unresolved.add(account_key(leg))
-                quantities[i] = filled if resolved else None
-            if quantities and len(proposal["payload"]["legs"]) == 2:
-                first, second = quantities.get(0, D(0)), quantities.get(1, D(0))
-                # Individually terminal orders can still leave the pair directionally exposed.
-                if first is None or second is None or first != second:
-                    unresolved.update(account_key(leg) for leg in proposal["payload"]["legs"])
-        return unresolved
+        return unresolved_accounts(self.proposal_journals(), exclude_digest=exclude_digest)
 
     @contextlib.contextmanager
     def locked(self, legs):

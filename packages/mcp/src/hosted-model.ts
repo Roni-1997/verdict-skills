@@ -23,14 +23,25 @@ export function requireScope(principal: Principal, scope: ConnectorScope): void 
 export const LinkedAccount = ExecutionLinkedAccount;
 export type LinkedAccount = z.infer<typeof LinkedAccount>;
 const AbsolutePath = z.string().min(1).refine(isAbsolute);
+const EnvironmentName = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
+export const PrivateSignerConfig = z.object({ kind: z.literal('hosted_signer'), origin: z.string().url().refine(value => {
+  const url = new URL(value); return url.protocol === 'https:' && url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash;
+}), deploymentId: z.string().uuid(), secretEnv: EnvironmentName }).strict();
+export type PrivateSignerConfig = z.infer<typeof PrivateSignerConfig>;
 export const Binding = z.object({ id: z.string().min(1).max(128), subject: z.string().min(1).max(512),
-  enabled: z.boolean(), mode: z.enum(['per_order', 'policy']), brokerSocket: AbsolutePath,
+  enabled: z.boolean(), mode: z.enum(['per_order', 'policy']), execution: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('local_socket'), socketPath: AbsolutePath }).strict(),
+    z.object({ kind: z.literal('hosted_signer'), profileId: z.string().uuid() }).strict(),
+  ]),
   grantId: z.string().uuid(), grantHash: z.string().regex(/^[a-f0-9]{64}$/).optional(), accounts: z.array(LinkedAccount).min(1).max(32),
 }).strict();
 export type Binding = z.infer<typeof Binding>;
 export const HostedConfig = z.object({ publicOrigin: z.string().url(), issuer: z.string().url(),
   browserClientId: z.string().min(1), browserClientSecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
-  stateDir: AbsolutePath, bindings: z.array(Binding).max(1000),
+  storage: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('local'), stateDir: AbsolutePath }).strict(),
+    z.object({ kind: z.literal('postgres'), deploymentId: z.string().uuid(), databaseId: z.string().uuid() }).strict(),
+  ]), bindings: z.array(Binding).max(1000),
   approvalTtlSeconds: z.number().int().min(30).max(900).prefault(300),
   allowInsecureLocalhost: z.boolean().prefault(false),
 }).strict().superRefine((config, context) => {
@@ -42,8 +53,8 @@ export const HostedConfig = z.object({ publicOrigin: z.string().url(), issuer: z
   }
   const subjects = new Set<string>(); const ids = new Set<string>(); const accounts = new Set<string>(); const sockets = new Set<string>();
   for (const binding of config.bindings) {
-    if (subjects.has(binding.subject) || ids.has(binding.id) || sockets.has(binding.brokerSocket)) context.addIssue({ code: 'custom', message: 'Bindings must have unique subjects, IDs and broker sockets.' });
-    subjects.add(binding.subject); ids.add(binding.id); sockets.add(binding.brokerSocket);
+    if (subjects.has(binding.subject) || ids.has(binding.id) || sockets.has(JSON.stringify(binding.execution))) context.addIssue({ code: 'custom', message: 'Bindings must have unique subjects, IDs and broker sockets.' });
+    subjects.add(binding.subject); ids.add(binding.id); sockets.add(JSON.stringify(binding.execution));
     for (const account of binding.accounts) {
       const key = `${account.venue}:${account.network}:${account.account}`;
       if (accounts.has(key)) context.addIssue({ code: 'custom', message: 'An account cannot be shared across connector bindings.' });

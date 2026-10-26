@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "api/signer.py": {
+      "maxDuration": 300,
+      "includeFiles": "{_vendor/**,local-runner/verdict_broker/**,packages/cli/**,runtime/**,licenses/**}"
+    }
+  },
+  "rewrites": [{ "source": "/internal/operation", "destination": "/api/signer" }]
+}

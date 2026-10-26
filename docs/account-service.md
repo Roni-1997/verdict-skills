@@ -112,8 +112,8 @@ outside the checkout and make it owner-only `0600`. All example hosts and IDs ar
 | `privyVerificationKey` | Legacy pinned public SPKI alternative; never a private key |
 | `relaySecretEnv` | Name of a private random shared relay secret, at least 32 bytes |
 | `profiles` | Dedicated operator account/socket, grant ID/hash, allowed accounts and chosen mode |
-| `stateDir`, `gatewayJobsDir` | Separate persistent, owner-only `0700` directories |
-| `lighterProvisioner` | Fixed private `socketPath` and `brokerSocketRoot` for the independently configured Lighter testnet signer |
+| `storage` | Explicit `local` with separate owner-only `0700` state directories, or `postgres` with fixed deployment/database IDs and a connection string environment variable. Runtime never initializes missing PostgreSQL state. |
+| `lighterProvisioner` | Explicit `local_socket` with private socket paths, or `hosted_signer` with a fixed HTTPS origin, deployment ID and service secret environment variable. Browser input never selects the destination. |
 
 In Vercel server-only staging settings, configure `VERDICT_CONNECTOR_ORIGIN`,
 `VERDICT_CONNECTOR_APP_ORIGIN` and `VERDICT_CONNECTOR_RELAY_SECRET`. The relay secret

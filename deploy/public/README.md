@@ -1,0 +1,9 @@
+# Hosted public MCP runtime
+
+Run `pnpm run build:vercel:public /absolute/output/directory` from the SDK checkout. The command rebuilds the workspace and bundles the public handler with its JavaScript dependencies into one Node.js 22 `api/index.mjs`; no copied `node_modules` directory is required. It writes the Vercel project files and a deterministic `build-report.json` with input hashes, bundle hash and the exact bundler version, then imports the generated artifact in a separate process and verifies that missing configuration fails closed. The private signer, configuration values and secrets are never bundled. The checked-in API wrapper is a source template; deploy the generated output directory.
+
+Set `VERDICT_ACCOUNT_SERVICE_CONFIG` to the strict account service JSON with `storage.kind=postgres` and `lighterProvisioner.kind=hosted_signer`. Set the environment variables named by `storage.connectionStringEnv`, `relaySecretEnv`, and `lighterProvisioner.secretEnv`. The public database role must access only `verdict_mcp`; it must not own tables or create schemas. The private service HMAC secret is a canonical base64url encoding of 32 random bytes. Neither a wrapping key nor a venue signing key belongs in this project.
+
+The configuration pins the deployment and database UUIDs, public and app HTTPS origins, the existing Privy app ID and JWKS verification, and the private signer HTTPS origin. Provision metadata and DDL through a separate administrative process before deployment. Runtime checks both authority and job markers and fails closed when either is missing or changed; it never recreates a database.
+
+Use one stable public HTTPS origin for OAuth metadata, browser cookies and callbacks. The catchall rewrite exposes OAuth, `/connect/app`, browser review and `/mcp` through one Node.js 22 function. The app relay must point to this fixed origin and use the same relay secret.

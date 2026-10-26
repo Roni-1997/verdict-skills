@@ -184,8 +184,8 @@ def _ledger(store):
             reservations[row["proposalDigest"]] = row
         else:
             raise BrokerError("Authority registry corrupt")
-    for path in store.root.glob("grant-*.json"):
-        marker = store.read_private(path.name)
+    for name in store.private_names("grant-", ".json"):
+        marker = store.read_private(name)
         if not isinstance(marker, dict) or marker.get("grantId") not in grants or marker != {"grantId": marker.get("grantId"), "grantHash": grants[marker["grantId"]]["grantHash"]}:
             raise BrokerError("Grant registry missing or truncated")
     # The proposal-side witness detects a cleanly truncated reservation tail.
@@ -297,7 +297,7 @@ class PolicyAuthority:
         self.grant_hash = self._load()[0]["grantHash"]
 
     def bind(self, store):
-        if store.root.resolve() != self.store.root.resolve():
+        if store.identity != self.store.identity:
             raise BrokerError("Authority and broker must use the same state directory")
 
     def _load(self):

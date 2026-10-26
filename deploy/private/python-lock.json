@@ -1,0 +1,7 @@
+{
+  "format": "verdict-private-python/1",
+  "requirementsSha256": "1c212aff9a92909ae85506b4844e59397faa78c8962514e46d22dc705b6d581c",
+  "securityOverridesSha256": "04e0317168805255ce55d59f6696ce661610e8383c5ec2f004fe3632a17459d0",
+  "pyprojectSha256": "d7593f407ae59dd5571c82b6fc0eecf2540b992276a42abb4a656cd62adb7305",
+  "uvLockSha256": "0d00279edde3d2aff91ff6f108de3badeb20cf168b4febb2f40c94b929f802c5"
+}

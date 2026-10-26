@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
-import { ConnectAccountView, ConnectId, ConnectReview, LighterScopePlan } from './connect-contract.js';
-import { AuthorityRef, Binding, HostedError, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
+import { ConnectAccountView, ConnectAddress, ConnectId, ConnectReview, LighterScopePlan } from './connect-contract.js';
+import { AuthorityRef, Binding, HostedError, PrivateSignerConfig, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
 
 export const opaque = () => randomBytes(32).toString('base64url');
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -18,9 +18,15 @@ export const AccountServiceConfig = z.object({ publicOrigin: z.string().url(), a
     z.object({ kind: z.literal('spki'), key: z.string().min(50).max(8192) }).strict(),
     z.object({ kind: z.literal('jwks') }).strict(),
   ]).optional(),
-  lighterProvisioner: z.object({ socketPath: z.string().refine(isAbsolute), brokerSocketRoot: z.string().refine(isAbsolute) }).strict().optional(),
+  lighterProvisioner: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('local_socket'), socketPath: z.string().refine(isAbsolute), brokerSocketRoot: z.string().refine(isAbsolute) }).strict(),
+    PrivateSignerConfig,
+  ]).optional(),
   relaySecretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-  stateDir: z.string().refine(isAbsolute), gatewayJobsDir: z.string().refine(isAbsolute),
+  storage: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('local'), stateDir: z.string().refine(isAbsolute), gatewayJobsDir: z.string().refine(isAbsolute) }).strict(),
+    z.object({ kind: z.literal('postgres'), connectionStringEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/), deploymentId: z.string().uuid(), databaseId: z.string().uuid() }).strict(),
+  ]),
   profiles: z.array(Profile).max(1000), allowInsecureLocalhost: z.boolean().prefault(false),
   refreshTtlSeconds: z.number().int().min(600).max(2_592_000).prefault(86_400),
   approvalTtlSeconds: z.number().int().min(30).max(900).prefault(300),
@@ -33,11 +39,12 @@ export const AccountServiceConfig = z.object({ publicOrigin: z.string().url(), a
     if ((url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || url.pathname !== '/' || url.search || url.hash || url.username || url.password)
       context.addIssue({ code: 'custom', path: [field], message: 'Use a fixed HTTPS origin.' });
   }
-  if (new URL(config.publicOrigin).origin === new URL(config.appOrigin).origin || config.stateDir === config.gatewayJobsDir) context.addIssue({ code: 'custom', message: 'Authority and app origins and state directories must be distinct.' });
+  if (new URL(config.publicOrigin).origin === new URL(config.appOrigin).origin || (config.storage.kind === 'local' && config.storage.stateDir === config.storage.gatewayJobsDir)) context.addIssue({ code: 'custom', message: 'Authority and app origins and state directories must be distinct.' });
+  if (config.storage.kind === 'postgres' && config.lighterProvisioner?.kind === 'hosted_signer' && config.storage.deploymentId !== config.lighterProvisioner.deploymentId) context.addIssue({ code: 'custom', message: 'Public and private transports must pin the same deployment.' });
   const ids = new Set<string>(); const sockets = new Set<string>(); const accounts = new Set<string>();
   for (const profile of config.profiles) {
-    if (ids.has(profile.id) || sockets.has(profile.brokerSocket)) context.addIssue({ code: 'custom', message: 'Profiles require unique IDs and broker sockets.' });
-    ids.add(profile.id); sockets.add(profile.brokerSocket);
+    if (ids.has(profile.id) || sockets.has(JSON.stringify(profile.execution))) context.addIssue({ code: 'custom', message: 'Profiles require unique IDs and broker sockets.' });
+    ids.add(profile.id); sockets.add(JSON.stringify(profile.execution));
     for (const account of profile.accounts) {
       const key = `${account.venue}:${account.network}:${account.account}`;
       if (accounts.has(key) || (account.venue === 'hl' && ['mainnet', 'testnet'].includes(config.appNetwork) && account.network !== config.appNetwork)) context.addIssue({ code: 'custom', message: 'Accounts must be unique and HL must match an explicitly selected HL app network.' });
@@ -69,3 +76,8 @@ export const Transaction = z.object({ id: ConnectId, purpose: z.enum(['oauth', '
 }).strict();
 export type Transaction = z.infer<typeof Transaction>;
 export const failure = (code = 'invalid_connection') => new HostedError(400, code, 'Connection could not be verified. Start a new connection from the original agent.');
+
+export const ClientRecord = z.object({ metadata: z.unknown(), secret: z.string().nullable() }).strict();
+export const ManagedProfile = z.object({ subject: z.string(), walletAddress: ConnectAddress, profile: Profile }).strict();
+export const AuthoritySchemas = { client: ClientRecord, transaction: Transaction, grant: Grant, access: Credential, refresh: Credential, code: Code, browser: Browser, 'managed-profile': ManagedProfile };
+export type AuthorityRecords = { [K in keyof typeof AuthoritySchemas]: z.output<(typeof AuthoritySchemas)[K]> };

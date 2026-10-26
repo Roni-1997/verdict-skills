@@ -8,8 +8,9 @@ import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { ExecutionProposal, ExecutionRequest, LighterBuyIntent, configFromEnv, createStrategyTools, executionConfirmation } from '@verdict/core';
 import { z } from 'zod';
 import { ConnectorAuth } from './hosted-auth.js';
-import { HostedExecution } from './hosted-execution.js';
+import { HostedExecution, type HostedRemoteConnect } from './hosted-execution.js';
 import { HostedJobs } from './hosted-jobs.js';
+import type { HostedJobStore } from './hosted-job-store.js';
 import { HostedLighterIntents } from './hosted-intent.js';
 import { type BrowserSession, HostedConfig, HostedError, type Principal, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
 import type { ConnectorSecurity, HostedRuntime, ReviewJobIdentity } from './hosted-security.js';
@@ -81,12 +82,12 @@ export function createHostedExecutionServer(gateway: HostedExecution, auth: Conn
   registerLighterTools(server, undefined, metadata(READ_SCOPE));
   registerStrategyTools(server, createStrategyTools({ config: researchConfig }), metadata(READ_SCOPE));
   if (runtime) server.registerTool('connection_status', { description: 'Read your account-linking, provisioning and client-connection status. Never grants trading authority.', inputSchema: z.object({}).strict(), annotations: read, _meta: metadata(READ_SCOPE) }, async () => {
-    try { runtime.assertActive(principal); return output(await runtime.status(principal)); } catch (error) { return failure(error); }
+    try { await runtime.assertActive(principal); return output(await runtime.status(principal)); } catch (error) { return failure(error); }
   });
   server.registerTool('execution_accounts', { description: 'Read only the authenticated user’s linked accounts, gateway mode, underlying bounded broker authority and remaining budget. Contains no credentials.', inputSchema: z.object({}).strict(), annotations: read, _meta: metadata(READ_SCOPE) }, async () => {
     try { return output(await gateway.accounts(principal)); } catch (error) {
       if (runtime && error instanceof HostedError && error.code === 'account_not_linked') {
-        try { runtime.assertActive(principal); return output(await runtime.status(principal)); } catch (statusError) { return failure(statusError); }
+        try { await runtime.assertActive(principal); return output(await runtime.status(principal)); } catch (statusError) { return failure(statusError); }
       }
       return failure(error);
     }
@@ -143,16 +144,19 @@ function page(res: ServerResponse, title: string, content: string): void {
   });
   res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style nonce="${nonce}">:root{color-scheme:light dark}body{font:16px/1.55 system-ui;background:#0d1526;color:#e7edf8;margin:0;padding:32px 20px}main{max-width:760px;margin:auto}h1{font-size:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui;border:1px solid #34415c;padding:20px;border-radius:12px}button{font:inherit;border:0;border-radius:8px;padding:12px 20px;margin:8px 8px 8px 0;cursor:pointer;background:#83aaff;color:#0b1832}button[value=decline]{background:#29364f;color:#e7edf8}p{color:#bcc9df}code{overflow-wrap:anywhere}</style></head><body><main><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`);
 }
-function browserSession(auth: ConnectorSecurity, req: IncomingMessage): BrowserSession | null {
+async function browserSession(auth: ConnectorSecurity, req: IncomingMessage): Promise<BrowserSession | null> {
   if (req.headers.authorization !== undefined) throw new HostedError(403, 'browser_session_required', 'Order review requires independent browser sign-in, not an MCP bearer token.');
   return auth.readSession(req.headers.cookie);
 }
 
-export async function createHostedHandler(input: HostedConfig, runtime?: HostedRuntime): Promise<{ handle: (req: IncomingMessage, res: ServerResponse) => void; close: () => void; reviewJobIdentity: (id: string) => ReviewJobIdentity | null }> {
+export type HostedHandlerDependencies = { jobs?: HostedJobStore; remoteConnect?: HostedRemoteConnect };
+
+export async function createHostedHandler(input: HostedConfig, runtime?: HostedRuntime, dependencies: HostedHandlerDependencies = {}): Promise<{ handle: (req: IncomingMessage, res: ServerResponse) => void; close: () => Promise<void>; reviewJobIdentity: (id: string) => Promise<ReviewJobIdentity | null> }> {
   const config = HostedConfig.parse(input);
   const auth = runtime?.auth ?? await ConnectorAuth.create(config);
-  const jobs = new HostedJobs(config.stateDir);
-  const gateway = new HostedExecution(config, jobs, undefined, runtime);
+  const jobs = dependencies.jobs ?? (config.storage.kind === 'local' ? new HostedJobs(config.storage.stateDir)
+    : (() => { throw new HostedError(503, 'storage_not_configured', 'Shared durable hosted state must be explicitly configured.'); })());
+  const gateway = new HostedExecution(config, jobs, undefined, runtime, dependencies.remoteConnect);
   const intents = new HostedLighterIntents(jobs, { context: (principal) => gateway.intentContext(principal) });
   const origin = new URL(config.publicOrigin).origin;
   const reviewPattern = /^\/review\/([a-f0-9-]+)$/;
@@ -164,24 +168,24 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
     if (req.method === 'GET' && url.pathname === '/healthz') { sendJson(res, 200, { ok: true, mode: 'hosted_execution', fundedAcceptanceVerified: false }); return; }
     if (req.method === 'GET' && ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) { sendJson(res, 200, auth.metadata()); return; }
     if (url.pathname === '/auth/callback' && req.method === 'GET') {
-      browserSession(auth, req);
+      await browserSession(auth, req);
       const result = await auth.callback(url, req.headers.cookie);
       res.writeHead(303, { location: result.location, 'set-cookie': result.cookies, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
     }
     const match = reviewPattern.exec(url.pathname);
     if (match) {
       const id = ReviewId.parse(match[1]);
-      const session = browserSession(auth, req);
+      const session = await browserSession(auth, req);
       if (!session) {
         if (req.method !== 'GET') throw new HostedError(401, 'browser_session_required', 'Sign in to review this exact order.');
-        const login = auth.login(url.pathname);
+        const login = await auth.login(url.pathname);
         res.writeHead(303, { location: login.location, 'set-cookie': login.cookies, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
       }
       let job: Awaited<ReturnType<HostedExecution['reviewJob']>>;
       try { job = await gateway.reviewJob(session.principal, id); }
       catch (error) {
         if (req.method !== 'GET' || !(error instanceof HostedError) || error.code !== 'review_connection_required') throw error;
-        const login = auth.login(url.pathname);
+        const login = await auth.login(url.pathname);
         res.writeHead(303, { location: login.location, 'set-cookie': login.cookies, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
       }
       if (req.method === 'GET') {
@@ -233,8 +237,8 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
         sendJson(res, safe.status, { error: safe.code, message: safe.message });
       } else res.end();
     });
-  }, close: () => jobs.close(), reviewJobIdentity: (id) => {
-    const job = jobs.get(id);
+  }, close: async () => { await jobs.close(); }, reviewJobIdentity: async (id) => {
+    const job = await jobs.get(id);
     return job ? { owner: job.owner, authorization: job.authorization } : null;
   } };
 }

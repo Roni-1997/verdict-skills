@@ -152,7 +152,7 @@ class FixtureWorkers:
         current = self.children.get(binding["id"])
         if current is not None and current.is_alive():
             return
-        path = Path(binding["brokerSocket"])
+        path = Path(binding["execution"]["socketPath"])
         if path.exists():
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
                 try:

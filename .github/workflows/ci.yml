@@ -19,6 +19,24 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        # Official Docker registry manifest for postgres:17-alpine, verified 2026-10-25.
+        image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: verdict_mcp_test
+        volumes:
+          - /tmp/verdict-ci-postgres:/var/run/postgresql
+        options: >-
+          --health-cmd "pg_isready -U postgres -d verdict_mcp_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Shared Unix socket to the disposable local service; hosted TCP still requires verified TLS.
+      # Every suite creates and drops its own child database.
+      VERDICT_TEST_POSTGRES: postgresql:///verdict_mcp_test?host=/tmp/verdict-ci-postgres&port=5432&user=postgres
+      VERDICT_TEST_POSTGRES_DSN: postgresql:///verdict_mcp_test?host=/tmp/verdict-ci-postgres&port=5432&user=postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -43,7 +61,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CHECK_ENGINE_OFFLINE: '1'
         run: pnpm run check
+      - name: Build and smoke-test self-contained public Vercel artifact
+        # check already rebuilt all workspace packages; do not repeat the build here.
+        run: |
+          node scripts/build-public-vercel.mjs
+          VERDICT_TEST_PUBLIC_BUNDLE=dist/vercel-public/api/index.mjs pnpm exec vitest run tests/lighter-postgres-integration.test.ts
       - name: bench:static
         run: pnpm run bench:static
-      - name: Official SDK contract tests (ephemeral keys, mocked transports)
+      - name: Official SDK and signer contracts (real PostgreSQL, inert venues)
         run: pnpm run check:broker:sdk

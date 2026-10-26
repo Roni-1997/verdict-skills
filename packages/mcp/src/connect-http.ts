@@ -5,7 +5,8 @@ import express from 'express';
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { AccountAuthority } from './connect-authority.js';
 import { AccountServiceConfig } from './connect-model.js';
-import { createHostedHandler } from './hosted-http.js';
+import type { AuthorityRepository } from './connect-store.js';
+import { createHostedHandler, type HostedHandlerDependencies } from './hosted-http.js';
 import { HostedConfig, HostedError, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
 
 export async function readAccountServiceConfig(path: string): Promise<AccountServiceConfig> {
@@ -20,15 +21,15 @@ export async function readAccountServiceConfig(path: string): Promise<AccountSer
 }
 
 /** Standard OAuth SDK routes, product handoff and the existing SDK execution gateway in one writer. */
-export async function createAccountService(input: AccountServiceConfig, authorityInput?: AccountAuthority) {
+export async function createAccountService(input: AccountServiceConfig, authorityInput?: AccountAuthority, dependencies: { repository?: AuthorityRepository; gateway?: HostedHandlerDependencies } = {}) {
   const config = AccountServiceConfig.parse(input);
-  const authority = authorityInput ?? await AccountAuthority.create(config);
+  const authority = authorityInput ?? await AccountAuthority.create(config, undefined, undefined, dependencies.repository);
   let gateway: Awaited<ReturnType<typeof createHostedHandler>>;
   try {
     gateway = await createHostedHandler(HostedConfig.parse({ publicOrigin: config.publicOrigin, issuer: config.publicOrigin,
-      browserClientId: 'first_party', stateDir: config.gatewayJobsDir, bindings: [], allowInsecureLocalhost: config.allowInsecureLocalhost,
-      approvalTtlSeconds: config.approvalTtlSeconds }), authority);
-  } catch (error) { authority.close(); throw error; }
+      browserClientId: 'first_party', storage: config.storage.kind === 'local' ? { kind: 'local', stateDir: config.storage.gatewayJobsDir } : { kind: 'postgres', deploymentId: config.storage.deploymentId, databaseId: config.storage.databaseId }, bindings: [], allowInsecureLocalhost: config.allowInsecureLocalhost,
+      approvalTtlSeconds: config.approvalTtlSeconds }), authority, dependencies.gateway);
+  } catch (error) { await authority.close(); throw error; }
   authority.setReviewLookup(gateway.reviewJobIdentity);
   const app = express(); app.disable('x-powered-by'); app.set('query parser', 'simple');
   app.use((req, res, next) => {
@@ -45,11 +46,11 @@ export async function createAccountService(input: AccountServiceConfig, authorit
       res.json(result);
     } catch (error) { res.status(error instanceof HostedError ? error.status : 400).json({ error: error instanceof HostedError ? error.code : 'invalid_connection', message: error instanceof HostedError ? error.message : 'The connection could not be verified.' }); }
   });
-  for (const path of ['/connect/complete', '/connect/cancel']) app.get(path, (req, res) => {
+  for (const path of ['/connect/complete', '/connect/cancel']) app.get(path, async (req, res) => {
     try {
       if (req.headers.authorization !== undefined) throw new HostedError(403, 'browser_required', 'Use the original connection browser.');
       const url = new URL(req.originalUrl, config.publicOrigin);
-      const result = path === '/connect/complete' ? authority.complete(url, req.headers.cookie) : authority.cancel(url, req.headers.cookie);
+      const result = path === '/connect/complete' ? await authority.complete(url, req.headers.cookie) : await authority.cancel(url, req.headers.cookie);
       res.setHeader('Set-Cookie', result.cookies); res.redirect(303, result.location);
     } catch { res.status(400).json({ error: 'invalid_completion', message: 'Start the connection again from the original agent.' }); }
   });
@@ -60,5 +61,5 @@ export async function createAccountService(input: AccountServiceConfig, authorit
     const tooLarge = typeof error === 'object' && error !== null && 'status' in error && error.status === 413;
     if (!res.headersSent) res.status(tooLarge ? 413 : error instanceof SyntaxError ? 400 : 500).json({ error: 'invalid_request' });
   });
-  return { handle: (req: IncomingMessage, res: ServerResponse) => app(req, res), close: () => { gateway.close(); authority.close(); } };
+  return { handle: (req: IncomingMessage, res: ServerResponse) => app(req, res), close: async () => { try { await gateway.close(); } finally { await authority.close(); } } };
 }

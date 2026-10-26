@@ -30,7 +30,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@verdict/core": "workspace:*"
+    "@verdict/core": "workspace:*",
+    "zod": "4.6.7"
   },
   "publishConfig": {
     "access": "public"

@@ -91,8 +91,8 @@ async function start(mode: 'per_order' | 'policy') {
   await startPrivate(mode);
   process.env.VERDICT_PRIVATE_INTEGRATION_RELAY = generatePrivateKey();
   config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', privyAppId: 'fixture-app', privyVerificationKey: await exportSPKI(signing.publicKey),
-    relaySecretEnv: 'VERDICT_PRIVATE_INTEGRATION_RELAY', stateDir: join(directory, 'authority'), gatewayJobsDir: join(directory, 'jobs'), profiles: [],
-    lighterProvisioner: { socketPath, brokerSocketRoot: join(directory, 'sockets') } });
+    relaySecretEnv: 'VERDICT_PRIVATE_INTEGRATION_RELAY', storage: { kind: 'local', stateDir: join(directory, 'authority'), gatewayJobsDir: join(directory, 'jobs') }, profiles: [],
+    lighterProvisioner: { kind: 'local_socket', socketPath, brokerSocketRoot: join(directory, 'sockets') } });
   service = await createAccountService(config); listener.on('request', service.handle);
 }
 async function delegated() {
@@ -122,7 +122,7 @@ async function delegated() {
 }
 afterEach(async () => {
   await Promise.allSettled(clients.splice(0).map((client) => client.close()));
-  if (service && listener) { listener.removeListener('request', service.handle); service.close(); }
+  if (service && listener) { listener.removeListener('request', service.handle); await service.close(); }
   if (listener) { listener.closeAllConnections(); await new Promise<void>((resolve) => listener?.close(() => resolve())); }
   await stopPrivate();
   if (directory) await rm(directory, { recursive: true, force: true }); delete process.env.VERDICT_PRIVATE_INTEGRATION_RELAY;
@@ -149,7 +149,7 @@ it.each(['per_order', 'policy'] as const)('runs %s from real OAuth through the p
   const status = await client.callTool({ name: 'execution_status', arguments: exact }); expect(status.structuredContent).toMatchObject({ state: 'complete', legs: [{ state: 'filled', filled: '10' }] });
   const repeated = await client.callTool({ name: 'execution_submit', arguments: exact }); expect(repeated.structuredContent).toMatchObject({ state: 'complete' });
   if (!listener || !service) throw new Error('Missing current fixture service');
-  listener.removeListener('request', service.handle); service.close(); await stopPrivate(); await startPrivate(mode);
+  listener.removeListener('request', service.handle); await service.close(); await stopPrivate(); await startPrivate(mode);
   service = await createAccountService(config); listener.on('request', service.handle);
   const restored = await client.callTool({ name: 'execution_status', arguments: exact }); expect(restored.structuredContent).toMatchObject({ state: 'complete', legs: [{ state: 'filled' }] });
   if (!directory) throw new Error('Missing fixture state'); const stats = JSON.parse(await readFile(join(directory, 'metrics.json'), 'utf8'));

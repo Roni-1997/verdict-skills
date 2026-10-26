@@ -4,7 +4,7 @@ import { AccountServiceConfig } from '../packages/mcp/src/connect-model.js';
 import { createPrivyIdentity } from '../packages/mcp/src/privy-identity.js';
 
 function config(verification: unknown) { return AccountServiceConfig.parse({ publicOrigin: 'https://mcp.example', appOrigin: 'https://app.example', appNetwork: 'lighter-testnet',
-  privyAppId: 'rotation-app', privyVerification: verification, relaySecretEnv: 'PRIVATE_RELAY_SECRET', stateDir: '/private/authority', gatewayJobsDir: '/private/jobs', profiles: [] }); }
+  privyAppId: 'rotation-app', privyVerification: verification, relaySecretEnv: 'PRIVATE_RELAY_SECRET', storage: { kind: 'local', stateDir: '/private/authority', gatewayJobsDir: '/private/jobs' }, profiles: [] }); }
 async function token(key: Parameters<SignJWT['sign']>[0], kid: string, claims: { audience?: string; issuer?: string; sid?: string; age?: number } = {}) {
   return new SignJWT({ sid: claims.sid ?? 'session' }).setProtectedHeader({ alg: 'ES256', kid }).setSubject('did:privy:alice')
     .setAudience(claims.audience ?? 'rotation-app').setIssuer(claims.issuer ?? 'privy.io').setIssuedAt(Math.floor(Date.now() / 1000) - (claims.age ?? 0)).setExpirationTime('1h').sign(key);

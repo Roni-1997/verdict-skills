@@ -121,10 +121,10 @@ beforeAll(async () => {
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing connector listener');
   origin = `http://127.0.0.1:${address.port}`;
   config = HostedConfig.parse({ publicOrigin: origin, issuer: issuer.issuer, browserClientId: issuer.clientId,
-    stateDir: join(directory, 'hosted-state'), allowInsecureLocalhost: true,
-    bindings: [{ id: 'alice', subject: 'alice', enabled: true, mode: 'per_order', brokerSocket: a.socketPath, grantId: a.grantId,
+    storage: { kind: 'local', stateDir: join(directory, 'hosted-state') }, allowInsecureLocalhost: true,
+    bindings: [{ id: 'alice', subject: 'alice', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: a.socketPath }, grantId: a.grantId,
       accounts: [{ venue: 'hl', network: 'testnet', account: ALICE }] },
-    { id: 'bob', subject: 'bob', enabled: true, mode: 'policy', brokerSocket: b.socketPath, grantId: b.grantId,
+    { id: 'bob', subject: 'bob', enabled: true, mode: 'policy', execution: { kind: 'local_socket', socketPath: b.socketPath }, grantId: b.grantId,
       accounts: [{ venue: 'hl', network: 'testnet', account: BOB }] }],
   });
   connector = await createHostedHandler(config); server.on('request', connector.handle);
@@ -135,7 +135,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await Promise.allSettled(clients.map((client) => client.close()));
   if (server) { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
-  connector?.close();
+  await connector?.close();
   if (issuer) await issuer.close();
   for (const child of brokers) if (child.exitCode === null) {
     const stopped = new Promise<void>((resolve) => child.once('exit', () => resolve())); child.kill('SIGTERM'); await stopped;
@@ -216,7 +216,7 @@ it('requires a separate exact cancellation review and preserves dispatch history
   expect(pending.approvalUrl).not.toBe(approval.approvalUrl);
   expect(await call(alice, 'execution_status', proposals.alice)).toMatchObject({ state: 'approval_required', approvalUrl: pending.approvalUrl });
   expect((await browser.confirm(pending.approvalUrl, csrf)).status).toBe(200);
-  server.off('request', connector.handle); connector.close();
+  server.off('request', connector.handle); await connector.close();
   connector = await createHostedHandler(config); server.on('request', connector.handle);
   expect((await browser.fetch(approval.approvalUrl)).status).toBe(303);
   expect(await call(alice, 'execution_submit', proposals.alice)).toMatchObject({ state: 'complete' });

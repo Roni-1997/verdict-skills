@@ -13,7 +13,7 @@ async function fixture(response: unknown) {
   const requests: unknown[] = [];
   server = createServer({ allowHalfOpen: true }, (socket) => { let body = ''; socket.on('data', (chunk: Buffer) => { body += chunk.toString('utf8'); if (!body.endsWith('\n')) return; requests.push(JSON.parse(body)); socket.end(`${JSON.stringify({ ok: true, result: response })}\n`); }); });
   await new Promise<void>((resolve) => server?.listen(socketPath, resolve)); await chmod(socketPath, 0o600);
-  return { client: new LighterProvisioner({ socketPath, brokerSocketRoot: directory }), requests, socketPath, root: directory };
+  return { client: new LighterProvisioner({ kind: 'local_socket', socketPath, brokerSocketRoot: directory }), requests, socketPath, root: directory };
 }
 it('sends only finite public enrollment identifiers across the fixed private socket', async () => {
   const setup = { enrollmentId, revision: 'a'.repeat(64), network: 'testnet', ownerWallet: owner, state: 'signature_required', account: 42,
@@ -29,12 +29,12 @@ it('rejects permissive socket state without contacting the private service', asy
 it('fails closed for bindings outside the configured shared root, another subject or browser slot4', async () => {
   const { client, requests, root } = await fixture(null);
   // The server remains fixed; vary only its test-only response writer.
-  const valid = { id: randomUUID(), subject, enabled: true, mode: 'per_order', brokerSocket: join(root, 'owned.sock'), grantId: randomUUID(), grantHash: 'a'.repeat(64), accounts: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 5 }] };
+  const valid = { id: randomUUID(), subject, enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: join(root, 'owned.sock') }, grantId: randomUUID(), grantHash: 'a'.repeat(64), accounts: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 5 }] };
   server?.removeAllListeners('connection');
   let response: unknown = { binding: valid };
   server?.on('connection', (socket) => { socket.once('data', () => socket.end(`${JSON.stringify({ ok: true, result: response })}\n`)); });
   expect(await client.binding(subject)).toEqual(valid);
-  for (const binding of [{ ...valid, brokerSocket: '/outside/foreign.sock' }, { ...valid, subject: 'did:privy:bob' }, { ...valid, accounts: [{ ...valid.accounts[0], apiKeyIndex: 4 }] }, { ...valid, grantHash: undefined }, { ...valid, enabled: false }]) {
+  for (const binding of [{ ...valid, execution: { kind: 'local_socket', socketPath: '/outside/foreign.sock' } }, { ...valid, subject: 'did:privy:bob' }, { ...valid, accounts: [{ ...valid.accounts[0], apiKeyIndex: 4 }] }, { ...valid, grantHash: undefined }, { ...valid, enabled: false }]) {
     response = { binding }; await expect(client.binding(subject)).rejects.toMatchObject({ code: 'lighter_setup_unavailable' });
   }
   response = { binding: valid, privateKey: 'must-never-be-forwarded' };

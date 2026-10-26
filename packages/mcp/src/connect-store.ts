@@ -3,7 +3,9 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { HostedError } from './hosted-model.js';
-import { opaque } from './connect-model.js';
+import { AuthoritySchemas, Enrollment, opaque, type AuthorityRecords } from './connect-model.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { SharedPublicTransaction } from './hosted-security.js';
 
 type Parser<T> = { parse(value: unknown): T };
 const unavailable = () => new HostedError(503, 'authority_storage', 'Authorization state is unavailable. Restore the original private state; never recreate it to recover access.');
@@ -22,7 +24,7 @@ function create(path: string, contents: string) {
 }
 
 /** Single-instance durable authority. Only hashes of bearer secrets enter this database. */
-export class ConnectStore {
+class LocalDatabase {
   private readonly db: DatabaseSync;
   private readonly path: string;
   private readonly marker: string;
@@ -65,11 +67,9 @@ export class ConnectStore {
     this.directory(); const identity = privateFile(this.path);
     if (identity.dev !== this.identity.dev || identity.ino !== this.identity.ino || read(this.marker) !== this.id) throw unavailable();
   }
-  transaction<T>(operation: () => T): T {
-    this.guard(); this.db.exec('BEGIN IMMEDIATE');
-    try { const result = operation(); this.db.exec('COMMIT'); return result; }
-    catch (error) { this.db.exec('ROLLBACK'); throw error; }
-  }
+  begin() { this.guard(); this.db.exec('BEGIN IMMEDIATE'); }
+  commit() { this.db.exec('COMMIT'); }
+  rollback() { this.db.exec('ROLLBACK'); }
   get<T>(namespace: string, key: string, schema: Parser<T>): T | null {
     this.guard(); const row = this.db.prepare('SELECT data FROM records WHERE namespace=? AND key=?').get(namespace, key);
     if (!row) return null;
@@ -100,4 +100,58 @@ export class ConnectStore {
     this.guard(); this.db.prepare('INSERT INTO enrollments VALUES (?,?,?) ON CONFLICT(subject) DO UPDATE SET profile=excluded.profile,data=excluded.data').run(subject, profile, JSON.stringify(value));
   }
   close() { if (!this.closed) { this.closed = true; this.db.close(); } }
+}
+
+export type AuthorityNamespace = keyof AuthorityRecords;
+export interface ConnectReadTx {
+  readonly transaction: SharedPublicTransaction;
+  get<K extends AuthorityNamespace>(namespace: K, key: string): Promise<AuthorityRecords[K] | null>;
+  all<K extends AuthorityNamespace>(namespace: K): Promise<AuthorityRecords[K][]>;
+  enrollment(subject: string): Promise<import('zod').output<typeof Enrollment> | null>;
+}
+export interface ConnectWriteTx extends ConnectReadTx {
+  put<K extends AuthorityNamespace>(namespace: K, key: string, value: AuthorityRecords[K], expires: number): Promise<void>;
+  enroll(subject: string, profile: string, value: import('zod').output<typeof Enrollment>): Promise<void>;
+  replaceEnrollment(subject: string, profile: string, value: import('zod').output<typeof Enrollment>): Promise<void>;
+}
+export interface AuthorityRepository {
+  read<T>(body: (tx: ConnectReadTx) => Promise<T>): Promise<T>;
+  write<T>(keys: readonly string[], body: (tx: ConnectWriteTx) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+export const AUTHORITY_LOCK = 'authority';
+
+/** All root operations queue across awaits. The callback receives the only transaction capability. */
+export class ConnectStore implements AuthorityRepository {
+  private readonly db: LocalDatabase;
+  private tail: Promise<unknown> = Promise.resolve();
+  private readonly scope = new AsyncLocalStorage<boolean>();
+  constructor(root: string) { this.db = new LocalDatabase(root); }
+  private queue<T>(body: () => Promise<T>): Promise<T> {
+    if (this.scope.getStore()) return Promise.reject(unavailable());
+    const result = this.tail.then(() => this.scope.run(true, body));
+    this.tail = result.catch(() => undefined); return result;
+  }
+  private async run<T>(write: boolean, body: (tx: ConnectWriteTx) => Promise<T>): Promise<T> {
+    let active = true;
+    const guard = () => { if (!active) throw unavailable(); };
+    const writable = () => { guard(); if (!write) throw unavailable(); };
+    const tx: ConnectWriteTx = {
+      transaction: { kind: 'local' },
+      get: async <K extends AuthorityNamespace>(namespace: K, key: string) => { guard(); return this.db.get<AuthorityRecords[K]>(namespace, key, { parse: value => AuthoritySchemas[namespace].parse(value) as AuthorityRecords[K] }); },
+      all: async <K extends AuthorityNamespace>(namespace: K) => { guard(); return this.db.all<AuthorityRecords[K]>(namespace, { parse: value => AuthoritySchemas[namespace].parse(value) as AuthorityRecords[K] }); },
+      enrollment: async (subject) => { guard(); return this.db.enrollment(subject, Enrollment); },
+      put: async (namespace, key, value, expires) => { writable(); this.db.put(namespace, key, AuthoritySchemas[namespace].parse(value), expires); },
+      enroll: async (subject, profile, value) => { writable(); this.db.enroll(subject, profile, Enrollment.parse(value)); },
+      replaceEnrollment: async (subject, profile, value) => { writable(); this.db.replaceEnrollment(subject, profile, Enrollment.parse(value)); },
+    };
+    // Unlike DatabaseSync's synchronous callback, this explicit transaction spans the await.
+    this.db.begin();
+    try { const result = await body(tx); this.db.commit(); return result; }
+    catch (error) { this.db.rollback(); throw error; }
+    finally { active = false; }
+  }
+  read<T>(body: (tx: ConnectReadTx) => Promise<T>): Promise<T> { return this.queue(() => this.run(false, body)); }
+  write<T>(_keys: readonly string[], body: (tx: ConnectWriteTx) => Promise<T>): Promise<T> { return this.queue(() => this.run(true, body)); }
+  close(): Promise<void> { return this.queue(async () => this.db.close()); }
 }
