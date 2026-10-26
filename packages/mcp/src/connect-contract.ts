@@ -41,7 +41,14 @@ export const ConnectAccountView = z.discriminatedUnion('kind', [
       templates: z.array(z.object({ digest: Digest, confirmation: z.array(z.string().max(5000)).max(100) }).strict()).max(64),
       scope: z.union([z.object({ kind: z.literal('ordered_templates') }).strict(), ConsumerLighterScope]),
     }).strict(),
-  }).strict(),
+  }).strict().superRefine((connection, context) => {
+    if (connection.policy.scope.kind === 'ordered_templates' && connection.policy.templates.length === 0) {
+      context.addIssue({ code: 'custom', path: ['policy', 'templates'], message: 'A template-based connection must display at least one authorized template.' });
+    }
+    if (connection.policy.scope.kind === 'consumer_lighter' && connection.policy.scope.mode !== connection.mode) {
+      context.addIssue({ code: 'custom', path: ['policy', 'scope', 'mode'], message: 'The displayed execution mode must match the authorized consumer scope.' });
+    }
+  }),
 ]);
 export type ConnectAccountView = z.infer<typeof ConnectAccountView>;
 export const ConnectTransactionView = z.object({ protocol: z.literal(CONNECT_PROTOCOL), kind: z.literal('transaction'),
