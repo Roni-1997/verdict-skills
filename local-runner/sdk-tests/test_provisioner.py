@@ -11,7 +11,7 @@ from eth_account.messages import encode_defunct
 
 from verdict_broker.authority import PolicyAuthority, recover_owner
 from verdict_broker.core import BrokerError, Store
-from verdict_broker.provisioner import Provisioner, _native_process, funding_message
+from verdict_broker.provisioner import Provisioner, TestnetVenue, _native_process, funding_message
 
 # Public synthetic fixture only; it is never funded or sent to a venue.
 WALLET = Account.from_key("11" * 32)
@@ -28,6 +28,7 @@ class Venue:
     def __init__(self):
         self.index = 42
         self.owner = OWNER
+        self.balance = "100"
         self.slots = {4: "0x" + "2" * 80}
         self.sends = 0
         self.faucets = 0
@@ -42,6 +43,10 @@ class Venue:
     def verify_owner(self, index, owner):
         if index != self.index or owner != self.owner:
             raise BrokerError("wrong owner")
+
+    def funding_required(self, index, owner):
+        self.verify_owner(index, owner)
+        return self.balance == "0"
 
     def keys(self, index):
         return self.slots.copy()
@@ -71,6 +76,7 @@ class Venue:
     def faucet(self, owner):
         self.faucets += 1
         self.index = 42
+        self.balance = "100"
 
 
 class ProvisionerTest(unittest.TestCase):
@@ -165,6 +171,93 @@ class ProvisionerTest(unittest.TestCase):
             self.call("faucet", **request)
         self.assertEqual(self.venue.faucets, 1)
         self.assertEqual(view["message"], funding_message({"id": view["enrollmentId"], "owner": OWNER, "revision": view["revision"], "expiresAt": view["expiresAt"]}))
+
+    def test_empty_existing_account_offers_signed_faucet_without_key_generation(self):
+        self.venue.balance = "0"
+        self.venue.generate = Mock(wraps=self.venue.generate)
+        view = self.prepare()
+        self.assertEqual(view["state"], "funding_required")
+        self.venue.generate.assert_not_called()
+        self.assertEqual(self.venue.faucets, 0)
+        result = self.call("faucet", enrollmentId=view["enrollmentId"], revision=view["revision"], signature=sign(view["message"]))
+        self.assertEqual((result["state"], result["account"], result["apiKeyIndex"]), ("signature_required", 42, 5))
+        self.assertEqual(self.venue.faucets, 1)
+        self.venue.generate.assert_called_once()
+
+    def test_funded_existing_account_skips_faucet(self):
+        self.assertEqual(self.prepare()["state"], "signature_required")
+        self.assertEqual(self.venue.faucets, 0)
+
+    def test_balance_lost_before_register_returns_new_funding_review_without_send(self):
+        view = self.prepare()
+        self.venue.balance = "0"
+        result = self.call("register", enrollmentId=view["enrollmentId"], revision=view["revision"], signature=sign(view["message"]))
+        self.assertEqual(result["state"], "funding_required")
+        self.assertEqual(result["enrollmentId"], view["enrollmentId"])
+        self.assertNotEqual(result["revision"], view["revision"])
+        self.assertEqual((self.venue.sends, self.venue.faucets), (0, 0))
+
+    def test_lost_faucet_reply_reconciles_after_restart_without_resend(self):
+        self.venue.balance = "0"
+        original_faucet = self.venue.faucet
+        def lost(owner):
+            original_faucet(owner)
+            raise OSError("synthetic lost faucet reply")
+        self.venue.faucet = lost
+        view = self.prepare()
+        request = {"enrollmentId": view["enrollmentId"], "revision": view["revision"], "signature": sign(view["message"])}
+        with self.assertRaises(OSError):
+            self.call("faucet", **request)
+        self.service.close()
+        self.service = Provisioner(self.config, venue=self.venue, workers=self.workers, clock=lambda: self.now)
+        self.assertEqual(self.call("status", enrollmentId=view["enrollmentId"])["state"], "signature_required")
+        with self.assertRaises(BrokerError):
+            self.call("faucet", **request)
+        self.assertEqual(self.venue.faucets, 1)
+
+    def test_unobserved_faucet_claim_never_refreshes_or_resends(self):
+        self.venue.balance = "0"
+        def lost(_):
+            self.venue.faucets += 1
+            raise OSError("synthetic unknown faucet outcome")
+        self.venue.faucet = lost
+        view = self.prepare()
+        request = {"enrollmentId": view["enrollmentId"], "revision": view["revision"], "signature": sign(view["message"])}
+        with self.assertRaises(OSError):
+            self.call("faucet", **request)
+        self.now += 301
+        result = self.call("status", enrollmentId=view["enrollmentId"])
+        self.assertEqual((result["state"], result["revision"]), ("funding_required", view["revision"]))
+        with self.assertRaises(BrokerError):
+            self.call("faucet", **request)
+        self.assertEqual(self.venue.faucets, 1)
+
+    def test_already_allocated_key_survives_a_later_funding_review(self):
+        self.venue.generate = Mock(wraps=self.venue.generate)
+        initial = self.prepare()
+        private_key = self.service.vault.read("did:privy:synthetic")["privateKey"]
+        self.venue.balance = "0"
+        self.now += 301
+        funding = self.call("status", enrollmentId=initial["enrollmentId"])
+        self.assertEqual(funding["state"], "funding_required")
+        result = self.call("faucet", enrollmentId=funding["enrollmentId"], revision=funding["revision"], signature=sign(funding["message"]))
+        for key in ("enrollmentId", "account", "apiKeyIndex", "publicKey"):
+            self.assertEqual(result[key], initial[key])
+        self.assertEqual(self.service.vault.read("did:privy:synthetic")["privateKey"], private_key)
+        self.venue.generate.assert_called_once()
+
+    def test_funding_read_requires_fresh_exact_owner_account_and_plain_balances(self):
+        venue = object.__new__(TestnetVenue)
+        account = {"index": 42, "l1_address": OWNER, "available_balance": "0.000000", "collateral": "0.000000"}
+        venue.get = Mock(return_value={"code": 200, "accounts": [account]})
+        self.assertTrue(venue.funding_required(42, OWNER))
+        account.update(available_balance="100.000000", collateral="100.000000")
+        self.assertFalse(venue.funding_required(42, OWNER))
+        for change in ({"index": 43}, {"l1_address": OTHER.address}, {"available_balance": "NaN"}, {"collateral": None}):
+            venue.get.return_value = {"code": 200, "accounts": [{**account, **change}]}
+            with self.subTest(change=change), self.assertRaises(BrokerError):
+                venue.funding_required(42, OWNER)
+        self.assertEqual(self.venue.faucets, 0)
 
     def test_activation_owner_scope_proof_is_exact_replay_idempotent_and_revocation_durable(self):
         plan, request, binding = self.activate()

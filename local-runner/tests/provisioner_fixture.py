@@ -49,6 +49,10 @@ class FixtureVenue:
         if self.account(owner) != account:
             raise BrokerError("Wrong synthetic account")
 
+    def funding_required(self, account, owner):
+        self.verify_owner(account, owner)
+        return False
+
     def keys(self, account):
         return {int(slot): key for slot, key in self.read()["keys"].items()}
 

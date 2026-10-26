@@ -205,10 +205,26 @@ class TestnetVenue:
         return index
 
     def verify_owner(self, index, owner):
+        self._owned_account(index, owner)
+
+    def _owned_account(self, index, owner):
         result = self.get("account", by="index", value=str(index))
         accounts = result.get("accounts", [])
         if result["code"] != 200 or len(accounts) != 1 or type(accounts[0].get("index")) is not int or accounts[0]["index"] != index or address(accounts[0].get("l1_address")) != owner:
             raise BrokerError("Fresh venue account ownership mismatch")
+        return accounts[0]
+
+    def funding_required(self, index, owner):
+        # A previously created account may have no collateral for ChangePubKey.
+        # This read offers a signature review only; it never calls the faucet.
+        row = self._owned_account(index, owner)
+        balances = []
+        for field in ("available_balance", "collateral"):
+            value = row.get(field)
+            if not isinstance(value, str) or len(value) > 80 or not re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+                raise BrokerError("Fresh venue collateral is unavailable")
+            balances.append(_money(value) if not value.startswith("-") else -_money(value[1:]))
+        return any(balance <= 0 for balance in balances)
 
     def keys(self, index):
         result = self.get("apikeys", account_index=index, api_key_index=255)
@@ -379,8 +395,12 @@ class Provisioner:
 
     def _prepare_key(self, record):
         account = self.venue.account(record["owner"])
-        if account is None:
+        if account is None or self.venue.funding_required(account, record["owner"]):
             return record
+        if "privateKey" in record:
+            if account != record["account"]:
+                raise BrokerError("Venue account changed after hosted key allocation")
+            return self._registration(record)
         keys = self.venue.keys(account)
         slot = next((s for s in range(5, 255) if s not in keys or empty_key(keys[s])), None)
         if slot is None:
@@ -398,10 +418,25 @@ class Provisioner:
             record["state"] = "blocked"
             self.vault.save(record)
             return record
+        if self.venue.funding_required(record["account"], record["owner"]):
+            if record.get("faucetClaimed"):
+                record["state"] = "blocked"
+                self.vault.save(record)
+                return record
+            return self._funding_review(record)
         record["nonce"] = self.venue.nonce(record["account"], record["apiKeyIndex"])
         record.update(self.venue.registration(record))
         record.update(state="signature_required", expiresAt=self.now() + 300_000)
         record["revision"] = _hash({k: record[k] for k in ("id", "owner", "account", "apiKeyIndex", "publicKey", "nonce", "message", "expiresAt")})
+        self.vault.save(record)
+        return record
+
+    def _funding_review(self, record):
+        record.update(state="funding_required", expiresAt=self.now() + 300_000)
+        fields = {k: record[k] for k in ("id", "subject", "owner", "expiresAt")}
+        fields.update({k: record[k] for k in ("account", "apiKeyIndex", "publicKey") if k in record})
+        record["revision"] = _hash(fields)
+        record["message"] = funding_message(record)
         self.vault.save(record)
         return record
 
@@ -410,10 +445,7 @@ class Provisioner:
             return self._prepare_key(record)
         if record["state"] == "funding_required" and record["expiresAt"] <= self.now():
             # Nothing was claimed or dispatched. Refresh only the same enrollment's review.
-            record["expiresAt"] = self.now() + 300_000
-            record["revision"] = _hash({k: record[k] for k in ("id", "subject", "owner", "expiresAt")})
-            record["message"] = funding_message(record)
-            self.vault.save(record)
+            return self._funding_review(record)
         if record["state"] == "signature_required" and record["expiresAt"] <= self.now():
             # Keep the privately saved key and slot. No registration claim exists yet.
             return self._registration(record)
@@ -494,6 +526,12 @@ class Provisioner:
             current = self.venue.keys(record["account"]).get(record["apiKeyIndex"])
             if current is not None and not empty_key(current) and current != record["publicKey"]:
                 raise BrokerError("Hosted key slot is occupied; nothing replaced")
+            if self.venue.funding_required(record["account"], record["owner"]):
+                if record.get("faucetClaimed"):
+                    record["state"] = "blocked"
+                    self.vault.save(record)
+                    return self._view(record)
+                return self._view(self._funding_review(record))
             if self.venue.nonce(record["account"], record["apiKeyIndex"]) != record["nonce"]:
                 raise BrokerError("Registration nonce changed; original review is no longer valid")
             record["state"] = "registering"
