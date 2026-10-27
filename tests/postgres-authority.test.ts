@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { exportSPKI, generateKeyPair } from 'jose';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
+import { PostgresTestPools } from './fixtures/postgres-lifecycle.js';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prepareExecution } from '../packages/core/src/index.js';
 import { AccountAuthority } from '../packages/mcp/src/connect-authority.js';
@@ -11,6 +12,7 @@ import { POSTGRES_JOBS_DDL, PostgresHostedJobs } from '../packages/mcp/src/postg
 
 const testDsn = process.env.VERDICT_TEST_POSTGRES;
 const childDatabase = `verdict_mcp_test_auth_${randomUUID().replaceAll('-', '')}`;
+const postgres = new PostgresTestPools();
 const stores: PostgresAuthorityStore[] = []; const pools: Pool[] = []; const authorities: AccountAuthority[] = [];
 let admin: Pool; let database: Pool; let childUrl: string; let created = false; let deploymentId: string; let databaseId: string;
 const origin = 'https://mcp.authority.fixture';
@@ -21,7 +23,7 @@ function safeLocalTestUrl(value: string): URL {
     || !/^verdict_(?:mcp_)?test(?:_[a-z0-9_]+)?$/.test(decodeURIComponent(url.pathname.slice(1)))) throw new Error('An explicit local disposable verdict test database is required.');
   return url;
 }
-function open() { const pool = new Pool({ connectionString: childUrl, max: 2 }); pools.push(pool); const store = new PostgresAuthorityStore(pool, { deploymentId, databaseId }); stores.push(store); return store; }
+function open() { const pool = postgres.create(childUrl, 2); pools.push(pool); const store = new PostgresAuthorityStore(pool, { deploymentId, databaseId }); stores.push(store); return store; }
 function grant() { return { id: randomUUID(), subject: 'did:privy:alice', clientId: 'client', profileId: null, revision: null,
   scopes: ['verdict:read' as const, 'verdict:trade' as const], resource: `${origin}/mcp`, createdAt: Date.now(), expiresAt: Date.now() + 60_000, revoked: false, epoch: 0 }; }
 async function authority(store = open()) {
@@ -34,16 +36,16 @@ async function authority(store = open()) {
 
 describe.skipIf(!testDsn)('real PostgreSQL authority transaction and revocation boundaries', () => {
   beforeAll(async () => { if (!testDsn) throw new Error('Explicit test database required'); const url = safeLocalTestUrl(testDsn);
-    admin = new Pool({ connectionString: url.toString(), max: 1 }); await admin.query(`CREATE DATABASE ${childDatabase}`); created = true;
-    url.pathname = `/${childDatabase}`; childUrl = url.toString(); database = new Pool({ connectionString: childUrl, max: 4 });
+    admin = postgres.create(url.toString(), 1); await admin.query(`CREATE DATABASE ${childDatabase}`); created = true;
+    url.pathname = `/${childDatabase}`; childUrl = url.toString(); database = postgres.create(childUrl, 4);
     await database.query(POSTGRES_AUTHORITY_DDL); await database.query(POSTGRES_JOBS_DDL);
   }, 20_000);
   beforeEach(async () => { deploymentId = randomUUID(); databaseId = randomUUID();
     await database.query('INSERT INTO verdict_mcp.authority_metadata VALUES($1,$2,1)', [deploymentId, databaseId]);
     await database.query('INSERT INTO verdict_mcp.jobs_metadata VALUES($1,$2,1,1)', [deploymentId, databaseId]);
   });
-  afterEach(async () => { for (const value of authorities.splice(0)) await value.close(); for (const store of stores.splice(0)) await store.close(); await Promise.all(pools.splice(0).map(pool => pool.end())); delete process.env.VERDICT_AUTHORITY_TEST_RELAY; });
-  afterAll(async () => { await database?.end(); if (created) await admin.query(`DROP DATABASE ${childDatabase} WITH (FORCE)`); await admin?.end(); });
+  afterEach(async () => { for (const value of authorities.splice(0)) await value.close(); for (const store of stores.splice(0)) await store.close(); await Promise.all(pools.splice(0).map(pool => postgres.end(pool))); delete process.env.VERDICT_AUTHORITY_TEST_RELAY; });
+  afterAll(async () => { try { await postgres.endAllExcept(admin); if (created) await postgres.dropDatabase(admin, childDatabase); } finally { await postgres.end(admin); } });
 
   it('serializes two processes across awaited writes and preserves the committed epoch', async () => {
     const first = open(); const second = open(); const value = grant(); await first.write([], tx => tx.put('grant', value.id, value, value.expiresAt));

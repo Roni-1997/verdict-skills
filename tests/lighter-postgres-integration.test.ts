@@ -17,12 +17,14 @@ import { AccountServiceConfig } from '../packages/mcp/src/connect-model.js';
 import { createPostgresAccountService } from '../packages/mcp/src/vercel.js';
 import { POSTGRES_AUTHORITY_DDL } from '../packages/mcp/src/postgres-authority.js';
 import { POSTGRES_JOBS_DDL } from '../packages/mcp/src/postgres-jobs.js';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
+import { PostgresTestPools } from './fixtures/postgres-lifecycle.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 
 // Real production Node factory, PostgreSQL repositories, strict signer HTTP and cold native worker processes.
 // Only routing, synthetic Privy issuer and venue adapter are fixtures; no venue or real funds are contacted.
 const testDsn = process.env.VERDICT_TEST_POSTGRES;
+const postgres = new PostgresTestPools();
 const childDatabase = `verdict_mcp_test_e2e_${randomUUID().replaceAll('-', '')}`;
 let admin: Pool; let database: Pool; let publicPool: Pool; let childUrl = ''; let created = false;
 let deploymentId = ''; let databaseId = ''; let privateLocalOrigin = '';
@@ -106,7 +108,7 @@ async function stopPrivate() {
   child = undefined;
 }
 async function startPublic() {
-  publicPool = new Pool({ connectionString: childUrl, max: 3 });
+  publicPool = postgres.create(childUrl, 3);
   const artifact = process.env.VERDICT_TEST_PUBLIC_BUNDLE;
   const factory = artifact ? z.object({ createPostgresAccountService: z.custom<typeof createPostgresAccountService>(value => typeof value === 'function') }).passthrough()
     .parse(await import(pathToFileURL(resolve(root, artifact)).href)).createPostgresAccountService : createPostgresAccountService;
@@ -157,15 +159,15 @@ beforeAll(async () => {
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || url.searchParams.has('hostaddr') || url.searchParams.has('service')
     || !(['localhost', '127.0.0.1', '[::1]', '::1'].includes(host) || host.startsWith('/'))
     || !/^verdict_(?:mcp_)?test(?:_[a-z0-9_]+)?$/.test(decodeURIComponent(url.pathname.slice(1)))) throw new Error('Only local disposable verdict test databases are allowed');
-  admin = new Pool({ connectionString: url.toString(), max: 1 }); await admin.query(`CREATE DATABASE ${childDatabase}`); created = true;
-  url.pathname = `/${childDatabase}`; childUrl = url.toString(); database = new Pool({ connectionString: childUrl, max: 2 });
+  admin = postgres.create(url.toString(), 1); await admin.query(`CREATE DATABASE ${childDatabase}`); created = true;
+  url.pathname = `/${childDatabase}`; childUrl = url.toString(); database = postgres.create(childUrl, 2);
   await database.query(POSTGRES_AUTHORITY_DDL); await database.query(POSTGRES_JOBS_DDL);
 }, 20_000);
-afterAll(async () => { await database?.end(); if (created) await admin.query(`DROP DATABASE ${childDatabase} WITH (FORCE)`); await admin?.end(); });
+afterAll(async () => { try { await postgres.endAllExcept(admin); if (created) await postgres.dropDatabase(admin, childDatabase); } finally { await postgres.end(admin); } });
 afterEach(async () => {
   await Promise.allSettled(clients.splice(0).map((client) => client.close()));
   if (service && listener) { listener.removeListener('request', service.handle); await service.close(); }
-  await publicPool?.end();
+  await postgres.end(publicPool);
   if (listener) { listener.closeAllConnections(); await new Promise<void>((resolve) => listener?.close(() => resolve())); }
   await stopPrivate();
   if (directory) await rm(directory, { recursive: true, force: true }); delete process.env.VERDICT_PRIVATE_INTEGRATION_RELAY; delete process.env.VERDICT_PG_INTEGRATION_SIGNER;
@@ -192,7 +194,7 @@ it.each(['per_order', 'policy'] as const)('runs %s through production public fac
   const status = await client.callTool({ name: 'execution_status', arguments: exact }); expect(status.structuredContent).toMatchObject({ state: 'complete', legs: [{ state: 'filled', filled: '10' }] });
   const repeated = await client.callTool({ name: 'execution_submit', arguments: exact }); expect(repeated.structuredContent).toMatchObject({ state: 'complete' });
   if (!listener || !service) throw new Error('Missing current fixture service');
-  listener.removeListener('request', service.handle); await service.close(); await publicPool.end(); await stopPrivate(); await startPrivate(mode);
+  listener.removeListener('request', service.handle); await service.close(); await postgres.end(publicPool); await stopPrivate(); await startPrivate(mode);
   await startPublic();
   const restored = await client.callTool({ name: 'execution_status', arguments: exact }); expect(restored.structuredContent).toMatchObject({ state: 'complete', legs: [{ state: 'filled' }] });
   if (!directory) throw new Error('Missing fixture state'); const stats = JSON.parse(await readFile(join(directory, 'metrics.json'), 'utf8'));
