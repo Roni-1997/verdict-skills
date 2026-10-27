@@ -523,6 +523,19 @@ it('does not let an independently signed-in same-subject client approve another 
   expect((await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities()).authority).toEqual(before.authority);
 });
 
+it('explains expired review authority in the browser without another wallet/setup flow or a generic protocol error', async () => {
+  const flow = await connect(); const client = await mcp(flow.tokens.access_token); const exact = prepareExecution(request);
+  const pending = await client.callTool({ name: 'execution_submit', arguments: exact });
+  const path = new URL((pending.structuredContent as { approvalUrl: string }).approvalUrl).pathname;
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(inspection.authority.expiresAt + 1);
+  try {
+    const response = await new Browser().fetch(path, { headers: { accept: 'text/html' } });
+    expect(response.status).toBe(401); expect(response.headers.get('content-type')).toContain('text/html');
+    const html = await response.text(); expect(html).toContain('Reconnect to continue'); expect(html).toContain('saved account and key setup');
+    expect(html).not.toContain('connector_error'); expect(html).not.toContain('Sign in with Privy');
+  } finally { clock.mockRestore(); }
+});
+
 it('does not overwrite a newer browser review with a stale private scope preview response', async () => {
   let entered = () => {}; let release = () => {};
   const started = new Promise<void>(resolve => { entered = resolve; }); const gate = new Promise<void>(resolve => { release = resolve; });

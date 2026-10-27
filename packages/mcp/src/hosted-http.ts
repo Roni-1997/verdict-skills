@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { LighterBuyIntent, LighterClient, createLighterTools, lighterConfigFromEnv } from '@verdict/core';
 import { z } from 'zod';
 import { ConnectorAuth } from './hosted-auth.js';
@@ -21,7 +22,9 @@ import { LighterExecutionCancel, LighterExecutionProposal, LighterExecutionReque
 const REVIEW_URI = 'ui://verdict/order-review.html';
 const REVIEW_META = { ui: { csp: { connectDomains: [], resourceDomains: [] } } };
 const ReviewId = z.string().uuid();
-const publicError = (error: unknown) => error instanceof HostedError ? error : new HostedError(502, 'connector_error', 'The connector operation could not complete. Reconcile the original proposal before taking further action.');
+const publicError = (error: unknown) => error instanceof HostedError ? error : error instanceof InvalidTokenError
+  ? new HostedError(401, 'invalid_token', 'This trading connection expired, changed or was revoked. Reconnect using the saved account setup.')
+  : new HostedError(502, 'connector_error', 'The connector operation could not complete. Reconcile the original proposal before taking further action.');
 
 export async function readHostedConfig(path: string): Promise<HostedConfig> {
   try {
@@ -253,7 +256,7 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
     void handle(req, res).catch((error: unknown) => {
       const safe = publicError(error);
       if (!res.headersSent) {
-        if (req.url?.startsWith('/review/') && req.headers.accept?.includes('text/html')) {
+        if ((req.url?.startsWith('/review/') || req.url?.startsWith('/auth/callback')) && req.headers.accept?.includes('text/html')) {
           const view = reviewErrorContent(safe); page(res, view.title, view.content, safe.status); return;
         }
         if ([401, 403].includes(safe.status) && req.url?.startsWith('/mcp')) res.setHeader('WWW-Authenticate', auth.challenge(safe.status === 403 ? TRADE_SCOPE : READ_SCOPE, safe.code));
