@@ -24,6 +24,7 @@ import uuid
 from .authority import (_hash, _id, _money, consumer_message, consumer_scope,
                         issue_consumer_grant, recover_owner, revoke_grant)
 from .core import Broker, BrokerError, Store, json_load
+from .diagnostics import log_failure_location
 
 HOST = "https://testnet.zklighter.elliot.ai"
 MAX_SAFE = 9_007_199_254_740_991
@@ -162,7 +163,8 @@ def _native_process(pipe, operation, data, transport_check=False):
             finally:
                 await client.close()
         pipe.send(asyncio.run(run()))
-    except Exception:
+    except Exception as error:
+        log_failure_location(error)
         pipe.send({"error": "Private native operation unavailable"})
     finally:
         pipe.close()

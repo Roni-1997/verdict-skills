@@ -14,6 +14,7 @@ import re
 import time
 
 from .core import Broker, BrokerError, json_load
+from .diagnostics import log_failure_location
 from .private_vault import PostgresVault, ServiceRequests, canonical_uuid, subject_value
 from .provisioner import Provisioner, TestnetVenue
 
@@ -235,9 +236,11 @@ class SignerHTTP:
             if mutation and fence == {"kind": "claimed"}:
                 runtime.requests.complete(claims["requestId"], claims["bodyHash"], envelope)
             return 200, envelope
-        except BrokerError:
+        except BrokerError as error:
+            log_failure_location(error)
             return 409, {"ok": False, "error": {"code": "signer_blocked", "message": "Private operation blocked or unresolved. Preserve its original enrollment/proposal and inspect status."}}
-        except Exception:
+        except Exception as error:
+            log_failure_location(error)
             return 503, {"ok": False, "error": {"code": "signer_unavailable", "message": "Private signer unavailable. Preserve the original operation; never retry a send automatically."}}
         finally:
             if runtime is not None:
