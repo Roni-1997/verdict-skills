@@ -1,12 +1,16 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import {
   type ExecutionClient, type ExecutionConnectionOptions, type ExecutionMode,
   type ExecutionPreflight, type ExecutionProposal, type ExecutionStatus, type LocalExecutionCapabilities,
-  prepareExecution,
+  prepareExecution, LighterBuyIntent, ConsumerLighterScope, type LighterIntentPlan,
 } from '../packages/core/src/index.js';
 import { HostedExecution } from '../packages/mcp/src/hosted-execution.js';
 import { HostedJobs } from '../packages/mcp/src/hosted-jobs.js';
+import { createHostedHandler } from '../packages/mcp/src/hosted-http.js';
+import { HostedLighterIntents } from '../packages/mcp/src/hosted-intent.js';
+import type { HostedRuntime } from '../packages/mcp/src/hosted-security.js';
 import { HostedConfig, type HostedMutation, type Principal, READ_SCOPE, TRADE_SCOPE } from '../packages/mcp/src/hosted-model.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -120,6 +124,38 @@ it('reports the honest gateway/broker modes without private configuration', asyn
     { expectedMode: 'policy', expectedGrantId: GRANT, socketPath: '/operator/alice.sock' },
     { expectedMode: 'policy', expectedGrantId: BOB_GRANT, socketPath: '/operator/bob.sock' },
   ]);
+});
+
+it('refreshes only an expired unattempted owner review and deduplicates its new quote without sending either order', async () => {
+  const identity = { ...principal(), authorization: { kind: 'first_party' as const, grantId: GRANT, epoch: 0 } };
+  const original = prepareExecution(request()); const id = approvalId(await gateway.submit(identity, original));
+  const saved = await gateway.reviewJob(identity, id);
+  const quoted = (proposal: ExecutionProposal): LighterIntentPlan => ({ proposal, quote: { market: 123, side: 'yes', maxSpendUSDC: '5', shares: '10',
+    limitPrice: '0.4', feeReserveUSDC: '0.1', maxDebitUSDC: '4.1', visibleSharesAtLimit: '20', observedAt: Date.now(),
+    sourceTimestamp: null, depthTruncated: false, expiresAt: proposal.payload.expiresAt, note: 'Inert quote fixture; no venue calls.' } });
+  const prepareReview = vi.fn(async (_principal: Principal, value: unknown) => quoted(prepareExecution(request(), Date.now(), LighterBuyIntent.parse(value).intentId)));
+  const quote = { prepareReview };
+  await expect(gateway.refreshReview(identity, id, quote)).rejects.toMatchObject({ code: 'quote_refresh_unavailable' });
+  await expect(gateway.refreshReview({ ...identity, expiresAt: Date.now() - 1 }, id, quote)).rejects.toMatchObject({ status: 401 });
+  expect(prepareReview).not.toHaveBeenCalled();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(saved.expiresAt + 1);
+  let replacement: ExecutionProposal | undefined;
+  prepareReview.mockImplementation(async (_principal, value) => {
+    replacement ??= prepareExecution(request(), Date.now(), LighterBuyIntent.parse(value).intentId);
+    return quoted(replacement);
+  });
+  try {
+    const first = await gateway.refreshReview(identity, id, quote);
+    expect(await gateway.refreshReview(identity, id, quote)).toEqual(first);
+    expect(prepareReview).toHaveBeenCalledWith(identity, { intentId: id, market: 123, side: 'yes', maxSpendUSDC: '5', maxSlippageBps: 0, limitPrice: '0.4' });
+    expect(alice.submits).toBe(0); expect(alice.cancels).toBe(0);
+    const childId = new URL(first.approvalUrl).pathname.split('/').at(-1); if (!childId) throw new Error('Missing child');
+    expect((await gateway.reviewJob(identity, childId)).state).toBe('pending');
+    await expect(gateway.confirm(identity, id)).rejects.toMatchObject({ code: 'approval_expired' });
+    await gateway.confirm(identity, childId); expect(alice.submits).toBe(1);
+    clock.mockReturnValue((await gateway.reviewJob(identity, childId)).expiresAt + 1);
+    await expect(gateway.refreshReview(identity, childId, quote)).rejects.toMatchObject({ code: 'quote_refresh_unavailable' });
+  } finally { clock.mockRestore(); }
 });
 
 it('checks issuer, subject, expiry, scopes and account/key ownership before any private connection', async () => {
@@ -327,4 +363,56 @@ it('blocks a previously saved legacy browser approval before durable claim or SD
   await expect(scoped.confirm(principal(), saved.id)).rejects.toMatchObject({ code: 'invalid_proposal' });
   expect(claim).not.toHaveBeenCalled(); expect(alice.submits).toBe(0);
   expect(jobs.get(saved.id)?.state).toBe('pending');
+});
+
+it('runs quote expiry → refresh → one new review → confirmation through real HTTP without repeating sign-in or dispatch', async () => {
+  const server = createServer();
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('Missing test listener');
+  const origin = `http://127.0.0.1:${address.port}`;
+  const configured = config.bindings[0]; if (!configured) throw new Error('Missing binding');
+  const binding = { ...configured, execution: { kind: 'hosted_signer' as const, profileId: GRANT }, accounts: [{ venue: 'lighter' as const, network: 'testnet' as const, account: 42, apiKeyIndex: 5 }] };
+  const current = HostedConfig.parse({ ...config, publicOrigin: origin, allowInsecureLocalhost: true, bindings: [binding] });
+  const identity = { ...principal(), authorization: { kind: 'first_party' as const, grantId: GRANT, epoch: 0 } };
+  const csrf = 'a'.repeat(64);
+  const runtime: HostedRuntime = {
+    auth: { metadata: () => ({ resource: `${origin}/mcp`, authorization_servers: [issuer], scopes_supported: [READ_SCOPE, TRADE_SCOPE], bearer_methods_supported: ['header'] }),
+      challenge: () => 'Bearer', authenticate: () => { throw new Error('No model authentication in this browser-only fixture'); },
+      login: () => { throw new Error('Existing review must not restart sign-in'); }, callback: () => { throw new Error('No callback expected'); },
+      readSession: cookie => cookie === 'review-fixture=1' ? { principal: identity, csrf, expiresAt: identity.expiresAt } : null },
+    binding: subject => subject === identity.subject ? binding : null, assertActive: () => {}, assertJobActive: () => {}, status: async () => null,
+  };
+  const original = prepareExecution({ ...request(), legs: request().legs.map(leg => ({ ...leg, apiKeyIndex: 5 })) });
+  const seed = new HostedExecution(current, jobs, undefined, runtime, async () => alice);
+  const id = approvalId(await seed.submit(identity, original)); const saved = await seed.reviewJob(identity, id);
+  const target = binding.accounts[0]; if (!target) throw new Error('Missing account');
+  const scope = ConsumerLighterScope.parse({ kind: 'consumer_lighter', version: 1, ownerWallet: `0x${'1'.repeat(40)}`, network: 'testnet', account: 42,
+    apiKeyIndex: 5, creators: [7], mode: 'per_order', maxOrderDebitUSDC: '5', origin, enrollmentId: GRANT, epoch: 0 });
+  const intents = new HostedLighterIntents(jobs, { context: async () => ({ account: target, bindingHash: saved.bindingHash, scope,
+    authorityExpiresAt: alice.authority.expiresAt, authorityRisk: 'active', accountReady: true }), prepare: async ({ intent }) => {
+      const proposal = prepareExecution({ ...request(), policy: { maxTotalDebitUSDC: intent.maxSpendUSDC, maxLegDebitUSDC: intent.maxSpendUSDC }, legs: original.payload.legs }, Date.now(), intent.intentId);
+      return { proposal, quote: { market: 123, side: 'yes', maxSpendUSDC: '5', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', maxDebitUSDC: '4.1',
+        visibleSharesAtLimit: '20', observedAt: Date.now(), sourceTimestamp: null, depthTruncated: false, expiresAt: proposal.payload.expiresAt, note: 'Inert HTTP fixture.' } };
+    } });
+  const handler = await createHostedHandler(current, runtime, { jobs, remoteConnect: async () => alice, intents });
+  server.on('request', handler.handle);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(saved.expiresAt + 1);
+  const get = (url: string) => fetch(url, { headers: { cookie: 'review-fixture=1' }, redirect: 'manual' });
+  const decide = (url: string, decision: string, token = csrf) => fetch(url, { method: 'POST', redirect: 'manual',
+    headers: { cookie: 'review-fixture=1', origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf: token, decision }) });
+  try {
+    const path = `${origin}/review/${id}`;
+    const expired = await (await get(path)).text(); expect(expired).toContain('Quote expired'); expect(expired).not.toContain('value="confirm"');
+    expect((await decide(path, 'refresh', 'wrong')).status).toBe(403);
+    const staleConfirm = await decide(path, 'confirm'); expect(staleConfirm.status).toBe(200); expect(await staleConfirm.text()).toContain('Refresh quote');
+    const first = await decide(path, 'refresh'); expect(first.status).toBe(303);
+    const child = first.headers.get('location'); if (!child) throw new Error('Missing fresh review');
+    expect(child).not.toBe(path); expect((await decide(path, 'refresh')).headers.get('location')).toBe(child);
+    expect(alice.submits).toBe(0); expect(alice.cancels).toBe(0);
+    const fresh = await get(child); expect(fresh.status).toBe(200); expect(await fresh.text()).toContain('Confirm this order');
+    expect((await decide(child, 'confirm')).status).toBe(200); expect(alice.submits).toBe(1);
+    expect((await decide(path, 'refresh')).headers.get('location')).toBe(child); expect(alice.submits).toBe(1);
+  } finally {
+    clock.mockRestore(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await handler.close();
+  }
 });

@@ -59,6 +59,21 @@ restores access to that exact connection's review without another wallet signatu
 Authentication never confirms an order. In `per_order` mode, the owner must still click
 **Confirm this order** for the exact displayed proposal before it expires.
 
+The browser review shows the outcome, side, exact shares and price, fee reserve and
+maximum spend. Settlement rules and protocol identifiers are available in a closed
+disclosure. The headline spend rounds up to the next cent; the exact debit remains in
+the order details. Multi-outcome labels come from the event metadata entry matching
+the exact venue market ID, never from the array position.
+
+An expired, unattempted first-party Lighter IOC buy can request **Refresh quote** from
+the signed-in review. This creates a separate unsigned proposal, preserves the original
+limit price and spend caps, and requires a fresh confirmation. The parent review ID
+provides the stable quote identity; repeat refresh requests return the same child review.
+Refreshing never submits, cancels or extends trading permission. Attempted, declined,
+uncertain and cancellation requests cannot create replacement trades through this path.
+Budget-based proposals allow five minutes for review, capped by market and permission
+expiry. The broker still checks current venue data immediately before execution.
+
 Lighter API keys have broader venue powers than trading. Broker limits
 are application controls, and the private service holds custody of the hosted API key.
 The native registration message binds key, nonce, account and slot, but does not include

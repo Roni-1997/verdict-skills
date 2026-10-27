@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 import {
   connectExecution, type ExecutionClient, type ExecutionConnectionOptions,
-  ExecutionPreflight, ExecutionStatus, executionConfirmation, prepareExecution, validateExecution,
+  ExecutionPreflight, ExecutionStatus, LighterBuyIntent, lighterTicks, executionConfirmation, prepareExecution, validateExecution,
 } from '@verdict/core';
 import type { ExecutionLeg, ExecutionProposal, LocalExecutionCapabilities } from '@verdict/core';
 import { z } from 'zod';
 import { requireLighterProposal, requireLighterRequest } from './lighter-execution-boundary.js';
 import type { HostedJobStore } from './hosted-job-store.js';
 import type { HostedRuntime } from './hosted-security.js';
+import type { HostedLighterIntents } from './hosted-intent.js';
+import { canRefreshReview } from './hosted-review.js';
 import {
   type Binding, HostedConfig, HostedError, type HostedMutation, type Job, type LinkedAccount, Principal,
   READ_SCOPE, requireScope, TRADE_SCOPE, type ConnectorScope,
@@ -292,6 +294,36 @@ export class HostedExecution {
     const context = await this.context(principal, TRADE_SCOPE); const job = await this.reviewJob(principal, id);
     if (context.binding.mode !== 'per_order') throw new HostedError(409, 'confirmation_not_required', 'This connection uses an explicitly configured autonomous policy.');
     return this.dispatch(principal, context, job);
+  }
+
+  async refreshReview(principal: Principal, id: string, intents: Pick<HostedLighterIntents, 'prepareReview'>): Promise<{ approvalUrl: string }> {
+    const context = await this.context(principal, TRADE_SCOPE);
+    const original = await this.reviewJob(principal, id);
+    if (context.binding.mode !== 'per_order' || !canRefreshReview(original)) throw new HostedError(409, 'quote_refresh_unavailable', 'Only an expired, unattempted buy review can be refreshed. Keep any attempted request for status.');
+    const leg = original.proposal.payload.legs[0];
+    if (!leg || leg.venue !== 'lighter') throw new HostedError(400, 'invalid_proposal', 'A single Lighter buy is required.');
+    const total = LighterBuyIntent.shape.maxSpendUSDC.parse(original.proposal.payload.policy.maxTotalDebitUSDC);
+    const perLeg = LighterBuyIntent.shape.maxSpendUSDC.parse(original.proposal.payload.policy.maxLegDebitUSDC);
+    const plan = await intents.prepareReview(principal, { intentId: original.id, market: leg.market, side: leg.side,
+      maxSpendUSDC: lighterTicks(total, 6) < lighterTicks(perLeg, 6) ? total : perLeg,
+      maxSlippageBps: 0, limitPrice: leg.limitPrice });
+    const proposal = this.proposal(plan.proposal, 'new_order');
+    this.accountsMatch(context, proposal);
+    const existing = await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: proposal.digest, leg: null });
+    if (existing) {
+      this.checkJob(existing, context);
+      if (JSON.stringify(existing.authorization) !== JSON.stringify(original.authorization)) throw new HostedError(403, 'review_connection_required', 'Restore the original connection to review this order.');
+      return { approvalUrl: `${this.config.publicOrigin}/review/${existing.id}` };
+    }
+    this.validProposalNow(proposal);
+    const result = await this.preflight(principal, proposal);
+    if (result.legs.some(row => row.validUntil <= Date.now())) throw new HostedError(409, 'preflight_expired', 'The price check expired. Refresh the quote again.');
+    await this.current(principal, context, TRADE_SCOPE);
+    this.validProposalNow(proposal);
+    const job = await this.jobs.getOrCreate({ owner: context.owner, bindingHash: context.bindingHash, purpose: 'submit', proposal, leg: null,
+      authorization: original.authorization, expiresAt: Math.min(proposal.payload.expiresAt, Date.now() + this.config.approvalTtlSeconds * 1000) });
+    this.checkJob(job, context);
+    return { approvalUrl: `${this.config.publicOrigin}/review/${job.id}` };
   }
 
   async decline(principal: Principal, id: string): Promise<Job> {

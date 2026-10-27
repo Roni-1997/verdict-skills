@@ -54,6 +54,8 @@ it('never refreshes an expired original proposal, and conflicts on changed paylo
     await expect(f.service.prepare(principal, { ...intent, ...changed })).rejects.toMatchObject({ code: 'intent_changed' });
   }
   f.setNow(NOW + 120_000); await expect(f.service.prepare(principal, intent)).rejects.toMatchObject({ code: 'intent_expired' });
+  expect(await f.service.prepareReview(principal, intent)).toEqual(plan());
+  await expect(f.service.prepare(principal, intent)).rejects.toMatchObject({ code: 'intent_expired' });
   expect(f.preparations()).toBe(1);
 });
 it('requires a first-party authorization and strictly rejects account or policy fields before reads', async () => {

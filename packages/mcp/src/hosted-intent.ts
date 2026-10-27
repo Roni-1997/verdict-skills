@@ -15,6 +15,14 @@ export class HostedLighterIntents {
   constructor(private readonly jobs: HostedJobStore, private readonly dependencies: Dependencies) { this.now = dependencies.now ?? Date.now; }
 
   async prepare(principal: Principal, value: unknown): Promise<LighterIntentPlan> {
+    return this.load(principal, value, false);
+  }
+
+  async prepareReview(principal: Principal, value: unknown): Promise<LighterIntentPlan> {
+    return this.load(principal, value, true);
+  }
+
+  private async load(principal: Principal, value: unknown, retainExpired: boolean): Promise<LighterIntentPlan> {
     const parsed = LighterBuyIntent.safeParse(value);
     if (!parsed.success) throw new HostedError(400, 'invalid_intent', 'Use a stable intent UUID, market, YES/NO side and plain-decimal USDC spend cap.');
     if (!principal.authorization) throw new HostedError(403, 'consumer_connection_required', 'Connect a reviewed hosted Lighter account before preparing an intent.');
@@ -29,7 +37,7 @@ export class HostedLighterIntents {
     };
     if (claim.kind === 'prepared') {
       await assertCurrent();
-      if (claim.plan.proposal.payload.expiresAt <= this.now()) throw new HostedError(410, 'intent_expired', 'The original proposal for this intent expired. It cannot be refreshed or retried. Use status for any original submission.');
+      if (!retainExpired && claim.plan.proposal.payload.expiresAt <= this.now()) throw new HostedError(410, 'intent_expired', 'The original proposal for this intent expired. It cannot be refreshed or retried. Use status for any original submission.');
       return claim.plan;
     }
     try {

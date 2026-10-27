@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import { LighterBuyIntent, LighterClient, createLighterTools, lighterConfigFromEnv, executionConfirmation } from '@verdict/core';
+import { LighterBuyIntent, LighterClient, createLighterTools, lighterConfigFromEnv } from '@verdict/core';
 import { z } from 'zod';
 import { ConnectorAuth } from './hosted-auth.js';
 import { HostedExecution, type HostedRemoteConnect } from './hosted-execution.js';
@@ -14,13 +14,13 @@ import type { HostedJobStore } from './hosted-job-store.js';
 import { HostedLighterIntents } from './hosted-intent.js';
 import { type BrowserSession, HostedConfig, HostedError, type Principal, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
 import type { ConnectorSecurity, HostedRuntime, ReviewJobIdentity } from './hosted-security.js';
+import { REVIEW_STYLES, escapeHtml, reviewContent, resultContent, reviewErrorContent } from './hosted-review.js';
 import { registerLighterTools } from './lighter.js';
 import { LighterExecutionCancel, LighterExecutionProposal, LighterExecutionRequest } from './lighter-execution-boundary.js';
 
 const REVIEW_URI = 'ui://verdict/order-review.html';
 const REVIEW_META = { ui: { csp: { connectDomains: [], resourceDomains: [] } } };
 const ReviewId = z.string().uuid();
-const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 const publicError = (error: unknown) => error instanceof HostedError ? error : new HostedError(502, 'connector_error', 'The connector operation could not complete. Reconcile the original proposal before taking further action.');
 
 export async function readHostedConfig(path: string): Promise<HostedConfig> {
@@ -35,12 +35,12 @@ export async function readHostedConfig(path: string): Promise<HostedConfig> {
 }
 
 function cardHtml(origin: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>body{font:14px system-ui;padding:16px;color:light-dark(#172238,#eef2fa);background:transparent}a{display:inline-block;padding:10px 16px;border-radius:8px;background:#275bca;color:white;text-decoration:none}p{line-height:1.5}code{overflow-wrap:anywhere}</style></head><body><h3>Verdict order</h3><p id="status">Waiting for order details.</p><code id="digest"></code><p><a id="review" hidden target="_blank" rel="noopener noreferrer">Review on Verdict</a></p><script>
+  return `<!doctype html><html><head><meta charset="utf-8"><style>body{font:14px system-ui;padding:16px;color:light-dark(#172238,#eef2fa);background:transparent}a{display:inline-block;padding:10px 16px;border-radius:8px;background:#275bca;color:white;text-decoration:none}p{line-height:1.5}code{overflow-wrap:anywhere}</style></head><body><h3>Review trade</h3><p id="status">Waiting for your trade.</p><p><a id="review" hidden target="_blank" rel="noopener noreferrer">Review trade on Verdict</a></p><details><summary>Request details</summary><code id="digest"></code></details><script>
   const allowedOrigin = ${JSON.stringify(origin)};
   function render(result) {
     const value = result && (result.structuredContent || result);
     if (!value || typeof value.state !== 'string') return;
-    document.getElementById('status').textContent = value.state === 'approval_required' ? 'Review the exact order and confirm on the signed-in Verdict page.' : 'Order state: ' + value.state;
+    document.getElementById('status').textContent = value.state === 'approval_required' ? 'Your trade is ready. Confirm once on Verdict. No wallet signature.' : value.state === 'complete' ? 'Order complete. Ask your agent for the fill and position.' : 'Check this original order with your agent before placing another.';
     document.getElementById('digest').textContent = typeof value.digest === 'string' ? value.digest : '';
     const link = document.getElementById('review'); link.hidden = true;
     try { const url = new URL(value.approvalUrl); if (url.origin === allowedOrigin && /^\\/review\\/[a-f0-9-]+$/.test(url.pathname)) { link.href = url.href; link.hidden = false; } } catch {}
@@ -134,20 +134,20 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
   res.end(JSON.stringify(value));
 }
-function page(res: ServerResponse, title: string, content: string): void {
+function page(res: ServerResponse, title: string, content: string, status = 200): void {
   const nonce = randomBytes(18).toString('base64url');
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer',
+  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY',
     'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
   });
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style nonce="${nonce}">:root{color-scheme:light dark}body{font:16px/1.55 system-ui;background:#0d1526;color:#e7edf8;margin:0;padding:32px 20px}main{max-width:760px;margin:auto}h1{font-size:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui;border:1px solid #34415c;padding:20px;border-radius:12px}button{font:inherit;border:0;border-radius:8px;padding:12px 20px;margin:8px 8px 8px 0;cursor:pointer;background:#83aaff;color:#0b1832}button[value=decline]{background:#29364f;color:#e7edf8}p{color:#bcc9df}code{overflow-wrap:anywhere}</style></head><body><main><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`);
+  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style nonce="${nonce}">${REVIEW_STYLES}</style></head><body><main><p class="brand">VERDICT</p><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`);
 }
 async function browserSession(auth: ConnectorSecurity, req: IncomingMessage): Promise<BrowserSession | null> {
   if (req.headers.authorization !== undefined) throw new HostedError(403, 'browser_session_required', 'Order review requires independent browser sign-in, not an MCP bearer token.');
   return auth.readSession(req.headers.cookie);
 }
 
-export type HostedHandlerDependencies = { jobs?: HostedJobStore; remoteConnect?: HostedRemoteConnect };
+export type HostedHandlerDependencies = { jobs?: HostedJobStore; remoteConnect?: HostedRemoteConnect; intents?: HostedLighterIntents };
 
 export async function createHostedHandler(input: HostedConfig, runtime?: HostedRuntime, dependencies: HostedHandlerDependencies = {}): Promise<{ handle: (req: IncomingMessage, res: ServerResponse) => void; close: () => Promise<void>; reviewJobIdentity: (id: string) => Promise<ReviewJobIdentity | null> }> {
   const config = HostedConfig.parse(input);
@@ -155,7 +155,7 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
   const jobs = dependencies.jobs ?? (config.storage.kind === 'local' ? new HostedJobs(config.storage.stateDir)
     : (() => { throw new HostedError(503, 'storage_not_configured', 'Shared durable hosted state must be explicitly configured.'); })());
   const gateway = new HostedExecution(config, jobs, undefined, runtime, dependencies.remoteConnect);
-  const intents = new HostedLighterIntents(jobs, { context: (principal) => gateway.intentContext(principal) });
+  const intents = dependencies.intents ?? new HostedLighterIntents(jobs, { context: (principal) => gateway.intentContext(principal) });
   const origin = new URL(config.publicOrigin).origin;
   const reviewPattern = /^\/review\/([a-f0-9-]+)$/;
 
@@ -187,8 +187,8 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
         res.writeHead(303, { location: login.location, 'set-cookie': login.cookies, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
       }
       if (req.method === 'GET') {
-        const lines = executionConfirmation(job.proposal, 'hosted').confirmation;
-        page(res, job.purpose === 'submit' ? 'Review your Verdict order' : 'Review exact order cancellation', `<p>Review only. No order is sent by opening this page.</p><p>Operation: <strong>${escapeHtml(job.purpose)}</strong>${job.leg === null ? '' : ` · leg ${job.leg}`}. State: ${escapeHtml(job.state)}.</p><pre>${escapeHtml(lines.join('\n'))}</pre><p>Browser confirmation operates inside your existing bounded broker policy. It does not expand that policy.</p>${job.state === 'pending' ? `<form method="post" action="/review/${id}"><input type="hidden" name="csrf" value="${escapeHtml(session.csrf)}"><button name="decision" value="confirm">${job.purpose === 'submit' ? 'Confirm this order' : 'Confirm exact cancellation'}</button><button name="decision" value="decline">Decline</button></form>` : '<p>This request has already been consumed or declined. Check the original proposal’s status in your agent.</p>'}`); return;
+        const review = reviewContent(job, session.csrf);
+        page(res, review.title, review.content); return;
       }
       if (req.method !== 'POST') throw new HostedError(405, 'method_not_allowed', 'Use the review page form.');
       if (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') throw new HostedError(403, 'invalid_confirmation', 'Confirmation requires the signed-in review form on the connector origin.');
@@ -198,9 +198,20 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
       if (csrf.length !== expected.length || !timingSafeEqual(csrf, expected)) throw new HostedError(403, 'invalid_confirmation', 'Confirmation session does not match.');
       const decision = form.get('decision');
       if (decision === 'decline') { await gateway.decline(session.principal, id); page(res, 'Order request declined', '<p>No new order was sent by this decision.</p>'); return; }
+      if (decision === 'refresh') {
+        const refreshed = await gateway.refreshReview(session.principal, id, intents);
+        res.writeHead(303, { location: refreshed.approvalUrl, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
+      }
       if (decision !== 'confirm') throw new HostedError(400, 'invalid_confirmation', 'Choose Confirm or Decline.');
-      const result = await gateway.confirm(session.principal, id);
-      page(res, 'Verdict order result', `<pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre><p>Return to your agent and request status for the same saved proposal. Do not prepare or submit a replacement after uncertain delivery.</p>`); return;
+      try {
+        const result = resultContent(await gateway.confirm(session.principal, id));
+        page(res, result.title, result.content);
+      } catch (error) {
+        if (!(error instanceof HostedError) || !['approval_expired', 'proposal_expired'].includes(error.code)) throw error;
+        const review = reviewContent(await gateway.reviewJob(session.principal, id), session.csrf);
+        page(res, review.title, review.content);
+      }
+      return;
     }
     if (url.pathname !== '/mcp') throw new HostedError(404, 'not_found', 'Unknown connector route.');
     if (!['GET', 'POST', 'DELETE'].includes(req.method ?? '')) throw new HostedError(405, 'method_not_allowed', 'Unsupported MCP method.');
@@ -231,6 +242,9 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
     void handle(req, res).catch((error: unknown) => {
       const safe = publicError(error);
       if (!res.headersSent) {
+        if (req.url?.startsWith('/review/') && req.headers.accept?.includes('text/html')) {
+          const view = reviewErrorContent(safe); page(res, view.title, view.content, safe.status); return;
+        }
         if ([401, 403].includes(safe.status) && req.url?.startsWith('/mcp')) res.setHeader('WWW-Authenticate', auth.challenge(safe.status === 403 ? TRADE_SCOPE : READ_SCOPE, safe.code));
         sendJson(res, safe.status, { error: safe.code, message: safe.message });
       } else res.end();

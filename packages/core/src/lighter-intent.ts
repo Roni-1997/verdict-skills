@@ -54,7 +54,7 @@ export function planLighterBuyIntent(value: PlanInput): LighterIntentPlan {
   if (BigInt(market.settlement_cap) !== priceScale || market.status !== 'active' || market.is_frozen
     || now < market.start_timestamp || now >= market.end_timestamp) fail('Market is frozen, inactive, outside its trading window, or does not pay one USDC per share.');
   if (!market.title.trim() || market.title.length > 1000 || !market.settlementRule?.trim()) fail('Usable title and settlement rules are required before preparing a trade.');
-  const validForSeconds = Math.floor((Math.min(now + 120_000, market.end_timestamp - 5000, authorityExpiresAt ?? Number.MAX_SAFE_INTEGER) - now) / 1000);
+  const validForSeconds = Math.floor((Math.min(now + 300_000, market.end_timestamp - 5000, authorityExpiresAt ?? Number.MAX_SAFE_INTEGER) - now) / 1000);
   if (validForSeconds < 30) fail('Market or account authority expires too soon for a new trade review.');
   const budget = lighterTicks(intent.maxSpendUSDC, 6);
   if (budget > lighterTicks(limits.maxOrderDebitUSDC, 6)) fail('Requested spend exceeds the connection’s per-order cap.');

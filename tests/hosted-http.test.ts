@@ -195,6 +195,11 @@ it('queues an exact browser review without sending and blocks bearer-token or cr
 it('requires the signed-in exact-origin CSRF form and consumes concurrent confirmations once through SDK and broker', async () => {
   expect((await browser.confirm(approval.approvalUrl, 'invalid')).status).toBe(403);
   expect((await browser.confirm(approval.approvalUrl, csrf, 'confirm', 'https://wrong.invalid')).status).toBe(403);
+  expect((await browser.confirm(approval.approvalUrl, 'invalid', 'refresh')).status).toBe(403);
+  expect((await browser.confirm(approval.approvalUrl, csrf, 'refresh', 'https://wrong.invalid')).status).toBe(403);
+  const beforeRefresh = await remainingOrders();
+  expect((await browser.confirm(approval.approvalUrl, csrf, 'refresh')).status).toBe(409);
+  expect(await remainingOrders()).toBe(beforeRefresh);
   expect(await remainingOrders()).toBe(20);
   const responses = await Promise.all([browser.confirm(approval.approvalUrl, csrf), browser.confirm(approval.approvalUrl, csrf)]);
   expect(responses.map((response) => response.status)).toEqual([200, 200]);

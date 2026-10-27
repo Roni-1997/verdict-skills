@@ -27,6 +27,16 @@ function harness(overrides: Record<string, unknown> = {}, creators: number[] = [
 const order = { market: MARKET, side: 'yes', action: 'buy', price: '0.35', size: '10', clientOrderIndex: 1234 };
 
 describe('Lighter binary outcomes using public response fixtures', () => {
+  it('names the exact outcome book from its metadata market ID and never guesses from outcome order', async () => {
+    const original = z.object({ events: z.array(z.record(z.string(), z.unknown())) }).parse(fixture('events'));
+    const event = original.events[0]; if (!event) throw new Error('Missing event');
+    const page = { code: 200, next_cursor: null, events: [{ ...event, title: 'Premier League winner',
+      metadata: { outcomes: [{ market_id: MARKET + 1, label: 'Chelsea' }, { market_id: MARKET, label: 'Arsenal' }] } }] };
+    const { tools } = harness({ events: page });
+    expect(await tools.get_market({ market: MARKET })).toMatchObject({ market: { title: 'Arsenal · Premier League winner' } });
+    const built = await tools.build_order(order);
+    expect(built.market.title).toBe('Arsenal · Premier League winner');
+  });
   it('defaults to devnet with no creators enabled for orders, independently of Hyperliquid', () => {
     expect(lighterConfigFromEnv({ VERDICT_NETWORK: 'mainnet' })).toEqual({ network: 'devnet', creators: [] });
     expect(lighterConfigFromEnv({ LIGHTER_NETWORK: 'testnet' })).toEqual({ network: 'testnet', creators: [] });

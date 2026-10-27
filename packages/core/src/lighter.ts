@@ -49,6 +49,7 @@ const RawBook = z.object({
 const Event = z.object({
   event_id: Id, creator_account_index: Id, title: z.string().max(10_000), description: z.string().max(50_000).nullable(),
   order_books: z.array(RawBook).max(1000),
+  metadata: z.object({ outcomes: z.array(z.object({ market_id: Id, label: z.string().min(1).max(256) })).max(1000).optional() }).nullish().catch(null),
 });
 const Events = z.object({ code: z.literal(200), events: z.array(Event).max(100), next_cursor: Id.nullish() });
 const Level = z.object({ price: Decimal, remaining_base_amount: Decimal });
@@ -146,7 +147,11 @@ export class LighterClient {
 }
 
 function markets(page: z.infer<typeof Events>, network: LighterConfig['network']): LighterMarket[] {
-  return page.events.flatMap((e) => e.order_books.map((b) => ({ ...b, eventId: e.event_id, creator: e.creator_account_index, title: e.title, settlementRule: e.description, network })));
+  return page.events.flatMap(e => e.order_books.map(b => {
+    const labels = e.metadata?.outcomes?.filter(outcome => outcome.market_id === b.market_id) ?? [];
+    return { ...b, eventId: e.event_id, creator: e.creator_account_index,
+      title: labels.length === 1 ? `${labels[0]?.label} · ${e.title}` : e.title, settlementRule: e.description, network };
+  }));
 }
 
 function unitPayout(m: LighterMarket): void {

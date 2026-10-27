@@ -27,6 +27,7 @@ describe('budget-based Lighter SDK planning', () => {
     expect(validateExecution(plan.proposal)).toEqual(plan.proposal);
     expect(plan.quote.sourceTimestamp).toBeNull();
     expect(plan.proposal.payload.requestId).toBe(intent.intentId);
+    expect(plan.proposal.payload.expiresAt).toBe(Math.min(NOW + 300_000, market.end_timestamp - 5000));
   });
   it('buys NO using complemented YES bids, with the side limit in the proposal', () => {
     const value = input(); value.intent.side = 'no';
