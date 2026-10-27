@@ -111,6 +111,39 @@ export class HostedExecution {
       expiresAt: job.expiresAt, nextOperation: 'status', automaticRetry: false };
   }
 
+  private refreshIntent(job: Job): LighterBuyIntent {
+    const leg = job.proposal.payload.legs[0];
+    if (!leg || leg.venue !== 'lighter') throw new HostedError(400, 'invalid_proposal', 'A single Lighter buy is required.');
+    const total = LighterBuyIntent.shape.maxSpendUSDC.parse(job.proposal.payload.policy.maxTotalDebitUSDC);
+    const perLeg = LighterBuyIntent.shape.maxSpendUSDC.parse(job.proposal.payload.policy.maxLegDebitUSDC);
+    return LighterBuyIntent.parse({ intentId: job.id, market: leg.market, side: leg.side,
+      maxSpendUSDC: lighterTicks(total, 6) < lighterTicks(perLeg, 6) ? total : perLeg, maxSlippageBps: 0, limitPrice: leg.limitPrice });
+  }
+
+  private async pendingReview(context: Context, original: Job): Promise<HostedMutation> {
+    if (context.binding.mode !== 'per_order') return this.pending(original);
+    let current = original;
+    const visited = new Set<string>();
+    while (canRefreshReview(current) && current.authorization) {
+      if (visited.has(current.id) || visited.size >= 32) throw new HostedError(503, 'storage_unavailable', 'The saved quote history cannot be verified.');
+      visited.add(current.id);
+      const intent = this.refreshIntent(current);
+      const record = await this.jobs.readIntent({ owner: context.owner, bindingHash: context.bindingHash, authorization: current.authorization,
+        intentId: intent.intentId, inputHash: hash(JSON.stringify(intent)) });
+      if (!record && current.state !== 'replaced') break;
+      const child = record?.kind === 'prepared' ? await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: record.plan.proposal.digest, leg: null }) : null;
+      if (!child) return { state: 'review_refreshing', digest: original.proposal.digest, approvalUrl: `${this.config.publicOrigin}/review/${current.id}`, nextOperation: 'status', automaticRetry: false,
+        note: 'A replacement review is being prepared. Check this original request again or reopen its review. Do not prepare or submit another trade.' };
+      this.checkJob(child, context);
+      if (JSON.stringify(child.authorization) !== JSON.stringify(original.authorization)) throw new HostedError(403, 'review_connection_required', 'Restore the original agent connection.');
+      current = child;
+    }
+    if (current.id !== original.id) return { state: 'review_updated', digest: original.proposal.digest, proposal: current.proposal,
+      approvalUrl: `${this.config.publicOrigin}/review/${current.id}`, expiresAt: current.expiresAt, nextOperation: 'status', automaticRetry: false,
+      note: 'The owner refreshed this quote. Save the returned proposal unchanged and use execution_status with it. Do not submit or prepare a replacement; refreshing did not approve a trade.' };
+    return this.pending(original);
+  }
+
   private unknown(proposal: ExecutionProposal): HostedMutation {
     return { state: 'delivery_unknown', digest: proposal.digest, nextOperation: 'status', automaticRetry: false };
   }
@@ -220,11 +253,11 @@ export class HostedExecution {
     const existing = await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: proposal.digest, leg: null });
     if (existing) {
       this.checkJob(existing, context);
-      if (existing.state !== 'pending') {
+      if (existing.state !== 'pending' && existing.state !== 'replaced') {
         if (existing.state === 'declined') return this.pending(existing);
         return this.reconcile(principal, context, existing);
       }
-      if (context.binding.mode === 'per_order') return this.pending(existing);
+      if (context.binding.mode === 'per_order') return this.pendingReview(context, existing);
       return this.dispatch(principal, context, existing);
     }
     this.validProposalNow(proposal);
@@ -246,7 +279,7 @@ export class HostedExecution {
     const job = await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: proposal.digest, leg: null });
     if (!job) throw new HostedError(404, 'order_not_found', 'No order request belongs to this account and proposal.');
     this.checkJob(job, context);
-    if (job.state === 'pending' || job.state === 'declined') return this.pending(job);
+    if (job.state === 'pending' || job.state === 'declined' || job.state === 'replaced') return this.pendingReview(context, job);
     if (context.binding.mode === 'per_order') {
       for (const leg of [0, 1] satisfies (0 | 1)[]) {
         if (leg >= proposal.payload.legs.length) continue;
@@ -300,13 +333,8 @@ export class HostedExecution {
     const context = await this.context(principal, TRADE_SCOPE);
     const original = await this.reviewJob(principal, id);
     if (context.binding.mode !== 'per_order' || !canRefreshReview(original)) throw new HostedError(409, 'quote_refresh_unavailable', 'Only an expired, unattempted buy review can be refreshed. Keep any attempted request for status.');
-    const leg = original.proposal.payload.legs[0];
-    if (!leg || leg.venue !== 'lighter') throw new HostedError(400, 'invalid_proposal', 'A single Lighter buy is required.');
-    const total = LighterBuyIntent.shape.maxSpendUSDC.parse(original.proposal.payload.policy.maxTotalDebitUSDC);
-    const perLeg = LighterBuyIntent.shape.maxSpendUSDC.parse(original.proposal.payload.policy.maxLegDebitUSDC);
-    const plan = await intents.prepareReview(principal, { intentId: original.id, market: leg.market, side: leg.side,
-      maxSpendUSDC: lighterTicks(total, 6) < lighterTicks(perLeg, 6) ? total : perLeg,
-      maxSlippageBps: 0, limitPrice: leg.limitPrice });
+    await this.jobs.retireReview({ id, owner: context.owner, bindingHash: context.bindingHash, now: Date.now() });
+    const plan = await intents.prepareReview(principal, this.refreshIntent(original));
     const proposal = this.proposal(plan.proposal, 'new_order');
     this.accountsMatch(context, proposal);
     const existing = await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: proposal.digest, leg: null });
@@ -315,11 +343,13 @@ export class HostedExecution {
       if (JSON.stringify(existing.authorization) !== JSON.stringify(original.authorization)) throw new HostedError(403, 'review_connection_required', 'Restore the original connection to review this order.');
       return { approvalUrl: `${this.config.publicOrigin}/review/${existing.id}` };
     }
-    this.validProposalNow(proposal);
-    const result = await this.preflight(principal, proposal);
-    if (result.legs.some(row => row.validUntil <= Date.now())) throw new HostedError(409, 'preflight_expired', 'The price check expired. Refresh the quote again.');
+    // An expired saved quote is inert history; its own review can request the next fresh quote.
+    if (proposal.payload.expiresAt > Date.now()) {
+      this.validProposalNow(proposal);
+      const result = await this.preflight(principal, proposal);
+      if (result.legs.some(row => row.validUntil <= Date.now())) throw new HostedError(409, 'preflight_expired', 'The price check expired. Refresh the quote again.');
+    }
     await this.current(principal, context, TRADE_SCOPE);
-    this.validProposalNow(proposal);
     const job = await this.jobs.getOrCreate({ owner: context.owner, bindingHash: context.bindingHash, purpose: 'submit', proposal, leg: null,
       authorization: original.authorization, expiresAt: Math.min(proposal.payload.expiresAt, Date.now() + this.config.approvalTtlSeconds * 1000) });
     this.checkJob(job, context);

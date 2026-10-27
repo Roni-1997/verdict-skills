@@ -28,6 +28,10 @@ function request(account = ADDRESS, validForSeconds = 3600) {
     side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'ioc',
   }], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } };
 }
+const quoted = (proposal: ExecutionProposal): LighterIntentPlan => ({ proposal, quote: { market: 123, side: 'yes', maxSpendUSDC: '5', shares: '10',
+  limitPrice: '0.4', feeReserveUSDC: '0.1', maxDebitUSDC: '4.1', visibleSharesAtLimit: '20', observedAt: Date.now(),
+  sourceTimestamp: null, depthTruncated: false, expiresAt: proposal.payload.expiresAt, note: 'Inert quote fixture; no venue calls.' } });
+
 function pair() {
   const first = request();
   return prepareExecution({ ...first, legs: [...first.legs, {
@@ -130,9 +134,6 @@ it('refreshes only an expired unattempted owner review and deduplicates its new 
   const identity = { ...principal(), authorization: { kind: 'first_party' as const, grantId: GRANT, epoch: 0 } };
   const original = prepareExecution(request()); const id = approvalId(await gateway.submit(identity, original));
   const saved = await gateway.reviewJob(identity, id);
-  const quoted = (proposal: ExecutionProposal): LighterIntentPlan => ({ proposal, quote: { market: 123, side: 'yes', maxSpendUSDC: '5', shares: '10',
-    limitPrice: '0.4', feeReserveUSDC: '0.1', maxDebitUSDC: '4.1', visibleSharesAtLimit: '20', observedAt: Date.now(),
-    sourceTimestamp: null, depthTruncated: false, expiresAt: proposal.payload.expiresAt, note: 'Inert quote fixture; no venue calls.' } });
   const prepareReview = vi.fn(async (_principal: Principal, value: unknown) => quoted(prepareExecution(request(), Date.now(), LighterBuyIntent.parse(value).intentId)));
   const quote = { prepareReview };
   await expect(gateway.refreshReview(identity, id, quote)).rejects.toMatchObject({ code: 'quote_refresh_unavailable' });
@@ -151,7 +152,7 @@ it('refreshes only an expired unattempted owner review and deduplicates its new 
     expect(alice.submits).toBe(0); expect(alice.cancels).toBe(0);
     const childId = new URL(first.approvalUrl).pathname.split('/').at(-1); if (!childId) throw new Error('Missing child');
     expect((await gateway.reviewJob(identity, childId)).state).toBe('pending');
-    await expect(gateway.confirm(identity, id)).rejects.toMatchObject({ code: 'approval_expired' });
+    await expect(gateway.confirm(identity, id)).rejects.toMatchObject({ code: 'approval_replaced' });
     await gateway.confirm(identity, childId); expect(alice.submits).toBe(1);
     clock.mockReturnValue((await gateway.reviewJob(identity, childId)).expiresAt + 1);
     await expect(gateway.refreshReview(identity, childId, quote)).rejects.toMatchObject({ code: 'quote_refresh_unavailable' });
@@ -409,10 +410,35 @@ it('runs quote expiry → refresh → one new review → confirmation through re
     const child = first.headers.get('location'); if (!child) throw new Error('Missing fresh review');
     expect(child).not.toBe(path); expect((await decide(path, 'refresh')).headers.get('location')).toBe(child);
     expect(alice.submits).toBe(0); expect(alice.cancels).toBe(0);
+    const updated = await seed.status(identity, original);
+    expect(updated).toMatchObject({ state: 'review_updated', digest: original.digest, approvalUrl: child, automaticRetry: false });
+    if (updated.state !== 'review_updated') throw new Error('Agent lost the refreshed review');
+    expect(await seed.status(identity, updated.proposal)).toMatchObject({ state: 'approval_required' });
     const fresh = await get(child); expect(fresh.status).toBe(200); expect(await fresh.text()).toContain('Confirm this order');
     expect((await decide(child, 'confirm')).status).toBe(200); expect(alice.submits).toBe(1);
     expect((await decide(path, 'refresh')).headers.get('location')).toBe(child); expect(alice.submits).toBe(1);
+    jobs.close();
+    const recovered = new HostedExecution(current, openJobs(), undefined, runtime, async () => alice);
+    const tracked = await recovered.status(identity, original);
+    if (tracked.state !== 'review_updated') throw new Error('Refreshed review was lost across restart');
+    expect(await recovered.status(identity, tracked.proposal)).toMatchObject({ state: 'complete' });
+    expect(alice.submits).toBe(1);
   } finally {
     clock.mockRestore(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await handler.close();
   }
+});
+
+it('archives an expired cached quote as inert history so an interrupted refresh can continue without a send', async () => {
+  const identity = { ...principal(), authorization: { kind: 'first_party' as const, grantId: GRANT, epoch: 0 } };
+  const original = prepareExecution(request()); const id = approvalId(await gateway.submit(identity, original));
+  const clock = vi.spyOn(Date, 'now').mockReturnValue((await gateway.reviewJob(identity, id)).expiresAt + 1);
+  try {
+    const cached = prepareExecution(request(42, 30), Date.now() - 60_000, id);
+    const count = alice.preflights;
+    const refreshed = await gateway.refreshReview(identity, id, { prepareReview: async () => quoted(cached) });
+    const child = new URL(refreshed.approvalUrl).pathname.split('/').at(-1); if (!child) throw new Error('Missing history');
+    expect((await gateway.reviewJob(identity, child)).expiresAt).toBeLessThan(Date.now());
+    await expect(gateway.confirm(identity, child)).rejects.toMatchObject({ code: 'proposal_expired' });
+    expect(alice.submits).toBe(0); expect(alice.preflights).toBe(count);
+  } finally { clock.mockRestore(); }
 });

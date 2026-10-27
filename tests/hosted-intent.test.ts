@@ -48,6 +48,19 @@ it('returns the original proposal across retries, a process restart, and fresh b
   f.store.close(); const restarted = new HostedLighterIntents(f.open(), f.deps);
   expect(await restarted.prepare(principal, intent)).toEqual(first); expect(f.preparations()).toBe(1);
 });
+it('reads cached quote identity without creating a claim, and retains it across cold store reopen', async () => {
+  const f = await fixture();
+  const parsed = { ...intent, maxSlippageBps: 50 };
+  const identity = { owner: createHash('sha256').update(`${principal.issuer}\0${principal.subject}`).digest('hex'), bindingHash,
+    authorization: principal.authorization, intentId: intent.intentId, inputHash: createHash('sha256').update(JSON.stringify(parsed)).digest('hex') };
+  if (!identity.authorization) throw new Error('Missing authority');
+  const key = { ...identity, authorization: identity.authorization };
+  expect(f.store.readIntent(key)).toBeNull(); expect(f.store.readIntent(key)).toBeNull();
+  const original = await f.service.prepare(principal, intent);
+  expect(f.store.readIntent(key)).toEqual({ kind: 'prepared', plan: original });
+  expect(f.store.readIntent({ ...key, authorization: { ...key.authorization, epoch: 1 } })).toBeNull();
+  f.store.close(); expect(f.open().readIntent(key)).toEqual({ kind: 'prepared', plan: original });
+});
 it('never refreshes an expired original proposal, and conflicts on changed payload under the same UUID', async () => {
   const f = await fixture(); await f.service.prepare(principal, intent);
   for (const changed of [{ maxSpendUSDC: '11' }, { side: 'no' }, { market: 4556 }, { maxSlippageBps: 100 }]) {

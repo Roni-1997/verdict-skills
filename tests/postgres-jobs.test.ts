@@ -67,6 +67,20 @@ function observation(job: Job, complete = false): ExecutionStatus {
 }
 
 describe.skipIf(!testDsn)('PostgreSQL hosted jobs with real independent database connections', () => {
+  it('serializes a delayed claim against quote retirement so only one can win', async () => {
+    const first = open(); const second = open(); const job = await first.getOrCreate(jobInput());
+    const outcomes = await Promise.allSettled([first.claim(claim(job, job.expiresAt - 1)), second.retireReview(claim(job, job.expiresAt))]);
+    expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const saved = await second.get(job.id);
+    if (saved?.state === 'replaced') await expect(first.claim(claim(job, job.expiresAt - 1))).rejects.toMatchObject({ code: 'approval_replaced' });
+    else expect(saved?.state).toBe('attempted');
+  });
+  it('retains retirement across fresh connections and never accepts an earlier confirmation timestamp', async () => {
+    const first = open(); const second = open(); const job = await first.getOrCreate(jobInput());
+    expect(await first.retireReview(claim(job, job.expiresAt))).toMatchObject({ state: 'replaced' });
+    await expect(second.claim(claim(job, job.expiresAt - 1))).rejects.toMatchObject({ code: 'approval_replaced' });
+    await first.close(); expect(await open().get(job.id)).toMatchObject({ state: 'replaced' });
+  });
   beforeAll(async () => {
     if (!testDsn) throw new Error('Explicit local PostgreSQL test configuration is required.');
     const url = safeLocalTestUrl(testDsn);
@@ -204,6 +218,7 @@ describe.skipIf(!testDsn)('PostgreSQL hosted jobs with real independent database
 
   it('fences concurrent preparation and stale saves without extending an expired original intent', async () => {
     const first = open(); const second = open(); const original = plan(); const identity = intent(original);
+    expect(await first.readIntent(identity)).toBeNull(); expect(await second.readIntent(identity)).toBeNull();
     const attempts = await Promise.allSettled([first.claimIntent({ ...identity, now }), second.claimIntent({ ...identity, now })]);
     const winner = attempts.find((result) => result.status === 'fulfilled');
     if (winner?.status !== 'fulfilled' || winner.value.kind !== 'claimed') throw new Error('Expected one original preparation claimant');
@@ -213,6 +228,8 @@ describe.skipIf(!testDsn)('PostgreSQL hosted jobs with real independent database
     if (replacement.kind !== 'claimed') throw new Error('Expected expired planning lease to be reclaimed');
     await expect(first.saveIntent({ ...identity, claimId: winner.value.claimId, plan: original })).rejects.toMatchObject({ code: 'intent_claim_changed' });
     await second.saveIntent({ ...identity, claimId: replacement.claimId, plan: original });
+    expect(await first.readIntent(identity)).toEqual({ kind: 'prepared', plan: original });
+    expect(await first.readIntent({ ...identity, authorization: { ...identity.authorization, epoch: identity.authorization.epoch + 1 } })).toBeNull();
     await first.abandonIntent({ ...identity, claimId: winner.value.claimId });
     await first.close();
     const restarted = open();

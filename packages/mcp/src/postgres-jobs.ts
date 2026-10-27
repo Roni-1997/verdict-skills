@@ -204,6 +204,7 @@ export class PostgresHostedJobs {
       const job = await this.owned(tx, parsed);
       if (job.state === 'attempted' || job.state === 'observed') return { kind: 'already_attempted', job };
       if (job.state === 'declined') throw new HostedError(409, 'approval_declined', 'This execution request was declined.');
+      if (job.state === 'replaced') throw new HostedError(409, 'approval_replaced', 'This quote was replaced. Follow the updated review.');
       if (parsed.now >= job.expiresAt) throw new HostedError(410, 'approval_expired', 'This execution approval has expired.');
       const attempted = await this.write(tx, { ...job, state: 'attempted' }, ['pending']);
       return { kind: 'claimed', job: attempted };
@@ -234,6 +235,34 @@ export class PostgresHostedJobs {
       const job = await this.owned(tx, parsed);
       if (job.state !== 'pending') throw new HostedError(409, 'not_pending', 'Only a pending request can be declined.');
       return this.write(tx, { ...job, state: 'declined' }, ['pending']);
+    });
+  }
+
+  async retireReview(value: Parameters<HostedJobs['retireReview']>[0]): Promise<Job> {
+    const parsed = input(Claim, value);
+    return this.transaction(async tx => {
+      const job = await this.owned(tx, parsed);
+      if (job.purpose !== 'submit' || !job.authorization || (job.state !== 'pending' && job.state !== 'replaced') || parsed.now < job.expiresAt)
+        throw new HostedError(409, 'quote_refresh_unavailable', 'Only an expired, unattempted review can be replaced.');
+      if (job.state === 'replaced') return job;
+      return this.write(tx, { ...job, state: 'replaced' }, ['pending']);
+    });
+  }
+
+  async readIntent(value: Parameters<HostedJobs['readIntent']>[0]): Promise<ReturnType<HostedJobs['readIntent']>> {
+    const parsed = input(IntentIdentity, value);
+    return this.transaction(async tx => {
+      const found = await tx.query(`SELECT ${intentColumns} FROM verdict_mcp.lighter_intents
+        WHERE deployment_id=$1 AND owner=$2 AND binding_hash=$3 AND grant_id=$4 AND epoch=$5 AND intent_id=$6`,
+      [this.deploymentId, parsed.owner, parsed.bindingHash, parsed.authorization.grantId, parsed.authorization.epoch, parsed.intentId]);
+      if (found.rowCount === 0) return null;
+      const row = IntentRow.parse(found.rows[0]);
+      if (row.input_hash !== parsed.inputHash) throw new HostedError(409, 'intent_changed', 'This quote identity belongs to another request.');
+      if (row.data === null) return { kind: 'preparing' };
+      if (Buffer.byteLength(JSON.stringify(row.data)) > 1_048_576) throw storageError();
+      const plan = LighterIntentPlan.parse(row.data); validateExecution(plan.proposal);
+      if (plan.proposal.payload.requestId !== parsed.intentId) throw storageError();
+      return { kind: 'prepared', plan };
     });
   }
 

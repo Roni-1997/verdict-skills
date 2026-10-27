@@ -227,6 +227,7 @@ export class HostedJobs {
       const job = this.owned(input);
       if (job.state === 'attempted' || job.state === 'observed') return { kind: 'already_attempted', job };
       if (job.state === 'declined') throw new HostedError(409, 'approval_declined', 'This execution request was declined.');
+      if (job.state === 'replaced') throw new HostedError(409, 'approval_replaced', 'This quote was replaced. Follow the updated review.');
       if (input.now >= job.expiresAt) throw new HostedError(410, 'approval_expired', 'This execution approval has expired.');
       const attempted: Job = { ...job, state: 'attempted' };
       this.write(attempted);
@@ -239,6 +240,16 @@ export class HostedJobs {
     if (job.owner !== input.owner) throw new HostedError(403, 'job_owner', 'Execution request belongs to another account connection.');
     if (job.bindingHash !== input.bindingHash) throw new HostedError(409, 'binding_changed', 'Account connection changed; the original request cannot execute.');
     return job;
+  }
+  retireReview(value: Claim): Job {
+    const input = parse(Claim, value);
+    return this.safe(() => this.transaction(() => {
+      const job = this.owned(input);
+      if (job.purpose !== 'submit' || !job.authorization || (job.state !== 'pending' && job.state !== 'replaced') || input.now < job.expiresAt)
+        throw new HostedError(409, 'quote_refresh_unavailable', 'Only an expired, unattempted review can be replaced.');
+      if (job.state === 'replaced') return job;
+      const retired: Job = { ...job, state: 'replaced' }; this.write(retired); return retired;
+    }));
   }
   observe(id: string, value: ExecutionStatus): void {
     parse(Job.shape.id, id);
@@ -258,6 +269,21 @@ export class HostedJobs {
       this.write(declined);
       return declined;
     }));
+  }
+
+  readIntent(value: IntentIdentity): { kind: 'preparing' } | { kind: 'prepared'; plan: LighterIntentPlan } | null {
+    const input = parse(IntentIdentity, value);
+    return this.safe(() => {
+      const value = this.database.prepare('SELECT * FROM lighter_intents WHERE owner=? AND binding_hash=? AND grant_id=? AND epoch=? AND intent_id=?')
+        .get(input.owner, input.bindingHash, input.authorization.grantId, input.authorization.epoch, input.intentId);
+      if (value === undefined) return null;
+      const row = IntentRow.parse(value);
+      if (row.input_hash !== input.inputHash) throw new HostedError(409, 'intent_changed', 'This quote identity belongs to another request.');
+      if (row.data === null) return { kind: 'preparing' };
+      const plan = LighterIntentPlan.parse(JSON.parse(row.data)); validateExecution(plan.proposal);
+      if (plan.proposal.payload.requestId !== input.intentId) throw storageError();
+      return { kind: 'prepared', plan };
+    });
   }
 
   claimIntent(value: IntentIdentity & { now: number }): { kind: 'prepared'; plan: LighterIntentPlan } | { kind: 'claimed'; claimId: string } {

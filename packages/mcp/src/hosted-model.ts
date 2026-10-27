@@ -69,11 +69,13 @@ export const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const Job = z.object({ id: z.string().uuid(), owner: Digest, bindingHash: Digest,
   authorization: AuthorityRef.nullable().prefault(null),
   purpose: z.enum(['submit', 'cancel']), proposal: ExecutionProposal, leg: z.union([z.literal(0), z.literal(1)]).nullable(),
-  expiresAt: z.number().int().nonnegative(), state: z.enum(['pending', 'attempted', 'observed', 'declined']),
+  expiresAt: z.number().int().nonnegative(), state: z.enum(['pending', 'attempted', 'observed', 'declined', 'replaced']),
   result: ExecutionStatus.nullable(),
 }).strict();
 export type Job = z.infer<typeof Job>;
 export const HostedMutation = z.union([ExecutionStatus,
+  z.object({ state: z.literal('review_refreshing'), digest: Digest, approvalUrl: z.string().url(), nextOperation: z.literal('status'), automaticRetry: z.literal(false), note: z.string() }).strict(),
+  z.object({ state: z.literal('review_updated'), digest: Digest, proposal: ExecutionProposal, approvalUrl: z.string().url(), expiresAt: z.number(), nextOperation: z.literal('status'), automaticRetry: z.literal(false), note: z.string() }).strict(),
   z.object({ state: z.literal('approval_required'), digest: Digest, approvalUrl: z.string().url(), expiresAt: z.number(), nextOperation: z.literal('status'), automaticRetry: z.literal(false) }).strict(),
   z.object({ state: z.literal('delivery_unknown'), digest: Digest, nextOperation: z.literal('status'), automaticRetry: z.literal(false) }).strict(),
 ]);

@@ -26,6 +26,10 @@ it('replaces an expired confirmation with quote refresh and preserves saved setu
   expect(content).toContain('value="refresh"'); expect(content).toContain('account and key setup are saved');
   expect(content).toContain('new confirmation');
 });
+it('keeps a retired quote closed to confirmation while allowing its saved refresh to resume', () => {
+  const original = job(); const { content } = reviewContent({ ...original, state: 'replaced' }, 'csrf', original.expiresAt + 1);
+  expect(content).not.toContain('value="confirm"'); expect(content).toContain('value="refresh"');
+});
 it.each(['attempted', 'observed', 'declined'] as const)('never offers a fresh trade or confirmation for %s requests', state => {
   const original = job(); const { content } = reviewContent({ ...original, state }, 'csrf', original.expiresAt + 1);
   expect(content).not.toContain('<form'); expect(content).not.toContain('value="refresh"'); expect(content).not.toContain('value="confirm"');

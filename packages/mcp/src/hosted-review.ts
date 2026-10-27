@@ -1,4 +1,4 @@
-import { lighterTicks } from '@verdict/core';
+import { LighterBuyIntent, lighterTicks } from '@verdict/core';
 import type { HostedError, HostedMutation, Job } from './hosted-model.js';
 
 export const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
@@ -15,14 +15,16 @@ const displayCeiling = (value: bigint) => {
 
 export function canRefreshReview(job: Job, now = Date.now()): boolean {
   const leg = job.proposal.payload.legs[0];
-  return job.state === 'pending' && job.purpose === 'submit' && job.expiresAt <= now && job.authorization !== null
-    && job.proposal.payload.legs.length === 1 && leg?.venue === 'lighter' && leg.action === 'buy' && leg.tif === 'ioc';
+  return (job.state === 'replaced' || (job.state === 'pending' && job.expiresAt <= now)) && job.purpose === 'submit' && job.authorization !== null
+    && job.proposal.payload.legs.length === 1 && leg?.venue === 'lighter' && leg.action === 'buy' && leg.tif === 'ioc'
+    && LighterBuyIntent.shape.maxSpendUSDC.safeParse(job.proposal.payload.policy.maxTotalDebitUSDC).success
+    && LighterBuyIntent.shape.maxSpendUSDC.safeParse(job.proposal.payload.policy.maxLegDebitUSDC).success;
 }
 
 export function reviewContent(job: Job, csrf: string, now = Date.now()): { title: string; content: string } {
   const leg = job.proposal.payload.legs[0];
   if (!leg || leg.venue !== 'lighter') throw new Error('A single Lighter review is required');
-  const expired = job.state === 'pending' && job.expiresAt <= now;
+  const expired = job.state === 'replaced' || (job.state === 'pending' && job.expiresAt <= now);
   const active = job.state === 'pending' && !expired;
   const title = expired ? 'Quote expired' : job.state === 'declined' ? 'Trade declined' : job.state !== 'pending' ? 'Trade status' : job.purpose === 'cancel' ? 'Cancel this order?' : 'Review trade';
   const testnet = leg.network !== 'mainnet';
@@ -41,8 +43,10 @@ export function reviewContent(job: Job, csrf: string, now = Date.now()): { title
 
 export function resultContent(result: HostedMutation): { title: string; content: string } {
   const complete = result.state === 'complete';
-  const title = complete ? 'Trade complete' : result.state === 'approval_required' ? 'Confirmation needed' : 'Checking your order';
+  const title = complete ? 'Trade complete' : result.state === 'review_updated' ? 'Quote updated' : result.state === 'approval_required' ? 'Confirmation needed' : 'Checking your order';
   const message = complete ? 'Return to your agent to see the fill and updated position.'
+    : result.state === 'review_updated' ? 'Your quote was refreshed. Your agent can track the new review without placing another order.'
+      : result.state === 'review_refreshing' ? 'A fresh review is being prepared. Keep this original request for status.'
     : result.state === 'approval_required' ? 'Review the order before it can be sent.'
       : 'Keep this request. Your agent can check its status safely. Do not place a replacement while delivery is uncertain.';
   return { title, content: `<section class="review-card"><p>${message}</p>${'legs' in result ? `<dl>${result.legs.map(leg => row(`Order ${leg.leg + 1}`, `${leg.state}${leg.filled === null ? '' : ` · ${leg.filled} shares filled`}`)).join('')}</dl>` : ''}</section><details><summary>Execution details</summary><pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre></details>` };

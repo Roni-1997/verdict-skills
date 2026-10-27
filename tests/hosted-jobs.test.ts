@@ -48,6 +48,17 @@ function errorCode(operation: () => unknown, code: string) {
 }
 
 describe('durable hosted approval and dispatch state', () => {
+  it('retires an expired review atomically and rejects a delayed confirmation even with its earlier timestamp', () => {
+    const directory = root(); const first = open(directory); const second = open(directory);
+    const job = first.getOrCreate({ ...input(), authorization: { kind: 'first_party', grantId: '11111111-1111-4111-8111-111111111111', epoch: 0 } });
+    errorCode(() => first.retireReview(claim(job)), 'quote_refresh_unavailable');
+    expect(first.retireReview(claim(job, job.expiresAt))).toMatchObject({ state: 'replaced' });
+    errorCode(() => second.claim(claim(job, job.expiresAt - 1)), 'approval_replaced');
+    errorCode(() => second.decline(claim(job, job.expiresAt)), 'not_pending');
+    first.close(); second.close(); const recovered = open(directory);
+    expect(recovered.retireReview(claim(job, job.expiresAt + 1))).toMatchObject({ state: 'replaced' });
+    errorCode(() => recovered.claim(claim(job, job.expiresAt - 1)), 'approval_replaced');
+  });
   it('creates a canonical private job once, never extends approval expiry and survives reopening', () => {
     const directory = root(); const first = open(directory); const data = input();
     const job = first.getOrCreate(data);

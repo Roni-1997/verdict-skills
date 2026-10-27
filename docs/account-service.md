@@ -69,6 +69,11 @@ An expired, unattempted first-party Lighter IOC buy can request **Refresh quote*
 the signed-in review. This creates a separate unsigned proposal, preserves the original
 limit price and spend caps, and requires a fresh confirmation. The parent review ID
 provides the stable quote identity; repeat refresh requests return the same child review.
+The database first retires the old review atomically. A delayed confirmation of that
+review can never send it, even if its handler captured a timestamp before expiry.
+The original agent request reports `review_updated` with the replacement proposal, or
+`review_refreshing` while it is being prepared. The agent saves the replacement unchanged
+and reads its status without submitting it again. This association survives restarts.
 Refreshing never submits, cancels or extends trading permission. Attempted, declined,
 uncertain and cancellation requests cannot create replacement trades through this path.
 Budget-based proposals allow five minutes for review, capped by market and permission
