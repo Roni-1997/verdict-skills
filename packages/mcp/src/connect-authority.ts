@@ -580,7 +580,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             const reviewId = opaque();
             const expiresAt = Math.min(tx.expiresAt, Date.now() + transactionLifetime);
             const message = `Connect Verdict agent\nTransaction: ${tx.id}\nReview: ${reviewId}\nPurpose: ${tx.purpose}\nClient: ${tx.clientId}\nRedirect: ${tx.redirectUri}\nResource: ${tx.resource}\nSubject: ${subject}\nWallet: ${request.walletAddress}\nPermissions: ${connection.scopes.join(' ')}\nReview digest: ${hash(JSON.stringify(connection))}\nExpires: ${expiresAt}\nThis proof connects this client to the displayed account and limits. It never creates a broker policy or authorizes a withdrawal.`;
-            const consentMethod = tx.purpose === 'oauth' && await this.verifiedWallet(subject) === request.walletAddress ? 'app_session' as const : 'wallet_signature' as const;
+            const consentMethod = await this.verifiedWallet(subject) === request.walletAddress ? 'app_session' as const : 'wallet_signature' as const;
             const review = { protocol: CONNECT_PROTOCOL, kind: 'review' as const, transaction: tx.id, reviewId, expiresAt, walletAddress: request.walletAddress, message, connection, consentMethod };
             await this.store.write([], async (db) => { const current = await this.transaction(db, tx.id); if (current.receiptHash !== null || (current.subject !== null && current.subject !== subject) || (current.appSession !== null && current.appSession !== appSession))
                 throw failure(); await this.saveTransaction(db, Transaction.parse({ ...current, subject, appSession, review, connection })); });
@@ -590,7 +590,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             throw failure();
         let recovered: string;
         if (request.operation === 'session_consent') {
-            if (tx.purpose !== 'oauth' || tx.review.consentMethod !== 'app_session' || await this.verifiedWallet(subject) !== tx.review.walletAddress) throw failure('invalid_wallet_proof');
+            if (tx.review.consentMethod !== 'app_session' || await this.verifiedWallet(subject) !== tx.review.walletAddress) throw failure('invalid_wallet_proof');
             recovered = tx.review.walletAddress;
         } else recovered = (await recoverMessageAddress({ message: tx.review.message, signature: request.signature as `0x${string}` })).toLowerCase();
         if (recovered !== tx.review.walletAddress)

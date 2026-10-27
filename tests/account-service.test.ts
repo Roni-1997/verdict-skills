@@ -90,6 +90,17 @@ async function consent(transaction: string, token: string, signer = wallet) {
   const completion = await result({ operation: 'consent', transaction, accessToken: token, reviewId: review.reviewId, signature });
   if (completion.kind !== 'complete') throw new Error('Missing receipt'); return { review, completion };
 }
+async function reviewSessionConsent(transaction: string, accessToken: string) {
+  const review = await result({ operation: 'challenge', transaction, accessToken, walletAddress: wallet.address });
+  if (review.kind !== 'review') throw new Error('Missing review');
+  expect(review.consentMethod).toBe('app_session');
+  const input = { operation: 'session_consent', transaction, accessToken, reviewId: review.reviewId } as const;
+  expect((await relay(input, { 'x-verdict-app-session': 'b'.repeat(64) })).status).toBe(400);
+  expect((await relay({ ...input, accessToken: await identity('did:privy:bob') })).status).toBe(400);
+  const completion = await result(input);
+  if (completion.kind !== 'complete') throw new Error('Missing review receipt');
+  return completion;
+}
 async function connect() {
   const flow = await begin(); const { review, completion } = await consent(flow.transaction, await identity());
   const callback = await flow.browser.fetch(completion.completionUrl); expect(callback.status).toBe(303);
@@ -325,17 +336,21 @@ it('uses the full product path to execute a nonfunded order once, preserving bro
   const brokerClient = await connectExecution({ expectedMode: 'policy', socketPath }); expect((await brokerClient.capabilities()).authority).toMatchObject({ remainingOrders: 19 });
 });
 
-it('confirms an exact per-order request through independent product browser authentication and never repeats its send', async () => {
+it('restores a verified owner’s review through fresh product sign-in without another signature, then confirms the exact order once', async () => {
   const flow = await connect(); const client = await mcp(flow.tokens.access_token); const exact = prepareExecution(request);
+  const before = (await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities()).authority;
+  if (before.mode !== 'policy') throw new Error('Expected private policy authority');
   const pending = await client.callTool({ name: 'execution_submit', arguments: exact }); expect(pending.isError).not.toBe(true);
   const path = new URL((pending.structuredContent as { approvalUrl: string }).approvalUrl).pathname; const browser = new Browser();
   const start = await browser.fetch(path); const transaction = new URL(start.headers.get('location') ?? '').searchParams.get('transaction') ?? '';
-  const { completion } = await consent(transaction, await identity()); expect((await browser.fetch(completion.completionUrl)).status).toBe(303);
+  const completion = await reviewSessionConsent(transaction, await identity()); expect((await browser.fetch(completion.completionUrl)).status).toBe(303);
+  expect((await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities()).authority).toEqual(before);
+  expect((await client.callTool({ name: 'execution_status', arguments: exact })).structuredContent).toMatchObject({ state: 'approval_required' });
   const html = await (await browser.fetch(path)).text(); const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? ''; expect(csrf).not.toBe('');
   const confirm = () => browser.fetch(path, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, decision: 'confirm' }) });
   expect((await confirm()).status).toBe(200); expect((await confirm()).status).toBe(200);
   const status = await client.callTool({ name: 'execution_status', arguments: exact }); expect(status.structuredContent).toMatchObject({ state: 'complete' });
-  const brokerClient = await connectExecution({ expectedMode: 'policy', socketPath }); expect((await brokerClient.capabilities()).authority).toMatchObject({ remainingOrders: 18 });
+  const brokerClient = await connectExecution({ expectedMode: 'policy', socketPath }); expect((await brokerClient.capabilities()).authority).toMatchObject({ remainingOrders: before.remainingOrders - 1 });
 });
 
 async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order', beforePreview?: () => Promise<void>) {
@@ -500,7 +515,7 @@ it('does not let an independently signed-in same-subject client approve another 
   const secondPending = await otherClient.callTool({ name: 'execution_submit', arguments: second });
   const secondPath = new URL((secondPending.structuredContent as { approvalUrl: string }).approvalUrl).pathname;
   const browser = new Browser(); const start = await browser.fetch(secondPath); const transaction = new URL(start.headers.get('location') ?? '').searchParams.get('transaction') ?? '';
-  const { completion } = await consent(transaction, await identity()); await browser.fetch(completion.completionUrl);
+  const completion = await reviewSessionConsent(transaction, await identity()); await browser.fetch(completion.completionUrl);
   const html = await (await browser.fetch(secondPath)).text(); const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? '';
   const before = await (await connectExecution({ expectedMode: 'policy', socketPath })).capabilities();
   const denied = await browser.fetch(firstPath, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, decision: 'confirm' }) });
