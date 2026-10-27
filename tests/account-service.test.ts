@@ -376,6 +376,68 @@ async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order', befor
   await restart(); return { enrollmentId, plan, binding, prepareCalls: () => prepareCalls };
 }
 
+it('gives Lighter onboarding thirty minutes while each wallet proof still expires after five', async () => {
+  const fixture = await consumerFixture(); const flow = await begin(); const accessToken = await identity();
+  const view = await result({ operation: 'view', transaction: flow.transaction });
+  const review = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (view.kind !== 'transaction' || review.kind !== 'review') throw new Error('Missing onboarding review');
+  expect(view.expiresAt - Date.now()).toBeGreaterThan(29 * 60_000);
+  expect(view.expiresAt - Date.now()).toBeLessThanOrEqual(30 * 60_000);
+  expect(review.expiresAt - Date.now()).toBeLessThanOrEqual(5 * 60_000);
+  const signature = await wallet.signMessage({ message: review.message });
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(review.expiresAt + 1);
+  try {
+    expect(await result({ operation: 'view', transaction: flow.transaction })).toMatchObject({ transaction: flow.transaction });
+    expect((await relay({ operation: 'consent', transaction: flow.transaction, accessToken, reviewId: review.reviewId, signature })).status).toBe(400);
+    expect((await relay({ operation: 'lighter_setup', transaction: flow.transaction, accessToken, reviewId: review.reviewId, signature })).status).toBe(400);
+    expect(fixture.prepareCalls()).toBe(0);
+    const fresh = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+    if (fresh.kind !== 'review') throw new Error('Missing fresh review');
+    expect(await result({ operation: 'lighter_setup', transaction: flow.transaction, accessToken, reviewId: fresh.reviewId,
+      signature: await wallet.signMessage({ message: fresh.message }) })).toMatchObject({ state: { kind: 'owner_signature' } });
+    clock.mockReturnValue(view.expiresAt + 1);
+    expect((await relay({ operation: 'view', transaction: flow.transaction })).status).toBe(400);
+  } finally { clock.mockRestore(); }
+});
+
+it('keeps research-only authorization at five minutes even when Lighter onboarding is configured', async () => {
+  await consumerFixture(); const agent = new Agent();
+  expect(await auth(agent, { serverUrl: `${origin}/mcp`, scope: READ_SCOPE })).toBe('REDIRECT');
+  if (!agent.location) throw new Error('Missing research authorization');
+  const opening = await new Browser().fetch(agent.location.href);
+  const transaction = new URL(opening.headers.get('location') ?? '').searchParams.get('transaction') ?? '';
+  const view = await result({ operation: 'view', transaction });
+  if (view.kind !== 'transaction') throw new Error('Missing research view');
+  expect(view.expiresAt - Date.now()).toBeLessThanOrEqual(5 * 60_000);
+});
+
+it('does not let an OAuth completion receipt outlive its five-minute wallet proof', async () => {
+  await consumerFixture(); const flow = await begin();
+  const { review, completion } = await consent(flow.transaction, await identity());
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(review.expiresAt + 1);
+  try {
+    expect(await result({ operation: 'view', transaction: flow.transaction })).toMatchObject({ transaction: flow.transaction });
+    const rejected = await flow.browser.fetch(completion.completionUrl);
+    expect(rejected.status).toBe(400); expect(rejected.headers.getSetCookie()).toEqual([]);
+  } finally { clock.mockRestore(); }
+});
+
+it('reuses the freshly signed connection browser for exact per-order review without approving the order', async () => {
+  const flow = await connect(); const client = await mcp(flow.tokens.access_token); const exact = prepareExecution(request);
+  const pending = await client.callTool({ name: 'execution_submit', arguments: exact });
+  const path = new URL((pending.structuredContent as { approvalUrl: string }).approvalUrl).pathname;
+  const review = await flow.browser.fetch(path); expect(review.status).toBe(200);
+  const csrf = /name="csrf" value="([^"]+)"/.exec(await review.text())?.[1] ?? ''; expect(csrf).not.toBe('');
+  expect((await client.callTool({ name: 'execution_status', arguments: exact })).structuredContent).toMatchObject({ state: 'approval_required' });
+  expect((await flow.browser.fetch(path, { headers: { authorization: `Bearer ${flow.tokens.access_token}` } })).status).toBe(403);
+  expect((await new Browser().fetch(path)).status).toBe(303);
+  const other = await connect();
+  expect((await other.browser.fetch(path, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ csrf, decision: 'confirm' }) })).status).toBe(403);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * 60_000 + 1);
+  try { expect(await authority.readSession(flow.browser.cookie)).toBeNull(); } finally { clock.mockRestore(); }
+});
+
 it.each(['per_order', 'policy'] as const)('self-service %s enrollment binds owner proofs, stored scope and original OAuth client without model-selected accounts', async (mode) => {
   const fixture = await consumerFixture(mode); const flow = await begin(); const accessToken = await identity();
   const review = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });

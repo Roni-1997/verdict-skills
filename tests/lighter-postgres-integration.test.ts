@@ -151,7 +151,7 @@ async function delegated() {
   expect(await auth(agent, { serverUrl: `${origin}/mcp`, authorizationCode: code, fetchFn: localFetch })).toBe('AUTHORIZED'); if (!agent.saved) throw new Error('Missing resource tokens');
   const client = new Client({ name: 'private-integration', version: '1' }); clients.push(client);
   const transport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), { fetch: localFetch, requestInit: { headers: { authorization: `Bearer ${agent.saved.access_token}` } } });
-  await client.connect(transport as unknown as Parameters<typeof client.connect>[0]); return { client, token: agent.saved.access_token, plan };
+  await client.connect(transport as unknown as Parameters<typeof client.connect>[0]); return { client, token: agent.saved.access_token, plan, browser };
 }
 describe.skipIf(!testDsn)('real PostgreSQL cold hosted lifecycle', () => {
 beforeAll(async () => {
@@ -174,7 +174,7 @@ afterEach(async () => {
   child = undefined; listener = undefined; service = undefined; directory = undefined;
 });
 it.each(['per_order', 'policy'] as const)('runs %s through production public factory, strict private HTTP and fresh workers, then recovers after full restart', async (mode) => {
-  await start(mode); const { client, token, plan } = await delegated();
+  await start(mode); const { client, token, plan, browser } = await delegated();
   const exact = prepareExecution({ legs: [{ venue: 'lighter', network: 'testnet', account: plan.scope.account, apiKeyIndex: plan.scope.apiKeyIndex,
     market: 9001, creator: 7, title: 'Fresh synthetic 15-minute contract', settlementRule: 'Inert fixture settlement; no real venue or funds.',
     side: 'yes', action: 'buy', shares: '10', limitPrice: '0.4', feeReserveUSDC: '0.1', tif: 'ioc' }], policy: { maxTotalDebitUSDC: '5', maxLegDebitUSDC: '5' } });
@@ -183,10 +183,9 @@ it.each(['per_order', 'policy'] as const)('runs %s through production public fac
     const { approvalUrl } = z.object({ approvalUrl: z.string().url() }).passthrough().parse(pending.structuredContent);
     expect(pending.structuredContent).toMatchObject({ state: 'approval_required' });
     expect((await localFetch(approvalUrl, { headers: { authorization: `Bearer ${token}` } })).status).toBe(403);
-    const browser = new Browser(); const signIn = await browser.fetch(approvalUrl); const transaction = new URL(signIn.headers.get('location') ?? '').searchParams.get('transaction') ?? '';
-    const accessToken = await identity(); const review = await app({ operation: 'challenge', transaction, accessToken, walletAddress: owner.address }); if (review.kind !== 'review') throw new Error('Missing independent owner login');
-    const done = await app({ operation: 'consent', transaction, accessToken, reviewId: review.reviewId, signature: await owner.signMessage({ message: review.message }) }); if (done.kind !== 'complete') throw new Error('Missing independent completion');
-    await browser.fetch(done.completionUrl); const html = await (await browser.fetch(approvalUrl)).text(); expect(html).toContain('Fresh synthetic 15-minute contract'); expect(html).toContain(exact.digest);
+    const reviewed = await browser.fetch(approvalUrl); expect(reviewed.status).toBe(200);
+    const html = await reviewed.text(); expect(html).toContain('Fresh synthetic 15-minute contract'); expect(html).toContain(exact.digest);
+    expect((await client.callTool({ name: 'execution_status', arguments: exact })).structuredContent).toMatchObject({ state: 'approval_required' });
     const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? ''; expect(csrf).not.toBe('');
     const confirm = () => browser.fetch(approvalUrl, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf, decision: 'confirm' }) });
     expect((await confirm()).status).toBe(200); expect((await confirm()).status).toBe(200);

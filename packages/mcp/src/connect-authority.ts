@@ -19,6 +19,7 @@ const profileRevision = (profile: Profile) => hash(JSON.stringify(profile));
 const identical = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const safeEqual = (a: string, b: string) => timingSafeEqual(Buffer.from(hash(a)), Buffer.from(hash(b)));
 const transactionLifetime = 300000;
+const onboardingLifetime = 30 * 60_000;
 type Inspect = (profile: Profile, subject?: string) => Promise<ExecutionConnectionInspection>;
 type Provisioner = Pick<LighterProvisioner, 'setup' | 'preview' | 'activate' | 'binding' | 'revoke'>;
 /** Product account authorization; independent from Privy JWTs and from broker trade policy. */
@@ -128,10 +129,12 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     }
     private async newTransaction(input: Pick<Transaction, 'purpose' | 'clientId' | 'clientName' | 'redirectUri' | 'scopes' | 'challenge' | 'state' | 'reviewPath' | 'authorization'>) {
         const cookie = opaque();
+        const lifetime = input.purpose === 'oauth' && input.scopes.includes(TRADE_SCOPE)
+            && this.config.appNetwork === 'lighter-testnet' && this.config.lighterProvisioner ? onboardingLifetime : transactionLifetime;
         const transaction = Transaction.parse({ ...input, id: opaque(), resource: this.resource,
-            cookieHash: hash(cookie), expiresAt: Date.now() + transactionLifetime, completed: false, subject: null, appSession: null, review: null, connection: null, receiptHash: null });
+            cookieHash: hash(cookie), expiresAt: Date.now() + lifetime, completed: false, subject: null, appSession: null, review: null, connection: null, receiptHash: null });
         await this.store.write([], async (db) => { if (input.authorization) await this.grant(db, input.authorization.grantId, input.authorization.epoch); await this.saveTransaction(db, transaction); });
-        return { location: this.appLocation(transaction.id), cookies: [this.cookie(this.cookieName, cookie, transactionLifetime / 1000)] };
+        return { location: this.appLocation(transaction.id), cookies: [this.cookie(this.cookieName, cookie, lifetime / 1000)] };
     }
     async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
         this.resourceCheck(params.resource);
@@ -449,7 +452,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         if (!this.provisioner || !this.config.lighterProvisioner || this.config.appNetwork !== 'lighter-testnet' || tx.purpose !== 'oauth' || !tx.scopes.includes(TRADE_SCOPE) || tx.receiptHash !== null)
             throw failure();
         if (request.operation === 'lighter_setup') {
-            if (!tx.review || tx.review.reviewId !== request.reviewId || tx.subject !== subject)
+            if (!tx.review || tx.review.expiresAt <= Date.now() || tx.review.reviewId !== request.reviewId || tx.subject !== subject)
                 throw failure();
             const owner = (await recoverMessageAddress({ message: tx.review.message, signature: request.signature as `0x${string}` })).toLowerCase();
             if (owner !== tx.review.walletAddress || (tx.lighter && tx.lighter.walletAddress !== owner))
@@ -544,13 +547,14 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         if (request.operation === 'challenge') {
             const connection = await this.connection(subject, request.walletAddress, tx.scopes);
             const reviewId = opaque();
-            const message = `Connect Verdict agent\nTransaction: ${tx.id}\nReview: ${reviewId}\nPurpose: ${tx.purpose}\nClient: ${tx.clientId}\nRedirect: ${tx.redirectUri}\nResource: ${tx.resource}\nSubject: ${subject}\nWallet: ${request.walletAddress}\nPermissions: ${connection.scopes.join(' ')}\nReview digest: ${hash(JSON.stringify(connection))}\nExpires: ${tx.expiresAt}\nThis proof connects this client to the displayed account and limits. It never creates a broker policy or authorizes a withdrawal.`;
-            const review = { protocol: CONNECT_PROTOCOL, kind: 'review' as const, transaction: tx.id, reviewId, expiresAt: tx.expiresAt, walletAddress: request.walletAddress, message, connection };
+            const expiresAt = Math.min(tx.expiresAt, Date.now() + transactionLifetime);
+            const message = `Connect Verdict agent\nTransaction: ${tx.id}\nReview: ${reviewId}\nPurpose: ${tx.purpose}\nClient: ${tx.clientId}\nRedirect: ${tx.redirectUri}\nResource: ${tx.resource}\nSubject: ${subject}\nWallet: ${request.walletAddress}\nPermissions: ${connection.scopes.join(' ')}\nReview digest: ${hash(JSON.stringify(connection))}\nExpires: ${expiresAt}\nThis proof connects this client to the displayed account and limits. It never creates a broker policy or authorizes a withdrawal.`;
+            const review = { protocol: CONNECT_PROTOCOL, kind: 'review' as const, transaction: tx.id, reviewId, expiresAt, walletAddress: request.walletAddress, message, connection };
             await this.store.write([], async (db) => { const current = await this.transaction(db, tx.id); if (current.receiptHash !== null || (current.subject !== null && current.subject !== subject) || (current.appSession !== null && current.appSession !== appSession))
                 throw failure(); await this.saveTransaction(db, Transaction.parse({ ...current, subject, appSession, review, connection })); });
             return review;
         }
-        if (!tx.review || tx.review.reviewId !== request.reviewId || tx.receiptHash !== null || tx.subject !== subject || tx.appSession !== appSession)
+        if (!tx.review || tx.review.expiresAt <= Date.now() || tx.review.reviewId !== request.reviewId || tx.receiptHash !== null || tx.subject !== subject || tx.appSession !== appSession)
             throw failure();
         const recovered = (await recoverMessageAddress({ message: tx.review.message, signature: request.signature as `0x${string}` })).toLowerCase();
         if (recovered !== tx.review.walletAddress)
@@ -573,7 +577,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const tx = await this.transaction(db, url.searchParams.get('transaction') ?? '');
         const cookie = this.cookieValue(header, this.cookieName);
         const receipt = url.searchParams.get('receipt');
-        if (tx.purpose !== purpose || !cookie || hash(cookie) !== tx.cookieHash || !receipt || !tx.receiptHash || hash(receipt) !== tx.receiptHash || !tx.subject || !tx.review || !tx.connection)
+        if (tx.purpose !== purpose || !cookie || hash(cookie) !== tx.cookieHash || !receipt || !tx.receiptHash || hash(receipt) !== tx.receiptHash || !tx.subject || !tx.review || tx.review.expiresAt <= Date.now() || !tx.connection)
             throw failure();
         return tx;
     }
@@ -601,13 +605,20 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             const code = opaque();
             const expiresAt = Date.now() + 60000;
             await db.put('code', hash(code), { grantId: grant.id, epoch: grant.epoch, clientId: grant.clientId, resource: this.resource, scopes: grant.scopes, expiresAt, used: false, challenge: tx.challenge, redirectUri: tx.redirectUri }, expiresAt);
+            const cookies = [this.cookie(this.cookieName, '', 0)];
+            if (tx.connection.kind === 'executable' && tx.connection.mode === 'per_order' && grant.scopes.includes(TRADE_SCOPE)) {
+                const session = opaque();
+                const browserExpiresAt = Math.min(Date.now() + 600000, grant.expiresAt);
+                await db.put('browser', hash(session), { authorization: { kind: 'first_party', grantId: grant.id, epoch: grant.epoch }, expiresAt: browserExpiresAt }, browserExpiresAt);
+                cookies.push(this.cookie(this.browserName, session, Math.floor((browserExpiresAt - Date.now()) / 1000)));
+            }
             await this.saveTransaction(db, { ...tx, completed: true, receiptHash: null });
             const redirect = new URL(tx.redirectUri);
             redirect.searchParams.set('code', code);
             if (tx.state !== null)
                 redirect.searchParams.set('state', tx.state);
             redirect.searchParams.set('iss', this.config.publicOrigin);
-            return { location: redirect.href, cookies: [this.cookie(this.cookieName, '', 0)] };
+            return { location: redirect.href, cookies };
         });
     }
     async cancel(url: URL, header: string | undefined) {
