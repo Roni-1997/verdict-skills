@@ -352,9 +352,55 @@ class ProvisionerTest(unittest.TestCase):
         ready = self.ready()
         plan = self.call("preview", enrollmentId=ready["enrollmentId"])
         self.now += 3601
-        with self.assertRaises(BrokerError):
-            self.call("preview", enrollmentId=ready["enrollmentId"])
+        self.assertEqual(self.call("preview", enrollmentId=ready["enrollmentId"]), plan)
         self.assertEqual(self.service.vault.read("did:privy:synthetic")["plan"], plan)
+
+    def test_resume_never_creates_an_enrollment_or_repeats_registration(self):
+        with self.assertRaises(BrokerError):
+            self.call("resume", walletAddress=OWNER)
+        self.assertEqual(self.service.vault.count(), 0)
+        ready = self.ready()
+        self.assertEqual(self.call("resume", walletAddress=OWNER), ready)
+        self.assertEqual((self.venue.sends, self.venue.faucets), (1, 0))
+        with self.assertRaises(BrokerError):
+            self.call("resume", walletAddress=OTHER.address.lower())
+
+    def test_expired_unused_limits_renew_only_after_a_fresh_exact_signature(self):
+        old_plan, old_request, old_binding = self.activate()
+        enrollment = old_plan["enrollmentId"]
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=enrollment)
+        self.now += 3601
+        renewed = self.call("renew", enrollmentId=enrollment)
+        self.assertEqual(self.call("renew", enrollmentId=enrollment), renewed)
+        self.assertEqual(self.call("binding")["binding"], old_binding)
+        self.assertEqual(renewed["scope"], {**old_plan["scope"], "epoch": 1})
+        self.assertEqual({k: renewed["limits"][k] for k in ("maxOrders", "maxDebitUSDC", "cancelOwnOrders")},
+                         {k: old_plan["limits"][k] for k in ("maxOrders", "maxDebitUSDC", "cancelOwnOrders")})
+        request = {"enrollmentId": enrollment, "planId": renewed["planId"], "revision": renewed["revision"], "signature": old_request["signature"]}
+        with self.assertRaises(BrokerError):
+            self.call("activate", **request)
+        request["signature"] = sign(renewed["message"])
+        binding = self.call("activate", **request)["binding"]
+        self.assertEqual(self.call("activate", **request)["binding"], binding)
+        self.assertNotEqual(binding["id"], old_binding["id"])
+        self.assertEqual(binding["accounts"], old_binding["accounts"])
+        self.assertEqual((self.venue.sends, self.venue.faucets), (1, 0))
+        record = self.service.vault.read("did:privy:synthetic")
+        with self.service._store(record) as store:
+            self.assertEqual(PolicyAuthority(store, old_binding["grantId"], clock=lambda: self.now).describe()["newRisk"], "expired")
+            self.assertEqual(PolicyAuthority(store, binding["grantId"], clock=lambda: self.now).describe()["newRisk"], "active")
+
+    def test_renewal_rechecks_original_history_at_activation(self):
+        plan, _, binding = self.activate()
+        self.now += 3601
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        record = self.service.vault.read("did:privy:synthetic")
+        with self.service._store(record) as store:
+            store.append("a" * 64, {"type": "synthetic_history"})
+        with self.assertRaises(BrokerError):
+            self.call("activate", enrollmentId=renewed["enrollmentId"], planId=renewed["planId"], revision=renewed["revision"], signature=sign(renewed["message"]))
+        self.assertEqual(self.call("binding")["binding"], binding)
 
 
 class NativeBridgeTest(unittest.TestCase):

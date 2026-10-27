@@ -146,7 +146,8 @@ async function delegated() {
   const active = await app({ operation: 'lighter_activate', transaction, accessToken, enrollmentId: plan.enrollmentId, planId: plan.planId, revision: plan.revision,
     signature: await owner.signMessage({ message: plan.message }) }); expect(active).toMatchObject({ state: { kind: 'ready', connection: { kind: 'executable' } } });
   const delegation = await app({ operation: 'challenge', transaction, accessToken, walletAddress: owner.address }); if (delegation.kind !== 'review') throw new Error('Missing final client consent');
-  const completed = await app({ operation: 'consent', transaction, accessToken, reviewId: delegation.reviewId, signature: await owner.signMessage({ message: delegation.message }) });
+  expect(delegation.consentMethod).toBe('app_session');
+  const completed = await app({ operation: 'session_consent', transaction, accessToken, reviewId: delegation.reviewId });
   if (completed.kind !== 'complete') throw new Error('Missing completion'); const callback = await browser.fetch(completed.completionUrl); const code = new URL(callback.headers.get('location') ?? '').searchParams.get('code'); if (!code) throw new Error('Missing OAuth code');
   expect(await auth(agent, { serverUrl: `${origin}/mcp`, authorizationCode: code, fetchFn: localFetch })).toBe('AUTHORIZED'); if (!agent.saved) throw new Error('Missing resource tokens');
   const client = new Client({ name: 'private-integration', version: '1' }); clients.push(client);

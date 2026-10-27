@@ -70,7 +70,7 @@ export const Transaction = z.object({ id: ConnectId, purpose: z.enum(['oauth', '
   reviewPath: z.string().nullable(), authorization: AuthorityRef.nullable(),
   subject: z.string().nullable(), appSession: z.string().nullable(), review: ConnectReview.nullable(),
   connection: ConnectAccountView.nullable(), receiptHash: z.string().nullable(),
-  lighter: z.object({ enrollmentId: z.string().uuid(), walletAddress: z.string(), proofReviewId: ConnectId,
+  lighter: z.object({ enrollmentId: z.string().uuid(), walletAddress: z.string(), proofReviewId: ConnectId.nullable().prefault(null),
     plan: LighterScopePlan.nullable(), activatedProfileId: z.string().nullable(),
   }).strict().nullable().prefault(null),
 }).strict();
@@ -79,5 +79,6 @@ export const failure = (code = 'invalid_connection') => new HostedError(400, cod
 
 export const ClientRecord = z.object({ metadata: z.unknown(), secret: z.string().nullable() }).strict();
 export const ManagedProfile = z.object({ subject: z.string(), walletAddress: ConnectAddress, profile: Profile }).strict();
-export const AuthoritySchemas = { client: ClientRecord, transaction: Transaction, grant: Grant, access: Credential, refresh: Credential, code: Code, browser: Browser, 'managed-profile': ManagedProfile };
+export const VerifiedOnboarding = z.object({ subject: z.string(), walletAddress: ConnectAddress, enrollmentId: z.string().uuid() }).strict();
+export const AuthoritySchemas = { client: ClientRecord, transaction: Transaction, grant: Grant, access: Credential, refresh: Credential, code: Code, browser: Browser, 'managed-profile': ManagedProfile, onboarding: VerifiedOnboarding };
 export type AuthorityRecords = { [K in keyof typeof AuthoritySchemas]: z.output<(typeof AuthoritySchemas)[K]> };

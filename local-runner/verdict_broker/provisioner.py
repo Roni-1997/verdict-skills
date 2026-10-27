@@ -21,7 +21,7 @@ import time
 import uuid
 
 from .authority import (_hash, _id, _money, consumer_message, consumer_scope,
-                        issue_consumer_grant, recover_owner, revoke_grant)
+                        inspect_grant, issue_consumer_grant, recover_owner, revoke_grant)
 from .core import Broker, BrokerError, Store, json_load
 from .diagnostics import log_failure_location
 from .workers import start_private_worker, stop_private_worker
@@ -442,6 +442,14 @@ class Provisioner:
     def now(self):
         return int(self.clock() * 1000)
 
+    def _unused_expired_grant(self, record):
+        if "binding" not in record:
+            return
+        with self._store(record) as store:
+            prior = inspect_grant(store, record["grant"]["grantId"], clock=self.clock)
+            if prior["newRisk"] != "expired" or prior["remainingOrders"] != prior["maxOrders"] or _money(prior["remainingDebitUSDC"]) != _money(prior["maxDebitUSDC"]) or any(store.proposal_journals()):
+                raise BrokerError("Renewal requires reconciliation of the original trading history")
+
     def _load(self, request):
         record = self.vault.read(request["subject"])
         if record is None or request.get("enrollmentId", record["id"]) != record["id"]:
@@ -536,9 +544,9 @@ class Provisioner:
             raise BrokerError("Owner did not authorize the current private review")
 
     def dispatch(self, request):
-        shapes = {"prepare": {"walletAddress"}, "status": {"enrollmentId"}, "faucet": {"enrollmentId", "revision", "signature"},
+        shapes = {"prepare": {"walletAddress"}, "resume": {"walletAddress"}, "status": {"enrollmentId"}, "faucet": {"enrollmentId", "revision", "signature"},
                   "register": {"enrollmentId", "revision", "signature"}, "preview": {"enrollmentId"},
-                  "activate": {"enrollmentId", "planId", "revision", "signature"}, "binding": set(), "revoke": {"profileId"}}
+                  "renew": {"enrollmentId"}, "activate": {"enrollmentId", "planId", "revision", "signature"}, "binding": set(), "revoke": {"profileId"}}
         if not isinstance(request, dict) or request.get("operation") not in shapes or set(request) != {"operation", "subject"} | shapes[request["operation"]]:
             raise BrokerError("Unknown or invalid private provisioner command")
         subject = request["subject"]
@@ -553,13 +561,15 @@ class Provisioner:
         for field in ("enrollmentId", "planId", "profileId"):
             if field in request:
                 _id(request[field])
-        if operation == "prepare":
+        if operation in {"prepare", "resume"}:
             owner = address(request["walletAddress"])
             record = self.vault.read(subject)
             if record is not None:
                 if record["owner"] != owner or record.get("revoked"):
                     raise BrokerError("Private identity owner changed or connection revoked")
                 return self._view(self._reconcile(record))
+            if operation == "resume":
+                raise BrokerError("Original enrollment missing; resume cannot create an account or key")
             if self.vault.count() >= 1000:
                 raise BrokerError("Private enrollment capacity reached")
             record = {"id": str(uuid.uuid4()), "subject": subject, "owner": owner, "state": "funding_required", "expiresAt": self.now() + 300_000}
@@ -617,12 +627,32 @@ class Provisioner:
             except Exception:
                 return self._view(record)  # claimed before transport; only status may resolve it
             return self._view(self._reconcile(record))
-        if operation == "preview":
+        if operation in {"preview", "renew"}:
             if record["state"] != "ready":
                 raise BrokerError("Private venue registration is not ready")
             self.venue.verify_owner(record["account"], record["owner"])
             if self.venue.keys(record["account"]).get(record["apiKeyIndex"]) != record["publicKey"] or not self.venue.ready(record):
                 raise BrokerError("Registered hosted key changed")
+            if operation == "renew":
+                if "plan" not in record or record["plan"]["expiresAt"] > self.now():
+                    raise BrokerError("Only expired limits can be renewed")
+                if "renewal" not in record:
+                    self._unused_expired_grant(record)
+                    grant = {**record["grant"], "grantId": str(uuid.uuid4()), "issuedAt": self.now(),
+                             "expiresAt": self.now() + record["grant"]["expiresAt"] - record["grant"]["issuedAt"],
+                             "scope": {**record["grant"]["scope"], "epoch": record["grant"]["scope"]["epoch"] + 1}}
+                    del grant["grantHash"]
+                    grant["grantHash"] = _hash(grant)
+                    plan_id = str(uuid.uuid4())
+                    record["renewal"] = {"grant": grant, "plan": {**record["plan"], "planId": plan_id, "revision": grant["grantHash"],
+                        "message": consumer_message(grant, subject, plan_id), "expiresAt": grant["expiresAt"], "scope": grant["scope"],
+                        "limits": {k: grant[k] for k in ("maxDebitUSDC", "maxOrders", "expiresAt", "cancelOwnOrders")}}}
+                    record = self._save(record)
+                if record["renewal"]["plan"]["expiresAt"] <= self.now():
+                    raise BrokerError("The pending renewal expired; no authority was extended")
+                return record["renewal"]["plan"]
+            if "renewal" in record:
+                return record["renewal"]["plan"]
             if "plan" not in record:
                 grant = {"kind": "consumer_lighter", "grantId": str(uuid.uuid4()), "issuedAt": self.now(),
                          "expiresAt": self.now() + self.config["grantTtlSeconds"] * 1000,
@@ -637,21 +667,24 @@ class Provisioner:
                                   "limits": {k: grant[k] for k in ("maxDebitUSDC", "maxOrders", "expiresAt", "cancelOwnOrders")}}
                 record["grant"] = grant
                 record = self._save(record)
-            if record["plan"]["expiresAt"] <= self.now():
-                raise BrokerError("The original scope expired; explicit operator renewal is required, no grant recreated")
             return record["plan"]
         if operation == "activate":
-            plan = record.get("plan")
+            candidate = record.get("renewal", {"plan": record.get("plan"), "grant": record.get("grant")})
+            plan, grant = candidate["plan"], candidate["grant"]
             if plan is None or request["planId"] != plan["planId"] or request["revision"] != plan["revision"] or plan["expiresAt"] <= self.now():
                 raise BrokerError("Unknown, changed or expired private scope plan")
             self.venue.verify_owner(record["account"], record["owner"])
             if self.venue.keys(record["account"]).get(record["apiKeyIndex"]) != record["publicKey"] or not self.venue.ready(record):
                 raise BrokerError("Private hosted key registration changed")
-            if plan["message"] != consumer_message(record["grant"], subject, plan["planId"]) or recover_owner(plan["message"], request["signature"]) != record["owner"]:
+            if plan["message"] != consumer_message(grant, subject, plan["planId"]) or recover_owner(plan["message"], request["signature"]) != record["owner"]:
                 raise BrokerError("Owner did not authorize the exact immutable private scope")
+            if "renewal" in record:
+                self._unused_expired_grant(record)
             with self._store(record, create="binding" not in record) as store:
-                issue_consumer_grant(store, record["grant"], subject=subject, plan_id=plan["planId"], signature=request["signature"])
-            if "binding" not in record:
+                issue_consumer_grant(store, grant, subject=subject, plan_id=plan["planId"], signature=request["signature"])
+            if "binding" not in record or "renewal" in record:
+                record.update(plan=plan, grant=grant)
+                record.pop("renewal", None)
                 record["binding"] = self._binding(record)
                 record = self._save(record)
             if self.workers is not None:

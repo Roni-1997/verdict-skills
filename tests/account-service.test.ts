@@ -352,7 +352,7 @@ async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order', befor
   provisionerOverride = {
     async setup(input) {
       if (input.subject !== subject) throw new Error('Wrong private owner');
-      if (input.operation === 'prepare') { if (input.walletAddress !== owner) throw new Error('Wrong wallet'); prepareCalls++; }
+      if (input.operation === 'prepare' || input.operation === 'resume') { if (input.walletAddress !== owner) throw new Error('Wrong wallet'); if (input.operation === 'prepare') prepareCalls++; }
       else if (input.enrollmentId !== enrollmentId) throw new Error('Wrong enrollment');
       if (input.operation === 'register') {
         if (input.revision !== revision || (await recoverMessageAddress({ message: 'Synthetic registration; no real native transaction.', signature: input.signature as `0x${string}` })).toLowerCase() !== owner) throw new Error('Invalid private owner proof');
@@ -375,6 +375,20 @@ async function consumerFixture(mode: 'per_order' | 'policy' = 'per_order', befor
   config = AccountServiceConfig.parse({ ...config, profiles: [], appNetwork: 'lighter-testnet', lighterProvisioner: { kind: 'local_socket', socketPath: join(state, 'control.sock'), brokerSocketRoot: directory } });
   await restart(); return { enrollmentId, plan, binding, prepareCalls: () => prepareCalls };
 }
+
+it('resumes a verified enrollment across connection and authority restarts without another owner proof', async () => {
+  const fixture = await consumerFixture(); const accessToken = await identity(); const original = await begin();
+  const first = await result({ operation: 'resume', transaction: original.transaction, accessToken, walletAddress: wallet.address });
+  if (first.kind !== 'review') throw new Error('Missing initial owner review');
+  expect(first.consentMethod).toBe('wallet_signature'); expect(fixture.prepareCalls()).toBe(0);
+  expect((await relay({ operation: 'session_consent', transaction: original.transaction, accessToken, reviewId: first.reviewId })).status).toBe(400);
+  await result({ operation: 'lighter_setup', transaction: original.transaction, accessToken, reviewId: first.reviewId, signature: await wallet.signMessage({ message: first.message }) });
+  await restart(); const resumed = await begin();
+  expect(await result({ operation: 'resume', transaction: resumed.transaction, accessToken, walletAddress: wallet.address })).toMatchObject({ state: { kind: 'owner_signature', registration: { enrollmentId: fixture.enrollmentId } } });
+  expect(fixture.prepareCalls()).toBe(1);
+  expect((await relay({ operation: 'lighter_status', transaction: resumed.transaction, accessToken }, { 'x-verdict-app-session': 'b'.repeat(64) })).status).toBe(400);
+  expect((await relay({ operation: 'lighter_status', transaction: resumed.transaction, accessToken: await identity('did:privy:bob') })).status).toBe(400);
+});
 
 it('gives Lighter onboarding thirty minutes while each wallet proof still expires after five', async () => {
   const fixture = await consumerFixture(); const flow = await begin(); const accessToken = await identity();
@@ -461,7 +475,13 @@ it.each(['per_order', 'policy'] as const)('self-service %s enrollment binds owne
   const activated = await result({ operation: 'lighter_activate', transaction: flow.transaction, accessToken, enrollmentId: plan.enrollmentId,
     planId: plan.planId, revision: plan.revision, signature: await wallet.signMessage({ message: plan.message }) });
   expect(activated).toMatchObject({ state: { kind: 'ready', connection: { kind: 'executable', mode, policy: { scope: { kind: 'consumer_lighter' }, templates: [] } } } });
-  const { completion } = await consent(flow.transaction, accessToken); const callback = await flow.browser.fetch(completion.completionUrl);
+  const finalReview = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (finalReview.kind !== 'review') throw new Error('Missing final review');
+  expect(finalReview.consentMethod).toBe('app_session');
+  expect((await relay({ operation: 'session_consent', transaction: flow.transaction, accessToken, reviewId: finalReview.reviewId }, { 'x-verdict-app-session': 'b'.repeat(64) })).status).toBe(400);
+  const completion = await result({ operation: 'session_consent', transaction: flow.transaction, accessToken, reviewId: finalReview.reviewId });
+  if (completion.kind !== 'complete') throw new Error('Missing session consent completion');
+  const callback = await flow.browser.fetch(completion.completionUrl);
   const code = new URL(callback.headers.get('location') ?? '').searchParams.get('code'); if (!code) throw new Error('Missing native OAuth code');
   expect(await auth(flow.agent, { serverUrl: `${origin}/mcp`, authorizationCode: code })).toBe('AUTHORIZED');
   expect(flow.agent.saved?.scope).toContain(TRADE_SCOPE);

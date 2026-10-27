@@ -69,8 +69,8 @@ export class LighterProvisioner {
     } else if (binding.execution.kind !== 'hosted_signer' || binding.execution.profileId !== binding.id) throw unavailable();
     return binding;
   }
-  async setup(input: Extract<Request, { operation: 'prepare' | 'status' | 'faucet' | 'register' }>): Promise<ProvisionerSetup> { return this.decode(ProvisionerSetup, await this.request(input)); }
-  async preview(subject: string, enrollmentId: string) { return this.decode(LighterScopePlan, await this.request({ operation: 'preview', subject, enrollmentId })); }
+  async setup(input: Extract<Request, { operation: 'prepare' | 'resume' | 'status' | 'faucet' | 'register' }>): Promise<ProvisionerSetup> { return this.decode(ProvisionerSetup, await this.request(input)); }
+  async preview(subject: string, enrollmentId: string, renew = false) { return this.decode(LighterScopePlan, await this.request({ operation: renew ? 'renew' : 'preview', subject, enrollmentId })); }
   async activate(input: Extract<Request, { operation: 'activate' }>) { const binding = this.bindingValue(await this.request(input), input.subject); if (!binding) throw unavailable(); return binding; }
   async binding(subject: string) { return this.bindingValue(await this.request({ operation: 'binding', subject }), subject); }
   async revoke(subject: string, profileId: string) { return this.decode(z.object({ revoked: z.literal(true) }).strict(), await this.request({ operation: 'revoke', subject, profileId })); }

@@ -13,10 +13,12 @@ const Signature = z.string().regex(/^0x[0-9a-fA-F]{130}$/);
 const Fields = { subject: Subject, enrollmentId: Id };
 export const ProvisionerRequest = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('prepare'), subject: Subject, walletAddress: z.string().regex(/^0x[0-9a-f]{40}$/) }).strict(),
+  z.object({ operation: z.literal('resume'), subject: Subject, walletAddress: z.string().regex(/^0x[0-9a-f]{40}$/) }).strict(),
   z.object({ operation: z.literal('status'), ...Fields }).strict(),
   z.object({ operation: z.literal('faucet'), ...Fields, revision: Revision, signature: Signature }).strict(),
   z.object({ operation: z.literal('register'), ...Fields, revision: Revision, signature: Signature }).strict(),
   z.object({ operation: z.literal('preview'), ...Fields }).strict(),
+  z.object({ operation: z.literal('renew'), ...Fields }).strict(),
   z.object({ operation: z.literal('activate'), ...Fields, planId: Id, revision: Revision, signature: Signature }).strict(),
   z.object({ operation: z.literal('binding'), subject: Subject }).strict(),
   z.object({ operation: z.literal('revoke'), subject: Subject, profileId: Id }).strict(),

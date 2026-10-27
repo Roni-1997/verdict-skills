@@ -199,6 +199,30 @@ class PostgresVaultTest(unittest.TestCase):
         self.assertEqual(first, call(body, identity))
         self.assertEqual(venue.sends, 1)
 
+    def test_unused_limit_renewal_survives_cold_postgres_requests_without_reprovisioning(self):
+        import time
+        venue, old = self._active()
+        config = self.config()
+        now = time.time() + 3601
+        def call(operation, **fields):
+            signer = PostgresSigner(config, venue=venue)
+            signer.provisioner.clock = lambda: now
+            try:
+                return signer.operation({"operation": operation, "subject": "did:privy:synthetic", **fields})
+            finally:
+                signer.close()
+        ready = call("resume", walletAddress=venue.owner)
+        plan = call("renew", enrollmentId=ready["enrollmentId"])
+        self.assertEqual(call("preview", enrollmentId=ready["enrollmentId"]), plan)
+        self.assertEqual(call("binding")["binding"], old)
+        new = call("activate", enrollmentId=plan["enrollmentId"], planId=plan["planId"], revision=plan["revision"],
+                   signature=enrollment_fixture.sign(plan["message"]))["binding"]
+        self.assertNotEqual(new["id"], old["id"])
+        self.assertEqual(new["accounts"], old["accounts"])
+        self.assertEqual(call("binding")["binding"], new)
+        self.assertEqual((venue.sends, venue.faucets), (1, 0))
+        self.assertEqual(self.admin.execute("SELECT count(*) FROM verdict_signer.private_namespaces WHERE deployment_id=%s", (self.deployment,)).fetchone()[0], 1)
+
     def _active(self):
         venue = enrollment_fixture.Venue()
         signer = PostgresSigner(self.config(), venue=venue)

@@ -56,10 +56,12 @@ export const ConnectTransactionView = z.object({ protocol: z.literal(CONNECT_PRO
   client: z.object({ id: z.string().min(1).max(512), name: z.string().min(1).max(256), redirectUri: z.string().url() }).strict(),
   resource: z.string().url(), scopes: z.array(Scope).min(1).max(2), expiresAt: Time, cancelUrl: z.string().url(),
   restartUrl: z.string().url().optional(),
+  selfServiceLighter: z.boolean().optional(),
 }).strict();
 export type ConnectTransactionView = z.infer<typeof ConnectTransactionView>;
 export const ConnectReview = z.object({ protocol: z.literal(CONNECT_PROTOCOL), kind: z.literal('review'), transaction: ConnectId,
   reviewId: ConnectId, expiresAt: Time, walletAddress: ConnectAddress, message: z.string().min(1).max(32_768),
+  consentMethod: z.enum(['wallet_signature', 'app_session']).prefault('wallet_signature'),
   connection: ConnectAccountView,
 }).strict();
 export type ConnectReview = z.infer<typeof ConnectReview>;
@@ -92,6 +94,8 @@ const Token = z.string().min(1).max(32_768);
 export const ConnectRequest = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('view'), transaction: ConnectId }).strict(),
   z.object({ operation: z.literal('challenge'), transaction: ConnectId, accessToken: Token, walletAddress: ConnectAddress }).strict(),
+  z.object({ operation: z.literal('resume'), transaction: ConnectId, accessToken: Token, walletAddress: ConnectAddress }).strict(),
+  z.object({ operation: z.literal('session_consent'), transaction: ConnectId, accessToken: Token, reviewId: ConnectId }).strict(),
   z.object({ operation: z.literal('consent'), transaction: ConnectId, accessToken: Token, reviewId: ConnectId,
     signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
   }).strict(),
@@ -104,6 +108,7 @@ export const ConnectRequest = z.discriminatedUnion('operation', [
     signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
   }).strict(),
   z.object({ operation: z.literal('lighter_status'), transaction: ConnectId, accessToken: Token }).strict(),
+  z.object({ operation: z.literal('lighter_renew'), transaction: ConnectId, accessToken: Token }).strict(),
   z.object({ operation: z.literal('lighter_register'), transaction: ConnectId, accessToken: Token, enrollmentId: z.string().uuid(),
     revision: Digest, signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
   }).strict(),

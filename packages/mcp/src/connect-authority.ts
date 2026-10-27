@@ -322,6 +322,9 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     private async identity(token: string): Promise<string> {
         return this.verifyIdentity(token);
     }
+    private async verifiedWallet(subject: string) {
+        return this.store.read(async db => (await db.get('onboarding', subject))?.walletAddress ?? (await db.enrollment(subject))?.walletAddress ?? null);
+    }
     private async inspectProfile(profile: Profile, subject: string): Promise<ExecutionConnectionInspection> {
         if (profile.accounts.some((account) => account.venue !== 'lighter' || account.network !== (this.config.appNetwork === 'lighter-testnet' ? 'testnet' : 'mainnet'))) throw new HostedError(403, 'lighter_account_required', 'Connect a Lighter account to trade on Verdict.');
         const managed = await this.store.read(db => db.get('managed-profile', profile.id));
@@ -428,14 +431,20 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             state = { kind: 'registration_pending', enrollmentId: setup.enrollmentId };
         else if (setup.state === 'blocked')
             state = { kind: 'blocked', enrollmentId: setup.enrollmentId, code: 'lighter_setup_blocked', message: setup.reason };
-        else if (tx.lighter.activatedProfileId)
-            state = { kind: 'ready', connection: await this.connection(subject, tx.lighter.walletAddress, tx.scopes) };
         else {
             const plan = await this.provisioner?.preview(subject, setup.enrollmentId);
             if (!plan || plan.enrollmentId !== setup.enrollmentId || plan.ownerWallet !== setup.ownerWallet || plan.scope.origin !== this.config.publicOrigin
                 || plan.scope.ownerWallet !== setup.ownerWallet || plan.scope.account !== setup.account || plan.scope.apiKeyIndex !== setup.apiKeyIndex
-                || plan.scope.enrollmentId !== setup.enrollmentId || plan.scope.network !== setup.network || plan.expiresAt <= Date.now())
+                || plan.scope.enrollmentId !== setup.enrollmentId || plan.scope.network !== setup.network)
                 throw failure();
+            if (plan.expiresAt <= Date.now())
+                return LighterSetup.parse({ protocol: CONNECT_PROTOCOL, kind: 'lighter_setup', transaction: tx.id, state: {
+                    kind: 'blocked', enrollmentId: setup.enrollmentId, code: 'limits_expired',
+                    message: 'Your account and trading key are ready. The trading permission expired; review a renewal to continue. No funds or key registration will be requested again.' } });
+            const enrollment = await this.store.read(db => db.enrollment(subject));
+            if (enrollment?.profileId === plan.planId)
+                return LighterSetup.parse({ protocol: CONNECT_PROTOCOL, kind: 'lighter_setup', transaction: tx.id,
+                    state: { kind: 'ready', connection: await this.connection(subject, tx.lighter.walletAddress, tx.scopes) } });
             await this.store.write([], async (db) => {
                 const current = await this.transaction(db, tx.id);
                 if (!identical(current, tx) || !current.lighter || current.subject !== subject || current.appSession !== tx.appSession)
@@ -447,7 +456,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         return LighterSetup.parse({ protocol: CONNECT_PROTOCOL, kind: 'lighter_setup', transaction: tx.id, state });
     }
     private async lighterApp(request: Extract<ConnectRequest, {
-        operation: 'lighter_setup' | 'lighter_faucet' | 'lighter_register' | 'lighter_status' | 'lighter_activate';
+        operation: 'lighter_setup' | 'lighter_faucet' | 'lighter_register' | 'lighter_status' | 'lighter_renew' | 'lighter_activate';
     }>, tx: Transaction, subject: string): Promise<ConnectResponse> {
         if (!this.provisioner || !this.config.lighterProvisioner || this.config.appNetwork !== 'lighter-testnet' || tx.purpose !== 'oauth' || !tx.scopes.includes(TRADE_SCOPE) || tx.receiptHash !== null)
             throw failure();
@@ -467,6 +476,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
                 if (!identical(current, tx))
                     throw failure();
                 const next = { ...current, lighter: { enrollmentId: setup.enrollmentId, walletAddress: owner, proofReviewId: request.reviewId, plan: null, activatedProfileId: null } };
+                await db.put('onboarding', subject, { subject, walletAddress: owner, enrollmentId: setup.enrollmentId }, Number.MAX_SAFE_INTEGER);
                 await this.saveTransaction(db, next);
                 return next;
             });
@@ -476,6 +486,10 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             throw failure();
         if (request.operation === 'lighter_status')
             return this.setupView(tx, subject, await this.provisioner.setup({ operation: 'status', subject, enrollmentId: tx.lighter.enrollmentId }));
+        if (request.operation === 'lighter_renew') {
+            await this.provisioner.preview(subject, tx.lighter.enrollmentId, true);
+            return this.setupView(tx, subject, await this.provisioner.setup({ operation: 'status', subject, enrollmentId: tx.lighter.enrollmentId }));
+        }
         if (request.enrollmentId !== tx.lighter.enrollmentId)
             throw failure();
         if (request.operation !== 'lighter_activate')
@@ -523,6 +537,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             return ConnectTransactionView.parse({ protocol: CONNECT_PROTOCOL, kind: 'transaction', transaction: tx.id, purpose: tx.purpose, authorityOrigin: this.config.publicOrigin,
                 client: { id: tx.clientId, name: tx.clientName, redirectUri: tx.redirectUri }, resource: tx.resource, scopes: tx.scopes, expiresAt: tx.expiresAt,
                 cancelUrl: `${this.config.publicOrigin}/connect/cancel?transaction=${tx.id}`,
+                ...(tx.purpose === 'oauth' && tx.scopes.includes(TRADE_SCOPE) && this.provisioner && this.config.appNetwork === 'lighter-testnet' ? { selfServiceLighter: true } : {}),
                 ...(tx.purpose === 'oauth' ? { restartUrl: this.restartLocation(tx) } : {}) });
         }
         const subject = await this.identity(request.accessToken);
@@ -542,21 +557,42 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             if (!authorization || (await this.store.read(db => this.grant(db, authorization.grantId, authorization.epoch))).subject !== subject)
                 throw failure();
         }
-        if (request.operation === 'lighter_setup' || request.operation === 'lighter_faucet' || request.operation === 'lighter_register' || request.operation === 'lighter_status' || request.operation === 'lighter_activate')
+        if (request.operation === 'lighter_setup' || request.operation === 'lighter_faucet' || request.operation === 'lighter_register' || request.operation === 'lighter_status' || request.operation === 'lighter_renew' || request.operation === 'lighter_activate')
             return this.lighterApp(request, tx, subject);
-        if (request.operation === 'challenge') {
+        if (request.operation === 'resume' && tx.purpose === 'oauth' && tx.scopes.includes(TRADE_SCOPE) && this.provisioner && this.config.appNetwork === 'lighter-testnet'
+            && await this.verifiedWallet(subject) === request.walletAddress) {
+            if (tx.receiptHash !== null) throw failure();
+            const known = await this.store.read(db => db.get('onboarding', subject));
+            const setup = await this.provisioner.setup({ operation: 'resume', subject, walletAddress: request.walletAddress });
+            if (setup.ownerWallet !== request.walletAddress || (known && setup.enrollmentId !== known.enrollmentId)) throw failure('ownership_changed');
+            const current = await this.store.write([], async db => {
+                const current = await this.transaction(db, tx.id);
+                if (!identical(current, tx)) throw failure();
+                const next = { ...current, subject, appSession, lighter: { enrollmentId: setup.enrollmentId, walletAddress: request.walletAddress,
+                    proofReviewId: null, plan: null, activatedProfileId: null } };
+                await db.put('onboarding', subject, { subject, walletAddress: request.walletAddress, enrollmentId: setup.enrollmentId }, Number.MAX_SAFE_INTEGER);
+                await this.saveTransaction(db, next); return next;
+            });
+            return this.setupView(current, subject, setup);
+        }
+        if (request.operation === 'challenge' || request.operation === 'resume') {
             const connection = await this.connection(subject, request.walletAddress, tx.scopes);
             const reviewId = opaque();
             const expiresAt = Math.min(tx.expiresAt, Date.now() + transactionLifetime);
             const message = `Connect Verdict agent\nTransaction: ${tx.id}\nReview: ${reviewId}\nPurpose: ${tx.purpose}\nClient: ${tx.clientId}\nRedirect: ${tx.redirectUri}\nResource: ${tx.resource}\nSubject: ${subject}\nWallet: ${request.walletAddress}\nPermissions: ${connection.scopes.join(' ')}\nReview digest: ${hash(JSON.stringify(connection))}\nExpires: ${expiresAt}\nThis proof connects this client to the displayed account and limits. It never creates a broker policy or authorizes a withdrawal.`;
-            const review = { protocol: CONNECT_PROTOCOL, kind: 'review' as const, transaction: tx.id, reviewId, expiresAt, walletAddress: request.walletAddress, message, connection };
+            const consentMethod = tx.purpose === 'oauth' && await this.verifiedWallet(subject) === request.walletAddress ? 'app_session' as const : 'wallet_signature' as const;
+            const review = { protocol: CONNECT_PROTOCOL, kind: 'review' as const, transaction: tx.id, reviewId, expiresAt, walletAddress: request.walletAddress, message, connection, consentMethod };
             await this.store.write([], async (db) => { const current = await this.transaction(db, tx.id); if (current.receiptHash !== null || (current.subject !== null && current.subject !== subject) || (current.appSession !== null && current.appSession !== appSession))
                 throw failure(); await this.saveTransaction(db, Transaction.parse({ ...current, subject, appSession, review, connection })); });
             return review;
         }
         if (!tx.review || tx.review.expiresAt <= Date.now() || tx.review.reviewId !== request.reviewId || tx.receiptHash !== null || tx.subject !== subject || tx.appSession !== appSession)
             throw failure();
-        const recovered = (await recoverMessageAddress({ message: tx.review.message, signature: request.signature as `0x${string}` })).toLowerCase();
+        let recovered: string;
+        if (request.operation === 'session_consent') {
+            if (tx.purpose !== 'oauth' || tx.review.consentMethod !== 'app_session' || await this.verifiedWallet(subject) !== tx.review.walletAddress) throw failure('invalid_wallet_proof');
+            recovered = tx.review.walletAddress;
+        } else recovered = (await recoverMessageAddress({ message: tx.review.message, signature: request.signature as `0x${string}` })).toLowerCase();
         if (recovered !== tx.review.walletAddress)
             throw failure('invalid_wallet_proof');
         const fresh = await this.connection(subject, recovered, tx.scopes);
