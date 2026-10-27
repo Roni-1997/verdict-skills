@@ -11,7 +11,7 @@ import { verifyPrivatePythonProject } from './private-python-project.mjs';
 
 const repository = fileURLToPath(new URL('..', import.meta.url));
 const template = join(repository, 'deploy/private');
-const pythonModules = ['__init__', '__main__', 'adapters', 'authority', 'core', 'diagnostics', 'postgres_store', 'private_vault', 'provisioner', 'public', 'quotes', 'rpc', 'signer_http'];
+const pythonModules = ['__init__', '__main__', 'adapters', 'authority', 'core', 'diagnostics', 'postgres_store', 'private_vault', 'provisioner', 'public', 'quotes', 'rpc', 'signer_http', 'workers'];
 const esbuildVersion = '0.28.2';
 const builtins = new Set(builtinModules.flatMap((name) => [name, name.startsWith('node:') ? name : `node:${name}`]));
 

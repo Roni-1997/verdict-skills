@@ -8,7 +8,6 @@ import hmac
 from http.server import BaseHTTPRequestHandler
 import json
 import logging
-import multiprocessing
 import os
 import re
 import time
@@ -17,6 +16,7 @@ from .core import Broker, BrokerError, json_load
 from .diagnostics import log_failure_location
 from .private_vault import PostgresVault, ServiceRequests, canonical_uuid, subject_value
 from .provisioner import Provisioner, TestnetVenue
+from .workers import start_private_worker, stop_private_worker
 
 AUDIENCE = "verdict-private-signer"
 MAX_BODY = 65_536
@@ -108,12 +108,8 @@ def _broker_child(pipe, config, record, request):
 
 
 def isolated_broker(config, record, request):
-    context = multiprocessing.get_context("spawn")
-    parent, child = context.Pipe(duplex=False)
     private_config = {name: config[name] for name in ("dsn", "deploymentId", "databaseId")}
-    process = context.Process(target=_broker_child, args=(child, private_config, record, request), daemon=True)
-    process.start()
-    child.close()
+    parent, process = start_private_worker({"kind": "broker", "config": private_config, "record": record, "request": request})
     try:
         if not parent.poll(90):
             raise BrokerError("Private execution timed out; reconcile the original proposal")
@@ -123,10 +119,7 @@ def isolated_broker(config, record, request):
         return response["result"]
     finally:
         parent.close()
-        process.join(timeout=1)
-        if process.is_alive():
-            process.terminate()
-            process.join(timeout=2)
+        stop_private_worker(process)
 
 
 class PostgresSigner:

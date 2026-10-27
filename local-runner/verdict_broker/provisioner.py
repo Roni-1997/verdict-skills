@@ -10,7 +10,6 @@ import contextlib
 import fcntl
 import json
 import logging
-import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -25,6 +24,7 @@ from .authority import (_hash, _id, _money, consumer_message, consumer_scope,
                         issue_consumer_grant, recover_owner, revoke_grant)
 from .core import Broker, BrokerError, Store, json_load
 from .diagnostics import log_failure_location
+from .workers import start_private_worker, stop_private_worker
 
 HOST = "https://testnet.zklighter.elliot.ai"
 MAX_SAFE = 9_007_199_254_740_991
@@ -180,11 +180,8 @@ def _native_child(pipe, operation, data, transport_check):
 
 
 def native_call(operation, data, *, before_transport=None):
-    context = multiprocessing.get_context("spawn")
-    parent, child = context.Pipe(duplex=True)
-    process = context.Process(target=_native_child, args=(child, operation, data, before_transport is not None), daemon=True)
-    process.start()
-    child.close()
+    parent, process = start_private_worker({"kind": "native", "operation": operation, "data": data,
+                                            "transport_check": before_transport is not None})
     try:
         if not parent.poll(25):
             raise BrokerError("Native operation timed out; reconcile original enrollment")
@@ -202,10 +199,7 @@ def native_call(operation, data, *, before_transport=None):
         return result
     finally:
         parent.close()
-        process.join(timeout=1)
-        if process.is_alive():
-            process.terminate()
-            process.join(timeout=2)
+        stop_private_worker(process)
 
 
 class TestnetVenue:

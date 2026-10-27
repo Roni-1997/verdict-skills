@@ -4,7 +4,7 @@ from pathlib import Path
 
 _SOURCES = frozenset({"adapters.py", "authority.py", "core.py", "diagnostics.py",
                       "postgres_store.py", "private_vault.py", "provisioner.py",
-                      "public.py", "quotes.py", "rpc.py", "signer_http.py"})
+                      "public.py", "quotes.py", "rpc.py", "signer_http.py", "workers.py"})
 
 
 def log_failure_location(error):

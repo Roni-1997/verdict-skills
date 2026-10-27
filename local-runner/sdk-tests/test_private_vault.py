@@ -213,6 +213,18 @@ class PostgresVaultTest(unittest.TestCase):
         finally:
             signer.close()
 
+    def test_isolated_broker_worker_restores_authority_without_venue_transport(self):
+        venue, binding = self._active()
+        signer = PostgresSigner(self.config(), venue=venue)
+        try:
+            result = signer.operation({"operation": "broker", "subject": "did:privy:synthetic", "profileId": binding["id"],
+                "request": {"operation": "capabilities", "expectedMode": "policy", "expectedGrantId": binding["grantId"]}})
+            self.assertEqual(result["authority"]["mode"], "policy")
+            self.assertEqual(result["authority"]["grantId"], binding["grantId"])
+            self.assertEqual(self.admin.execute("SELECT count(*) FROM verdict_signer.private_events WHERE deployment_id=%s AND body->>'type'='attempt_started'", (self.deployment,)).fetchone()[0], 0)
+        finally:
+            signer.close()
+
     def _signing_cutpoint(self, action):
         import test_consumer_authority as consumer_fixture
         from verdict_broker.authority import PolicyAuthority
