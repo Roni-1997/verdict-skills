@@ -27,9 +27,10 @@ compatibility with each intended client before advertising a public connector.
 3. The app obtains a fresh Privy token privately and relays it through its own authenticated,
    CSRF-protected API. The authority verifies ES256, `privy.io`, the configured app audience,
    session claim, issued time and expiry. A Privy token is never an MCP bearer token.
-4. The authority inspects deployment-owned broker profiles. The browser proves control of
-   the exact owner wallet with a fresh transaction-bound signature. The reviewed client,
-   resource, scopes, accounts, networks, mode, caps and templates are bound to that proof.
+4. The authority inspects deployment-owned broker profiles. A new owner proves control of
+   the exact wallet with a transaction-bound signature. A returning owner uses a fresh
+   Privy session matched to that saved verified wallet. The reviewed client, resource,
+   scopes, accounts, networks, mode, caps and templates remain bound to the transaction.
    A wallet address posted by a model cannot establish ownership.
 5. Consent returns one receipt only to the successful app browser. Completion requires both
    that receipt and the original authority cookie. A transaction handle cannot redeem or
@@ -47,7 +48,18 @@ review. A claimed registration can only reconcile, including after a restart.
 
 The owner then signs the exact creator scope, mode, per-order cap, total cap, order count
 and expiry. This signature creates bounded broker authority. Final OAuth consent remains
-a separate review. Lighter API keys have broader venue powers than trading. Broker limits
+a separate review using the verified signed-in session, without another wallet signature.
+Saved account and key setup resume across connection requests and service restarts.
+An expired unused permission requires a separately signed renewal of the same limits;
+it never repeats funding or key registration. Used or revoked permissions cannot renew
+through this pilot flow.
+
+When a returning owner's order-review browser session expires, fresh Privy authentication
+restores access to that exact connection's review without another wallet signature.
+Authentication never confirms an order. In `per_order` mode, the owner must still click
+**Confirm this order** for the exact displayed proposal before it expires.
+
+Lighter API keys have broader venue powers than trading. Broker limits
 are application controls, and the private service holds custody of the hosted API key.
 The native registration message binds key, nonce, account and slot, but does not include
 a network or review expiry. The application verifies those separately. A renewed review
