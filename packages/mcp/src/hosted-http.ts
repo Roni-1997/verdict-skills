@@ -187,6 +187,13 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
         res.writeHead(303, { location: login.location, 'set-cookie': login.cookies, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
       }
       if (req.method === 'GET') {
+        if (job.state === 'replaced') {
+          const current = await gateway.status(session.principal, job.proposal);
+          if (current.state === 'review_updated') { res.writeHead(303, { location: current.approvalUrl, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return; }
+        }
+        if (job.state === 'observed' && job.result) {
+          const result = resultContent(job.result); page(res, result.title, result.content); return;
+        }
         const review = reviewContent(job, session.csrf);
         page(res, review.title, review.content); return;
       }

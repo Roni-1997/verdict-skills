@@ -409,6 +409,7 @@ it('runs quote expiry → refresh → one new review → confirmation through re
     const first = await decide(path, 'refresh'); expect(first.status).toBe(303);
     const child = first.headers.get('location'); if (!child) throw new Error('Missing fresh review');
     expect(child).not.toBe(path); expect((await decide(path, 'refresh')).headers.get('location')).toBe(child);
+    expect((await get(path)).headers.get('location')).toBe(child);
     expect(alice.submits).toBe(0); expect(alice.cancels).toBe(0);
     const updated = await seed.status(identity, original);
     expect(updated).toMatchObject({ state: 'review_updated', digest: original.digest, approvalUrl: child, automaticRetry: false });
@@ -416,6 +417,7 @@ it('runs quote expiry → refresh → one new review → confirmation through re
     expect(await seed.status(identity, updated.proposal)).toMatchObject({ state: 'approval_required' });
     const fresh = await get(child); expect(fresh.status).toBe(200); expect(await fresh.text()).toContain('Confirm this order');
     expect((await decide(child, 'confirm')).status).toBe(200); expect(alice.submits).toBe(1);
+    expect(await (await get(child)).text()).toContain('Trade complete');
     expect((await decide(path, 'refresh')).headers.get('location')).toBe(child); expect(alice.submits).toBe(1);
     jobs.close();
     const recovered = new HostedExecution(current, openJobs(), undefined, runtime, async () => alice);
