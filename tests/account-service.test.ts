@@ -11,7 +11,7 @@ import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { connectExecution, prepareExecution, type ExecutionConnectionInspection } from '../packages/core/src/index.js';
 import { AccountAuthority } from '../packages/mcp/src/connect-authority.js';
 import { createAccountService, readAccountServiceConfig } from '../packages/mcp/src/connect-http.js';
@@ -147,6 +147,40 @@ afterAll(async () => {
   if (server) { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
   if (broker && broker.exitCode === null) { const stopped = new Promise<void>((resolve) => broker.once('exit', () => resolve())); broker.kill('SIGTERM'); await stopped; }
   delete process.env.VERDICT_CONNECT_TEST_SECRET; if (directory) await rm(directory, { recursive: true, force: true });
+});
+
+it('restarts an expired request with the original SDK PKCE flow and rejects the old ownership proof', async () => {
+  config = AccountServiceConfig.parse({ ...config, profiles: [] });
+  await restart();
+  const flow = await begin();
+  const accessToken = await identity();
+  const view = await result({ operation: 'view', transaction: flow.transaction });
+  const oldReview = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (view.kind !== 'transaction' || !view.restartUrl || oldReview.kind !== 'review') throw new Error('Missing restart review');
+  const url = new URL(view.restartUrl);
+  expect(url.origin + url.pathname).toBe(origin + '/authorize');
+  expect(url.searchParams.get('code_challenge')).toBe(flow.agent.location?.searchParams.get('code_challenge'));
+  expect(url.searchParams.get('state')).toBe('agent-state');
+  expect(view.restartUrl).not.toContain(flow.agent.verifier);
+  const oldSignature = await wallet.signMessage({ message: oldReview.message });
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(view.expiresAt + 1);
+  try {
+    expect((await relay({ operation: 'consent', transaction: flow.transaction, accessToken, reviewId: oldReview.reviewId, signature: oldSignature })).status).toBe(400);
+    const restart = await flow.browser.fetch(view.restartUrl);
+    expect(restart.status).toBe(303);
+    const transaction = new URL(restart.headers.get('location') ?? '').searchParams.get('transaction');
+    if (!transaction) throw new Error('Missing renewed transaction');
+    expect(transaction).not.toBe(flow.transaction);
+    expect((await relay({ operation: 'consent', transaction, accessToken, reviewId: oldReview.reviewId, signature: oldSignature })).status).toBe(400);
+    const { completion } = await consent(transaction, accessToken);
+    const callback = await flow.browser.fetch(completion.completionUrl);
+    expect(callback.status).toBe(303);
+    const returnUrl = new URL(callback.headers.get('location') ?? '');
+    expect(returnUrl.searchParams.get('state')).toBe('agent-state');
+    const code = returnUrl.searchParams.get('code');
+    if (!code) throw new Error('Missing authorization code');
+    expect(await auth(flow.agent, { serverUrl: `${origin}/mcp`, authorizationCode: code })).toBe('AUTHORIZED');
+  } finally { clock.mockRestore(); }
 });
 
 it('connects through real SDK discovery, DCR, PKCE, Privy-style identity, wallet proof and the real broker inspection', async () => {

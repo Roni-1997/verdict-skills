@@ -55,6 +55,7 @@ export const ConnectTransactionView = z.object({ protocol: z.literal(CONNECT_PRO
   transaction: ConnectId, purpose: z.enum(['oauth', 'review']), authorityOrigin: z.string().url(),
   client: z.object({ id: z.string().min(1).max(512), name: z.string().min(1).max(256), redirectUri: z.string().url() }).strict(),
   resource: z.string().url(), scopes: z.array(Scope).min(1).max(2), expiresAt: Time, cancelUrl: z.string().url(),
+  restartUrl: z.string().url().optional(),
 }).strict();
 export type ConnectTransactionView = z.infer<typeof ConnectTransactionView>;
 export const ConnectReview = z.object({ protocol: z.literal(CONNECT_PROTOCOL), kind: z.literal('review'), transaction: ConnectId,

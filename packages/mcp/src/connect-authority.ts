@@ -119,6 +119,13 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         url.searchParams.set('net', this.config.appNetwork);
         return url.href;
     }
+    private restartLocation(tx: Transaction): string {
+        const url = new URL('/authorize', this.config.publicOrigin);
+        url.search = new URLSearchParams({ response_type: 'code', client_id: tx.clientId, redirect_uri: tx.redirectUri,
+            scope: tx.scopes.join(' '), resource: tx.resource, code_challenge: tx.challenge, code_challenge_method: 'S256',
+            ...(tx.state === null ? {} : { state: tx.state }) }).toString();
+        return url.href;
+    }
     private async newTransaction(input: Pick<Transaction, 'purpose' | 'clientId' | 'clientName' | 'redirectUri' | 'scopes' | 'challenge' | 'state' | 'reviewPath' | 'authorization'>) {
         const cookie = opaque();
         const transaction = Transaction.parse({ ...input, id: opaque(), resource: this.resource,
@@ -512,7 +519,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             const tx = await this.store.read(db => this.transaction(db, request.transaction));
             return ConnectTransactionView.parse({ protocol: CONNECT_PROTOCOL, kind: 'transaction', transaction: tx.id, purpose: tx.purpose, authorityOrigin: this.config.publicOrigin,
                 client: { id: tx.clientId, name: tx.clientName, redirectUri: tx.redirectUri }, resource: tx.resource, scopes: tx.scopes, expiresAt: tx.expiresAt,
-                cancelUrl: `${this.config.publicOrigin}/connect/cancel?transaction=${tx.id}` });
+                cancelUrl: `${this.config.publicOrigin}/connect/cancel?transaction=${tx.id}`,
+                ...(tx.purpose === 'oauth' ? { restartUrl: this.restartLocation(tx) } : {}) });
         }
         const subject = await this.identity(request.accessToken);
         if (request.operation === 'status')
