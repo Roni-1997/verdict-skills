@@ -20,6 +20,10 @@ const identical = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringi
 const safeEqual = (a: string, b: string) => timingSafeEqual(Buffer.from(hash(a)), Buffer.from(hash(b)));
 const transactionLifetime = 300000;
 const onboardingLifetime = 30 * 60_000;
+const limitsExpired = 'The owner-signed trading limits for this connection expired. Reads and order status still work. To trade again, reconnect this agent so the owner can review new limits.';
+// Grants saved before tradeExpiresAt existed ended with their limits, so expiresAt bounds trade for them.
+const tradeUntil = (grant: Grant) => Math.min(grant.tradeExpiresAt ?? grant.expiresAt, grant.expiresAt);
+const tradeActive = (grant: Grant) => grant.scopes.includes(TRADE_SCOPE) && tradeUntil(grant) > Date.now();
 type Inspect = (profile: Profile, subject?: string) => Promise<ExecutionConnectionInspection>;
 type Provisioner = Pick<LighterProvisioner, 'setup' | 'preview' | 'activate' | 'binding' | 'revoke'>;
 /** Product account authorization; independent from Privy JWTs and from broker trade policy. */
@@ -214,6 +218,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         }
         if (job.owner !== ownerHash(this.config.publicOrigin, grant.subject) || !grant.scopes.includes(TRADE_SCOPE))
             throw new HostedError(403, 'connection_revoked', 'The original order connection has been revoked.');
+        if (!tradeActive(grant))
+            throw new HostedError(403, 'trading_limits_expired', limitsExpired);
     }
     private async bindingIn(db: ConnectReadTx, subject: string): Promise<Binding | null> {
         const enrollment = await db.enrollment(subject);
@@ -266,11 +272,13 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     private async issue(db: ConnectWriteTx, grant: Grant, scopes: Grant['scopes']): Promise<OAuthTokens> {
         const access = opaque();
         const refresh = opaque();
-        const expiresAt = Math.min(Date.now() + 300000, grant.expiresAt);
-        const credential = { grantId: grant.id, epoch: grant.epoch, clientId: grant.clientId, resource: this.resource, scopes, used: false };
+        // After the limits end, a refresh keeps the connection for reads and status only.
+        const granted = scopes.filter((scope) => scope !== TRADE_SCOPE || tradeActive(grant));
+        const expiresAt = Math.min(Date.now() + 300000, granted.includes(TRADE_SCOPE) ? tradeUntil(grant) : grant.expiresAt);
+        const credential = { grantId: grant.id, epoch: grant.epoch, clientId: grant.clientId, resource: this.resource, scopes: granted, used: false };
         await db.put('access', hash(access), { ...credential, expiresAt }, expiresAt);
         await db.put('refresh', hash(refresh), { ...credential, expiresAt: grant.expiresAt }, grant.expiresAt);
-        return { access_token: access, refresh_token: refresh, token_type: 'Bearer', expires_in: Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)), scope: scopes.join(' ') };
+        return { access_token: access, refresh_token: refresh, token_type: 'Bearer', expires_in: Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)), scope: granted.join(' ') };
     }
     async challengeForAuthorizationCode(client: OAuthClientInformationFull, code: string) {
         const record = await this.store.read(db => db.get('code', hash(code)));
@@ -342,8 +350,10 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         }
         const inspection = ExecutionConnectionInspection.parse(await this.inspect(profile, subject));
         if (inspection.authority.grantId !== profile.grantId || inspection.authority.grantHash !== profile.grantHash
-            || inspection.authority.newRisk !== 'active' || inspection.authority.expiresAt <= Date.now())
+            || (inspection.authority.newRisk !== 'active' && inspection.authority.newRisk !== 'expired'))
             throw new HostedError(503, 'profile_unavailable', 'The operator trading policy is unavailable or has changed.');
+        if (inspection.authority.newRisk === 'expired' || inspection.authority.expiresAt <= Date.now())
+            throw new HostedError(503, 'trading_limits_expired', limitsExpired);
         const accountKey = (value: unknown) => JSON.stringify(value);
         if (!identical(inspection.accounts.map((row) => accountKey(row.account)).sort(), profile.accounts.map(accountKey).sort()))
             throw new HostedError(503, 'profile_mismatch', 'The broker accounts do not match the provisioned connection.');
@@ -409,7 +419,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         catch (error) {
             if (error instanceof HostedError && error.code === 'authority_storage')
                 throw error;
-            connection = emptyView('Trading readiness is unavailable or changed. You can still disconnect clients below; this does not change their existing scopes or the broker policy.');
+            connection = emptyView(error instanceof HostedError && error.code === 'trading_limits_expired' ? limitsExpired
+                : 'Trading readiness is unavailable or changed. You can still disconnect clients below; this does not change their existing scopes or the broker policy.');
         }
         const connections = await this.store.read(async db => {
             const connections = [];
@@ -524,7 +535,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             if (previous && previous.profileId !== profile.id)
                 for (const grant of (await db.all('grant')).filter((grant) => grant.subject === subject && !grant.revoked))
                     await this.revoke(db, grant);
-            await db.put('managed-profile', profile.id, { subject, walletAddress: current.lighter.walletAddress, profile }, inspection.authority.expiresAt);
+            // Grants bound to this profile last up to refreshTtl past their creation, and they are only created while its limits are active.
+            await db.put('managed-profile', profile.id, { subject, walletAddress: current.lighter.walletAddress, profile }, inspection.authority.expiresAt + this.config.refreshTtlSeconds * 1000);
             await db.replaceEnrollment(subject, profile.id, { subject, profileId: profile.id, revision: profileRevision(profile), walletAddress: current.lighter.walletAddress });
             await this.saveTransaction(db, { ...current, lighter: { ...current.lighter, activatedProfileId: profile.id } });
         });
@@ -642,9 +654,12 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
                 if (!enrollment)
                     await db.enroll(tx.subject, reviewed.profileId, { subject: tx.subject, profileId: reviewed.profileId, revision: reviewed.revision, walletAddress: tx.review.walletAddress });
             }
+            // The connection outlives the signed limits for reads and status; trade stops at tradeExpiresAt.
+            const connectionEnd = Date.now() + this.config.refreshTtlSeconds * 1000;
             const grant = Grant.parse({ id: randomUUID(), subject: tx.subject, clientId: tx.clientId, resource: this.resource,
                 profileId: tx.connection.kind === 'executable' ? tx.connection.profileId : null, revision: tx.connection.kind === 'executable' ? tx.connection.revision : null,
-                scopes: tx.connection.scopes, createdAt: Date.now(), expiresAt: Math.min(Date.now() + this.config.refreshTtlSeconds * 1000, tx.connection.kind === 'executable' ? tx.connection.policy.expiresAt : Number.MAX_SAFE_INTEGER), revoked: false, epoch: 0 });
+                scopes: tx.connection.scopes, createdAt: Date.now(), expiresAt: connectionEnd, revoked: false, epoch: 0,
+                ...(tx.connection.kind === 'executable' ? { tradeExpiresAt: Math.min(tx.connection.policy.expiresAt, connectionEnd) } : {}) });
             await db.put('grant', grant.id, grant, grant.expiresAt);
             const code = opaque();
             const expiresAt = Date.now() + 60000;
@@ -652,7 +667,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             const cookies = [this.cookie(this.transactionBindingCookieName(cookieHeader, tx), '', 0)];
             if (tx.connection.kind === 'executable' && tx.connection.mode === 'per_order' && grant.scopes.includes(TRADE_SCOPE)) {
                 const session = opaque();
-                const browserExpiresAt = Math.min(Date.now() + 600000, grant.expiresAt);
+                const browserExpiresAt = Math.min(Date.now() + 600000, tradeUntil(grant));
                 await db.put('browser', hash(session), { authorization: { kind: 'first_party', grantId: grant.id, epoch: grant.epoch }, expiresAt: browserExpiresAt }, browserExpiresAt);
                 cookies.push(this.cookie(this.browserName, session, Math.floor((browserExpiresAt - Date.now()) / 1000)));
             }
@@ -692,6 +707,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const grant = await this.store.read(db => this.grant(db, authorization.grantId, authorization.epoch));
         if (identity.owner !== ownerHash(this.config.publicOrigin, grant.subject) || !grant.scopes.includes(TRADE_SCOPE))
             throw failure();
+        if (!tradeActive(grant))
+            throw new InvalidTokenError('Trading limits expired.');
         const client = await this.store.read(db => this.client(db, grant.clientId));
         if (!client)
             throw failure();
@@ -710,8 +727,10 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             if (!identical(tx, reviewed)) throw failure();
             if (grant.subject !== tx.subject || !job || !identical(job.authorization, tx.authorization) || job.owner !== ownerHash(this.config.publicOrigin, grant.subject))
                 throw failure();
+            if (!tradeActive(grant))
+                throw new InvalidTokenError('Trading limits expired.');
             const session = opaque();
-            const expiresAt = Math.min(Date.now() + 600000, grant.expiresAt);
+            const expiresAt = Math.min(Date.now() + 600000, tradeUntil(grant));
             await db.put('browser', hash(session), { authorization: tx.authorization, expiresAt }, expiresAt);
             await this.saveTransaction(db, { ...tx, completed: true, receiptHash: null });
             return { location: tx.reviewPath, cookies: [this.cookie(this.transactionBindingCookieName(cookieHeader, tx), '', 0), this.cookie(this.browserName, session, Math.floor((expiresAt - Date.now()) / 1000))] };

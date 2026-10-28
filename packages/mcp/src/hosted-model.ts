@@ -18,7 +18,7 @@ export class HostedError extends Error {
 }
 export function requireScope(principal: Principal, scope: ConnectorScope): void {
   if (principal.expiresAt <= Date.now()) throw new HostedError(401, 'invalid_token', 'Authentication expired. Sign in again.');
-  if (!principal.scopes.includes(scope)) throw new HostedError(403, 'insufficient_scope', 'This operation requires additional account permission.');
+  if (!principal.scopes.includes(scope)) throw new HostedError(403, 'insufficient_scope', 'Trading permission is not active for this connection: its signed limits expired or it was connected for research only. Reads and order status still work. Reconnect this agent to review trading limits.');
 }
 export const LinkedAccount = ExecutionLinkedAccount;
 export type LinkedAccount = z.infer<typeof LinkedAccount>;

@@ -32,7 +32,7 @@ In explicitly operator-selected `policy` mode, use only a previously owner-appro
 
 Submit the unchanged original proposal. The broker rechecks authority, market state, balances, fees, and account permissions before official SDK signing. These checks cannot guarantee a fill.
 
-On uncertain delivery, call `execution_status` with the original proposal. Never automatically resubmit or reprepare. A status call can reconcile an original order after proposal or grant expiry. Report acknowledgements, fills, and unknown state separately.
+On uncertain delivery, call `execution_status` with the original proposal. Never automatically resubmit or reprepare. A status call can reconcile an original order after proposal or grant expiry. After the signed limits expire, reads and status keep working; trading calls return `insufficient_scope` until the owner reconnects and approves new limits. Report acknowledgements, fills, and unknown state separately.
 
 `execution_cancel` takes that original proposal and `leg: 0`. Cancellation can race fills. Reconcile after requesting it, and never substitute an exchange ID for an original client order identity.
 

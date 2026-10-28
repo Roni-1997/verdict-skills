@@ -66,7 +66,7 @@ Persist the original proposal unchanged before submission. `execution_prepare_li
 
 Pass the original proposal to review, preflight, submit, and status. An acknowledgement is not a fill. Report actual venue status, filled shares, and remaining uncertainty separately.
 
-On `delivery_unknown`, use `execution_status` with the same proposal. Never automatically retry, replace, or reprepare an uncertain submission. Status can reconcile original orders after proposal or grant expiry. Cancellation uses `leg: 0` and the original order identity. It can race fills, so reconcile afterward.
+On `delivery_unknown`, use `execution_status` with the same proposal. Never automatically retry, replace, or reprepare an uncertain submission. Status can reconcile original orders after proposal or grant expiry. When the signed limits expire, the connection stays signed in for reads and status; trading calls return `insufficient_scope` until the owner reconnects and approves new limits. Cancellation uses `leg: 0` and the original order identity. It can race fills, so reconcile afterward.
 
 `lighter_build_order` and `lighter_build_cancel` prepare unsigned official SDK arguments only. They never submit. The default public MCP holds no keys. Actual execution belongs to the separate operator-owned broker or private hosted signer using the pinned official Lighter SDK.
 

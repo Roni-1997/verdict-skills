@@ -15,9 +15,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vite
 import { connectExecution, prepareExecution, type ExecutionConnectionInspection } from '../packages/core/src/index.js';
 import { AccountAuthority } from '../packages/mcp/src/connect-authority.js';
 import { createAccountService, readAccountServiceConfig } from '../packages/mcp/src/connect-http.js';
-import { AccountServiceConfig } from '../packages/mcp/src/connect-model.js';
+import { AccountServiceConfig, ownerHash } from '../packages/mcp/src/connect-model.js';
 import { ConnectResponse, LighterScopePlan, type ConnectRequest } from '../packages/mcp/src/connect-contract.js';
-import { Binding, READ_SCOPE, TRADE_SCOPE } from '../packages/mcp/src/hosted-model.js';
+import { Binding, READ_SCOPE, TRADE_SCOPE, type Job } from '../packages/mcp/src/hosted-model.js';
 import type { LighterProvisioner } from '../packages/mcp/src/lighter-provisioner.js';
 
 const wallet = privateKeyToAccount(generatePrivateKey());
@@ -598,6 +598,70 @@ it('explains expired review authority in the browser without another wallet/setu
     expect(response.status).toBe(401); expect(response.headers.get('content-type')).toContain('text/html');
     const html = await response.text(); expect(html).toContain('Reconnect to continue'); expect(html).toContain('saved account and key setup');
     expect(html).not.toContain('connector_error'); expect(html).not.toContain('Sign in with Privy');
+  } finally { clock.mockRestore(); }
+});
+
+it('keeps reads and original order status after the signed limits expire, while trading fails closed', async () => {
+  const profile = config.profiles[0]; if (!profile) throw new Error('Missing profile'); config.profiles[0] = { ...profile, mode: 'policy' };
+  const limitsEnd = Date.now() + 120_000;
+  inspectOverride = { ...inspection, authority: { ...inspection.authority, expiresAt: limitsEnd }, accounts: inspection.accounts.map((row) => ({ ...row, checkedAt: Date.now() })) };
+  await restart();
+  const flow = await connect(); const exact = prepareExecution(request);
+  const sent = await (await mcp(flow.tokens.access_token)).callTool({ name: 'execution_submit', arguments: exact });
+  expect(sent.structuredContent, JSON.stringify(sent.content)).toMatchObject({ state: 'complete' });
+  const status = await result({ operation: 'status', accessToken: await identity() }); if (status.kind !== 'connections') throw new Error('Missing status');
+  const job = { owner: ownerHash(config.publicOrigin, subject), authorization: { kind: 'first_party', grantId: status.connections[0]?.id ?? '', epoch: 0 } } as unknown as Job;
+  await expect(authority.assertJobActive(job)).resolves.toBeUndefined();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(limitsEnd + 1);
+  try {
+    await expect(authority.authenticate(`Bearer ${flow.tokens.access_token}`, READ_SCOPE)).rejects.toMatchObject({ code: 'invalid_token' });
+    const refreshed = await token({ client_id: flow.agent.info?.client_id ?? '', grant_type: 'refresh_token', resource: `${origin}/mcp`, refresh_token: flow.tokens.refresh_token ?? '' });
+    expect(refreshed.status).toBe(200); const child = await refreshed.json() as OAuthTokens; expect(child.scope).toBe(READ_SCOPE);
+    await expect(authority.assertJobActive(job)).rejects.toMatchObject({ code: 'trading_limits_expired' });
+    const client = await mcp(child.access_token);
+    expect((await client.callTool({ name: 'execution_status', arguments: exact })).structuredContent).toMatchObject({ state: 'complete' });
+    expect((await client.callTool({ name: 'connection_status', arguments: {} })).structuredContent)
+      .toMatchObject({ connection: { kind: 'read_only', reason: expect.stringContaining('limits for this connection expired') } });
+    const denied = await client.callTool({ name: 'execution_submit', arguments: prepareExecution(request) }); expect(denied.isError).toBe(true);
+    expect(JSON.stringify(denied._meta)).toContain('insufficient_scope');
+  } finally { clock.mockRestore(); }
+});
+
+it('ends the per-order review browser session with the signed limits', async () => {
+  const limitsEnd = Date.now() + 120_000;
+  inspectOverride = { ...inspection, authority: { ...inspection.authority, expiresAt: limitsEnd }, accounts: inspection.accounts.map((row) => ({ ...row, checkedAt: Date.now() })) };
+  await restart(); const flow = await connect();
+  expect(await authority.readSession(flow.browser.cookie)).not.toBeNull();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(limitsEnd + 1);
+  try { expect(await authority.readSession(flow.browser.cookie)).toBeNull(); } finally { clock.mockRestore(); }
+});
+
+it('keeps a self-service enrollment readable after its limits expire without another owner setup', async () => {
+  const fixture = await consumerFixture(); const flow = await begin(); const accessToken = await identity();
+  const review = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (review.kind !== 'review') throw new Error('Missing owner review');
+  const setup = await result({ operation: 'lighter_setup', transaction: flow.transaction, accessToken, reviewId: review.reviewId, signature: await wallet.signMessage({ message: review.message }) });
+  if (setup.kind !== 'lighter_setup' || setup.state.kind !== 'owner_signature') throw new Error('Missing registration');
+  const registration = setup.state.registration;
+  const scoped = await result({ operation: 'lighter_register', transaction: flow.transaction, accessToken, enrollmentId: registration.enrollmentId,
+    revision: registration.revision, signature: await wallet.signMessage({ message: registration.message }) });
+  if (scoped.kind !== 'lighter_setup' || scoped.state.kind !== 'scope_signature') throw new Error('Missing scope');
+  const plan = scoped.state.plan;
+  await result({ operation: 'lighter_activate', transaction: flow.transaction, accessToken, enrollmentId: plan.enrollmentId,
+    planId: plan.planId, revision: plan.revision, signature: await wallet.signMessage({ message: plan.message }) });
+  const final = await result({ operation: 'challenge', transaction: flow.transaction, accessToken, walletAddress: wallet.address });
+  if (final.kind !== 'review') throw new Error('Missing final review');
+  const completion = await result({ operation: 'session_consent', transaction: flow.transaction, accessToken, reviewId: final.reviewId });
+  if (completion.kind !== 'complete') throw new Error('Missing completion');
+  const code = new URL((await flow.browser.fetch(completion.completionUrl)).headers.get('location') ?? '').searchParams.get('code') ?? '';
+  expect(await auth(flow.agent, { serverUrl: `${origin}/mcp`, authorizationCode: code })).toBe('AUTHORIZED');
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(plan.limits.expiresAt + 1);
+  try {
+    const refreshed = await token({ client_id: flow.agent.info?.client_id ?? '', grant_type: 'refresh_token', resource: `${origin}/mcp`, refresh_token: flow.agent.saved?.refresh_token ?? '' });
+    expect(refreshed.status).toBe(200); const child = await refreshed.json() as OAuthTokens; expect(child.scope).toBe(READ_SCOPE);
+    await expect(authority.authenticate(`Bearer ${child.access_token}`, READ_SCOPE)).resolves.toMatchObject({ subject });
+    await expect(authority.authenticate(`Bearer ${child.access_token}`, TRADE_SCOPE)).rejects.toMatchObject({ code: 'insufficient_scope' });
+    expect(await authority.binding(subject)).toEqual(fixture.binding); expect(fixture.prepareCalls()).toBe(1);
   } finally { clock.mockRestore(); }
 });
 

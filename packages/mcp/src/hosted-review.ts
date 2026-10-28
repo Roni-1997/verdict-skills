@@ -54,7 +54,7 @@ export function resultContent(result: HostedMutation, progress?: { statusUrl: st
 }
 
 export function reviewErrorContent(error: HostedError): { title: string; content: string } {
-  const reconnect = ['invalid_token', 'invalid_connection', 'account_not_linked', 'profile_unavailable', 'binding_changed', 'account_not_ready'].includes(error.code);
+  const reconnect = ['invalid_token', 'invalid_connection', 'account_not_linked', 'profile_unavailable', 'trading_limits_expired', 'binding_changed', 'account_not_ready'].includes(error.code);
   return { title: reconnect ? 'Reconnect to continue' : 'Review unavailable', content: `<section class="review-card"><p>${reconnect
     ? 'This trading connection is no longer active. Return to your agent and reconnect; Verdict will check your saved account and key setup.'
     : 'This review could not be completed. Ask your agent to check the original request before preparing another order.'}</p><p class="hint">If you already confirmed, keep the original request for status. Do not submit a replacement while delivery is uncertain.</p></section><details><summary>Technical details</summary><p>${escapeHtml(error.code)}</p></details>` };
