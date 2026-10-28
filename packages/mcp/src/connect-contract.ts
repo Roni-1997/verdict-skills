@@ -18,6 +18,7 @@ export type ConsumerLighterScope = z.infer<typeof ConsumerLighterScope>;
 export const LighterRegistration = z.object({ enrollmentId: z.string().uuid(), revision: Digest, owner: ConnectAddress,
   network: z.literal('testnet'), chainId: z.literal(300), accountIndex: Id, apiKeyIndex: Id.min(5).max(254),
   publicKey: z.string().regex(/^(?:0x)?[0-9a-fA-F]{80}$/), nonce: Id,
+  replacesPublicKey: z.string().regex(/^(?:0x)?[0-9a-fA-F]{80}$/).optional(),
   message: z.string().min(1).max(8192), expiresAt: Time,
 }).strict();
 export type LighterRegistration = z.infer<typeof LighterRegistration>;

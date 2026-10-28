@@ -466,6 +466,8 @@ class Provisioner:
             result.update({k: record[k] for k in ("account", "apiKeyIndex", "publicKey")})
             if record["state"] == "signature_required":
                 result.update(message=record["message"], expiresAt=record["expiresAt"], nonce=record["nonce"], chainId=300)
+                if "replacesPublicKey" in record:
+                    result["replacesPublicKey"] = record["replacesPublicKey"]
         else:
             result["reason"] = "Enrollment is blocked; the original account/key must be reconciled."
         return result
@@ -491,7 +493,11 @@ class Provisioner:
     def _registration(self, record):
         self.venue.verify_owner(record["account"], record["owner"])
         current = self.venue.keys(record["account"]).get(record["apiKeyIndex"])
-        if current is not None and not empty_key(current) and current != record["publicKey"]:
+        if "replacesPublicKey" in record:
+            self._unused_expired_grant(record)
+            if (current or "0x" + "0" * 80) != record["replacesPublicKey"]:
+                raise BrokerError("Hosted key changed after restoration review; nothing replaced")
+        elif current is not None and not empty_key(current) and current != record["publicKey"]:
             record["state"] = "blocked"
             record = self._save(record)
             return record
@@ -504,7 +510,10 @@ class Provisioner:
         record["nonce"] = self.venue.nonce(record["account"], record["apiKeyIndex"])
         record.update(self.venue.registration(record))
         record.update(state="signature_required", expiresAt=self.now() + 300_000)
-        record["revision"] = _hash({k: record[k] for k in ("id", "owner", "account", "apiKeyIndex", "publicKey", "nonce", "message", "expiresAt")})
+        fields = {k: record[k] for k in ("id", "owner", "account", "apiKeyIndex", "publicKey", "nonce", "message", "expiresAt")}
+        if "replacesPublicKey" in record:
+            fields["replacesPublicKey"] = record["replacesPublicKey"]
+        record["revision"] = _hash(fields)
         record = self._save(record)
         return record
 
@@ -518,6 +527,16 @@ class Provisioner:
         return record
 
     def _reconcile(self, record):
+        if record["state"] == "ready":
+            self.venue.verify_owner(record["account"], record["owner"])
+            current = self.venue.keys(record["account"]).get(record["apiKeyIndex"])
+            if current != record["publicKey"]:
+                if "plan" not in record or record["plan"]["expiresAt"] > self.now():
+                    raise BrokerError("Changed hosted key requires expired unused authority before restoration")
+                self._unused_expired_grant(record)
+                record["replacesPublicKey"] = current or "0x" + "0" * 80
+                record.pop("registrationSignature", None)
+                return self._registration(record)
         if record["state"] == "funding_required" and record.get("faucetClaimed"):
             return self._prepare_key(record)
         if record["state"] == "funding_required" and record["expiresAt"] <= self.now():
@@ -534,7 +553,7 @@ class Provisioner:
             if key == record["publicKey"] and self.venue.ready(record):
                 record["state"] = "ready"
                 record = self._save(record)
-            elif key is not None and not empty_key(key):
+            elif key is not None and not empty_key(key) and key != record.get("replacesPublicKey"):
                 record["state"] = "blocked"
                 record = self._save(record)
         return record
@@ -609,7 +628,11 @@ class Provisioner:
                 raise BrokerError("Private registration is unavailable")
             self.venue.verify_owner(record["account"], record["owner"])
             current = self.venue.keys(record["account"]).get(record["apiKeyIndex"])
-            if current is not None and not empty_key(current) and current != record["publicKey"]:
+            if "replacesPublicKey" in record:
+                self._unused_expired_grant(record)
+                if (current or "0x" + "0" * 80) != record["replacesPublicKey"]:
+                    raise BrokerError("Hosted key changed after restoration review; nothing replaced")
+            elif current is not None and not empty_key(current) and current != record["publicKey"]:
                 raise BrokerError("Hosted key slot is occupied; nothing replaced")
             if self.venue.funding_required(record["account"], record["owner"]):
                 if record.get("faucetClaimed"):

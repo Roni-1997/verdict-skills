@@ -425,7 +425,8 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         else if (setup.state === 'signature_required')
             state = { kind: 'owner_signature', registration: {
                     enrollmentId: setup.enrollmentId, revision: setup.revision, owner: setup.ownerWallet, network: setup.network, chainId: setup.chainId,
-                    accountIndex: setup.account, apiKeyIndex: setup.apiKeyIndex, publicKey: setup.publicKey, nonce: setup.nonce, message: setup.message, expiresAt: setup.expiresAt
+                    accountIndex: setup.account, apiKeyIndex: setup.apiKeyIndex, publicKey: setup.publicKey, nonce: setup.nonce, message: setup.message, expiresAt: setup.expiresAt,
+                    ...(setup.replacesPublicKey === undefined ? {} : { replacesPublicKey: setup.replacesPublicKey })
                 } };
         else if (setup.state === 'registering')
             state = { kind: 'registration_pending', enrollmentId: setup.enrollmentId };

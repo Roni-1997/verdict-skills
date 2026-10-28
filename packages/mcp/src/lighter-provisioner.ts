@@ -13,7 +13,8 @@ const Identity = { enrollmentId: Id, revision: Revision, network: z.literal('tes
 const Account = { account: NumberId, apiKeyIndex: NumberId.min(5).max(254), publicKey: z.string().regex(/^(?:0x)?[a-fA-F0-9]{80}$/) };
 export const ProvisionerSetup = z.discriminatedUnion('state', [
   z.object({ ...Identity, state: z.literal('funding_required'), message: z.string().min(1).max(8192), expiresAt: NumberId }).strict(),
-  z.object({ ...Identity, ...Account, state: z.literal('signature_required'), nonce: NumberId, chainId: z.literal(300), message: z.string().min(1).max(8192), expiresAt: NumberId }).strict(),
+  z.object({ ...Identity, ...Account, state: z.literal('signature_required'), nonce: NumberId, chainId: z.literal(300), message: z.string().min(1).max(8192), expiresAt: NumberId,
+    replacesPublicKey: Account.publicKey.optional() }).strict(),
   z.object({ ...Identity, ...Account, state: z.literal('registering') }).strict(),
   z.object({ ...Identity, ...Account, state: z.literal('ready') }).strict(),
   z.object({ ...Identity, state: z.literal('blocked'), reason: z.string().min(1).max(1000) }).strict(),

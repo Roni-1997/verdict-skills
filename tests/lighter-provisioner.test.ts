@@ -26,6 +26,13 @@ it('rejects permissive socket state without contacting the private service', asy
   const { client, requests, socketPath } = await fixture(null); await chmod(socketPath, 0o666);
   await expect(client.binding(subject)).rejects.toMatchObject({ code: 'lighter_setup_unavailable' }); expect(requests).toEqual([]);
 });
+it('preserves a public restoration review without accepting caller-selected replacement keys', async () => {
+  const setup = { enrollmentId, revision: 'a'.repeat(64), network: 'testnet', ownerWallet: owner, state: 'signature_required', account: 42,
+    apiKeyIndex: 5, publicKey: `0x${'2'.repeat(80)}`, replacesPublicKey: `0x${'3'.repeat(80)}`, nonce: 7, chainId: 300, message: 'Official-message fixture', expiresAt: Date.now() + 60_000 };
+  const { client, requests } = await fixture(setup);
+  expect(await client.setup({ operation: 'resume', subject, walletAddress: owner })).toEqual(setup);
+  expect(requests).toEqual([{ operation: 'resume', subject, walletAddress: owner }]);
+});
 it('fails closed for bindings outside the configured shared root, another subject or browser slot4', async () => {
   const { client, requests, root } = await fixture(null);
   // The server remains fixed; vary only its test-only response writer.

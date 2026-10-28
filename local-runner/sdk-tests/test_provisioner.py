@@ -58,7 +58,7 @@ class Venue:
         return {"privateKey": "synthetic-private-api-key", "publicKey": PUBLIC}
 
     def registration(self, record):
-        message = ("Register Lighter Account\n\npubkey: " + record["publicKey"] + "\nnonce: 0x0000000000000007\naccount index: 0x000000000000002a"
+        message = ("Register Lighter Account\n\npubkey: " + record["publicKey"] + "\nnonce: 0x" + format(record["nonce"], "016x") + "\naccount index: 0x000000000000002a"
                    + "\napi key index: 0x" + format(record["apiKeyIndex"], "016x") + "\nOnly sign this message for a trusted client!")
         return {"txType": 8, "txInfo": json.dumps({"AccountIndex": 42}), "txHash": "synthetic-hash", "message": message}
 
@@ -364,6 +364,76 @@ class ProvisionerTest(unittest.TestCase):
         self.assertEqual((self.venue.sends, self.venue.faucets), (1, 0))
         with self.assertRaises(BrokerError):
             self.call("resume", walletAddress=OTHER.address.lower())
+
+    def test_changed_key_restoration_preserves_account_key_and_expired_authority(self):
+        old_plan, old_request, binding = self.activate()
+        original = self.service.vault.read("did:privy:synthetic")
+        self.venue.slots[5] = replacement = "0x" + "3" * 80
+        with self.assertRaises(BrokerError):
+            self.call("resume", walletAddress=OWNER)
+        self.now += 3601
+        self.venue.nonce = lambda *_: 8
+        self.venue.generate = Mock(side_effect=AssertionError("never replace the saved key"))
+        view = self.call("resume", walletAddress=OWNER)
+        self.assertEqual(view["state"], "signature_required")
+        self.assertEqual(view["replacesPublicKey"], replacement)
+        for field, source in (("enrollmentId", "id"), ("account", "account"), ("apiKeyIndex", "apiKeyIndex"), ("publicKey", "publicKey")):
+            self.assertEqual(view[field], original[source])
+        self.assertEqual(self.venue.sends, 1)
+        self.assertEqual(self.call("status", enrollmentId=view["enrollmentId"]), view)
+        with self.assertRaises(BrokerError):
+            self.call("register", enrollmentId=view["enrollmentId"], revision=view["revision"], signature=original["registrationSignature"])
+        request = {"enrollmentId": view["enrollmentId"], "revision": view["revision"], "signature": sign(view["message"])}
+        self.assertEqual(self.call("register", **request)["state"], "ready")
+        self.assertEqual(self.call("register", **request)["state"], "ready")
+        current = self.service.vault.read("did:privy:synthetic")
+        self.assertEqual(current["privateKey"], original["privateKey"])
+        self.assertEqual(current["plan"], old_plan)
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertEqual((self.venue.sends, self.venue.faucets), (2, 0))
+        with self.service._store(current) as store:
+            self.assertEqual(PolicyAuthority(store, binding["grantId"], clock=lambda: self.now).describe()["newRisk"], "expired")
+
+    def test_restoration_rejects_changed_registry_nonce_owner_and_history_without_sending(self):
+        plan, _, _ = self.activate()
+        self.now += 3601
+        self.venue.slots[5] = "0x" + "3" * 80
+        view = self.call("resume", walletAddress=OWNER)
+        request = {"enrollmentId": view["enrollmentId"], "revision": view["revision"], "signature": sign(view["message"])}
+        self.venue.slots[5] = "0x" + "4" * 80
+        with self.assertRaises(BrokerError):
+            self.call("register", **request)
+        self.venue.slots[5] = view["replacesPublicKey"]
+        self.venue.nonce = lambda *_: 8
+        with self.assertRaises(BrokerError):
+            self.call("register", **request)
+        self.venue.nonce = lambda *_: 7
+        self.venue.owner = OTHER.address.lower()
+        with self.assertRaises(BrokerError):
+            self.call("register", **request)
+        self.venue.owner = OWNER
+        record = self.service.vault.read("did:privy:synthetic")
+        with self.service._store(record) as store:
+            store.append("a" * 64, {"type": "synthetic_history"})
+        with self.assertRaises(BrokerError):
+            self.call("register", **request)
+        self.assertEqual((self.venue.sends, self.venue.faucets), (1, 0))
+
+    def test_uncertain_restoration_keeps_same_review_and_never_resends(self):
+        self.activate()
+        self.now += 3601
+        self.venue.slots[5] = "0x" + "3" * 80
+        view = self.call("resume", walletAddress=OWNER)
+        self.venue.accept, self.venue.lost = False, True
+        request = {"enrollmentId": view["enrollmentId"], "revision": view["revision"], "signature": sign(view["message"])}
+        self.assertEqual(self.call("register", **request)["state"], "registering")
+        self.now += 301
+        for _ in range(2):
+            self.assertEqual(self.call("register", **request)["state"], "registering")
+            self.assertEqual(self.call("resume", walletAddress=OWNER)["state"], "registering")
+        self.assertEqual(self.venue.sends, 2)
+        self.venue.slots[5] = PUBLIC
+        self.assertEqual(self.call("status", enrollmentId=view["enrollmentId"])["state"], "ready")
 
     def test_expired_unused_limits_renew_only_after_a_fresh_exact_signature(self):
         old_plan, old_request, old_binding = self.activate()
