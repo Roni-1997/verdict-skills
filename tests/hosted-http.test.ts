@@ -186,6 +186,7 @@ it('queues an exact browser review without sending and blocks bearer-token or cr
   const other = new ReviewBrowser();
   expect((await other.login(approval.approvalUrl, 'bob')).status).toBe(404);
   const review = await browser.login(approval.approvalUrl, 'alice'); expect(review.status).toBe(200);
+  expect(review.headers.get('referrer-policy')).toBe('same-origin');
   expect(review.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
   const html = await review.text(); expect(html).toContain(proposals.alice.digest);
   const match = /name="csrf" value="([^"]+)"/.exec(html); if (!match?.[1]) throw new Error('Missing review CSRF'); csrf = match[1];
@@ -195,8 +196,10 @@ it('queues an exact browser review without sending and blocks bearer-token or cr
 it('requires the signed-in exact-origin CSRF form and consumes concurrent confirmations once through SDK and broker', async () => {
   expect((await browser.confirm(approval.approvalUrl, 'invalid')).status).toBe(403);
   expect((await browser.confirm(approval.approvalUrl, csrf, 'confirm', 'https://wrong.invalid')).status).toBe(403);
+  expect((await browser.confirm(approval.approvalUrl, csrf, 'confirm', 'null')).status).toBe(403);
   expect((await browser.confirm(approval.approvalUrl, 'invalid', 'refresh')).status).toBe(403);
   expect((await browser.confirm(approval.approvalUrl, csrf, 'refresh', 'https://wrong.invalid')).status).toBe(403);
+  expect((await browser.confirm(approval.approvalUrl, csrf, 'refresh', 'null')).status).toBe(403);
   const beforeRefresh = await remainingOrders();
   expect((await browser.confirm(approval.approvalUrl, csrf, 'refresh')).status).toBe(409);
   expect(await remainingOrders()).toBe(beforeRefresh);

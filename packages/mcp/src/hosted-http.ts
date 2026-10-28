@@ -139,7 +139,7 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
 }
 function page(res: ServerResponse, title: string, content: string, status = 200): void {
   const nonce = randomBytes(18).toString('base64url');
-  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer',
+  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'same-origin',
     'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY',
     'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
   });
