@@ -2,7 +2,7 @@
   "name": "verdict-skills",
   "private": true,
   "version": "0.0.0",
-  "description": "Verdict agent kit: one typed tool module over the cross-venue engine, shipped as a CLI, a skill file and an MCP server, with builder-code order routing",
+  "description": "Verdict's Lighter agent kit: market research, trade review, operator approval, and SDK execution through CLI, skill, and MCP",
   "type": "module",
   "packageManager": "pnpm@10.34.5",
   "engines": {
@@ -22,15 +22,22 @@
     "sync:engine": "node scripts/sync-engine.mjs",
     "sync:api": "node scripts/sync-api-contract.mjs",
     "bench:static": "node scripts/skill-static-check.mjs skills/verdict && node scripts/skill-static-check.mjs skills/verdict-lighter",
-    "bench": "bash scripts/bench.sh"
+    "bench": "bash scripts/bench.sh",
+    "build:vercel:public": "pnpm -r run build && node scripts/build-public-vercel.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.8",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@types/express": "5.0.5",
     "@types/node": "22.15.3",
+    "@types/pg": "8.23.1",
     "@verdict/engine": "workspace:*",
+    "esbuild": "0.28.2",
+    "jose": "6.2.12",
+    "pg": "8.23.1",
     "typescript": "5.9.2",
+    "viem": "2.55.13",
     "vitest": "4.1.12",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
   }
 }

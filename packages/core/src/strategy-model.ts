@@ -25,11 +25,11 @@ export const PairedSnapshot = z.object({
   version: z.literal(1), kind: z.literal('paired_books'), pair: StrategyPair, capturedAt: Epoch,
   hl: z.object({
     network: z.enum(['testnet', 'mainnet']), outcome: HlId, title: z.string().max(10_000), rule: z.string().max(50_000).nullable(),
-    sideNames: z.tuple([z.string(), z.string()]), quoteToken: z.string().max(80), expiresAt: Epoch.nullable(),
+    sideNames: z.array(z.string()).length(2).pipe(z.tuple([z.string(), z.string()])), quoteToken: z.string().max(80), expiresAt: Epoch.nullable(),
     asks: Asks, sourceAt: z.object({ yes: Epoch, no: Epoch }).strict(), clock: Clock, knownBuilderBps: StrategyDecimal.nullable(),
   }).strict(),
   lighter: z.object({
-    network: z.enum(['devnet', 'mainnet']), market: LighterId, creator: z.number().int().nonnegative().safe(),
+    network: z.enum(['devnet', 'testnet', 'mainnet']), market: LighterId, creator: z.number().int().nonnegative().safe(),
     title: z.string().max(10_000), rule: z.string().max(50_000).nullable(), startsAt: Epoch, expiresAt: Epoch,
     active: z.boolean(), asks: Asks, clock: Clock, sourceAt: z.null(), depthTruncated: z.boolean(),
     sizeDecimals: z.number().int().min(0).max(12),
@@ -49,33 +49,33 @@ export type StrategySnapshot = z.infer<typeof StrategySnapshot>;
 
 export const StrategyPolicy = z.object({
   maxCapitalUSDC: StrategyDecimal, maxUnhedgedLossUSDC: StrategyDecimal,
-  minNetCentsPerShare: StrategyDecimal.default('0'),
-  maxAgeMs: z.number().int().min(1).max(60_000).default(5000),
-  maxSkewMs: z.number().int().min(0).max(60_000).default(2000),
+  minNetCentsPerShare: StrategyDecimal.prefault('0'),
+  maxAgeMs: z.number().int().min(1).max(60_000).prefault(5000),
+  maxSkewMs: z.number().int().min(0).max(60_000).prefault(2000),
 }).strict();
 const Assumptions = z.object({
-  relationship: z.enum(['unreviewed', 'same_event_same_orientation', 'same_event_reversed_orientation']).default('unreviewed'),
+  relationship: z.enum(['unreviewed', 'same_event_same_orientation', 'same_event_reversed_orientation']).prefault('unreviewed'),
   hlAllInTakerBpsCap: StrategyDecimal.refine((s) => Number(s) <= 10_000, 'fee cap must be <= 10000 bps').optional(),
-  extraCostUSDC: StrategyDecimal.default('0'),
+  extraCostUSDC: StrategyDecimal.prefault('0'),
 }).strict();
 const AssessFields = {
   shares: Shares, policy: StrategyPolicy,
-  assumptions: Assumptions.default({ relationship: 'unreviewed', extraCostUSDC: '0' }),
+  assumptions: Assumptions.prefault({ relationship: 'unreviewed', extraCostUSDC: '0' }),
 };
 const Inventory = z.object({ yes: StrategyDecimal, no: StrategyDecimal }).strict();
 const Inventories = z.object({ hl: Inventory, lighter: Inventory }).strict();
 export const STRATEGY_INPUTS = {
-  discover_pairs: z.object({ outcome: HlId, limit: z.number().int().min(1).max(50).default(10), cursor: z.number().int().nonnegative().safe().optional() }).strict(),
-  snapshot: z.object({ outcome: HlId, market: LighterId.optional(), bookLimit: z.number().int().min(1).max(250).default(100) }).strict(),
+  discover_pairs: z.object({ outcome: HlId, limit: z.number().int().min(1).max(50).prefault(10), cursor: z.number().int().nonnegative().safe().optional() }).strict(),
+  snapshot: z.object({ outcome: HlId, market: LighterId.optional(), bookLimit: z.number().int().min(1).max(250).prefault(100) }).strict(),
   assess_pair: z.object({ snapshot: StrategySnapshot, at: Epoch, ...AssessFields }).strict(),
   scan_pairs: z.object({ pairs: z.array(StrategyPair).min(1).max(8), ...AssessFields }).strict(),
   paper_pair: z.object({ snapshot: PairedSnapshot, at: Epoch, ...AssessFields, direction: z.enum(['hl_yes', 'hl_no']), fills: z.object({ hl: StrategyDecimal, lighter: StrategyDecimal }).strict() }).strict(),
   reconcile_pair: z.object({
-    pair: StrategyPair, networks: z.object({ hl: z.enum(['testnet', 'mainnet']), lighter: z.enum(['devnet', 'mainnet']) }).strict(),
+    pair: StrategyPair, networks: z.object({ hl: z.enum(['testnet', 'mainnet']), lighter: z.enum(['devnet', 'testnet', 'mainnet']) }).strict(),
     at: Epoch, expected: Inventories,
     observed: z.object({ hl: Inventory.extend({ observedAt: Epoch }).strict(), lighter: Inventory.extend({ observedAt: Epoch }).strict() }).strict(),
-    maxAgeMs: z.number().int().min(1).max(60_000).default(5000),
-    relationship: z.enum(['unreviewed', 'same_event_same_orientation', 'same_event_reversed_orientation']).default('unreviewed'),
+    maxAgeMs: z.number().int().min(1).max(60_000).prefault(5000),
+    relationship: z.enum(['unreviewed', 'same_event_same_orientation', 'same_event_reversed_orientation']).prefault('unreviewed'),
   }).strict(),
   venue_health: z.object({ outcome: HlId, market: LighterId }).strict(),
 };

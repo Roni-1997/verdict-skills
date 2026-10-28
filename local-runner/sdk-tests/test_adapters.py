@@ -91,6 +91,23 @@ class HLSDKTest(unittest.TestCase):
         adapter = Hyperliquid(HL, wallet=Account.create(), http=http)
         self.assertTrue(adapter.submit(HL, "a" * 64, Preflight("0", "100", "0", {}, time.time())).rejected)
 
+    def test_revocation_after_signing_blocks_hl_transport(self):
+        from hyperliquid.utils.signing import sign_l1_action
+        http = Mock()
+        adapter = Hyperliquid(HL, wallet=Account.create(), http=http)
+        signed = []
+        def sign(*args):
+            result = sign_l1_action(*args)
+            signed.append(True)
+            return result
+        def guard():
+            self.assertEqual(signed, [True])
+            raise BrokerError("Grant revoked")
+        with patch("hyperliquid.utils.signing.sign_l1_action", side_effect=sign):
+            with self.assertRaisesRegex(BrokerError, "revoked"):
+                adapter.submit(HL, "a" * 64, Preflight("0", "100", "0", {}, time.time(), before_transport=guard))
+        http.request.assert_not_called()
+
     def test_unknown_order_never_becomes_rejection(self):
         adapter = Hyperliquid(HL, wallet=Account.create(), http=Mock())
         adapter.inventory = lambda _: (D(0), D(0), D(100))
@@ -130,11 +147,17 @@ class LighterSDKTest(unittest.TestCase):
     def test_adapter_constructor_passes_chain_not_hostname_inference(self):
         private, _, error = lighter.create_api_key()
         self.assertIsNone(error)
-        with patch.dict("os.environ", {"VERDICT_LIGHTER_API_PRIVATE_KEY": private}):
-            adapter = Lighter(LIGHTER)
-            try:
-                self.assertEqual(adapter.signer.chain_id, 300)
-            finally: adapter.close()
+        for network, host, chain in [
+            ("devnet", "https://devnet.zklighter.elliot.ai", 300),
+            ("testnet", "https://testnet.zklighter.elliot.ai", 300),
+            ("mainnet", "https://mainnet.zklighter.elliot.ai", 304),
+        ]:
+            with self.subTest(network=network), patch.dict("os.environ", {"VERDICT_LIGHTER_API_PRIVATE_KEY": private}):
+                adapter = Lighter({**LIGHTER, "network": network})
+                try:
+                    self.assertEqual(adapter.host, host)
+                    self.assertEqual(adapter.signer.chain_id, chain)
+                finally: adapter.close()
 
     def test_deadline_after_slow_native_nonce_signing_prevents_transport(self):
         private, _, _ = lighter.create_api_key()
@@ -164,6 +187,25 @@ class LighterSDKTest(unittest.TestCase):
         try:
             adapter.cancel(LIGHTER, "abcdef012345" + "0" * 52, Receipt(order_id="999999999999999"))
             self.assertEqual(signer.args, {"market_index": 4555, "order_index": int("abcdef012345", 16), "api_key_index": 2})
+        finally: adapter.close()
+
+    def test_revocation_after_native_signing_blocks_lighter_transport(self):
+        private, _, _ = lighter.create_api_key()
+        with patch.dict("os.environ", {"VERDICT_LIGHTER_API_PRIVATE_KEY": private}):
+            adapter = Lighter(LIGHTER)
+        signed = []
+        def sign(*args, **kwargs):
+            signed.append(True)
+            return 14, '{}', 'public-hash', None
+        def guard():
+            self.assertEqual(signed, [True])
+            raise BrokerError("Grant revoked")
+        try:
+            with patch.object(adapter.signer, "sign_create_order", side_effect=sign), patch.object(lighter.SignerClient, "send_tx", new_callable=AsyncMock) as transport:
+                with self.assertRaisesRegex(BrokerError, "revoked"):
+                    adapter.submit(LIGHTER, "a" * 64, Preflight("0", "100", "0", {"market_index": 4555, "client_order_index": 777, "base_amount": 100000, "price": 6000, "is_ask": True, "order_type": 0, "time_in_force": 0}, time.time(), before_transport=guard))
+                transport.assert_not_called()
+            self.assertIsNone(adapter.before_transport)
         finally: adapter.close()
 
     def test_private_order_terminal_cancellation_variants_reconcile(self):
@@ -241,6 +283,21 @@ class PolySDKTest(unittest.TestCase):
         leg = {**POLY, "shares": "10.001"}
         with self.assertRaises(BrokerError):
             self.adapter.submit(leg, "a" * 64, Preflight("0", "100", "0.1", {}, time.time()))
+        self.assertFalse(self.posts)
+
+    def test_revocation_after_signing_blocks_polymarket_transport(self):
+        original = self.client.create_limit_order
+        signed = []
+        def sign(**kw):
+            result = original(**kw)
+            signed.append(True)
+            return result
+        def guard():
+            self.assertEqual(signed, [True])
+            raise BrokerError("Grant revoked")
+        with patch.object(self.client, "create_limit_order", side_effect=sign):
+            with self.assertRaisesRegex(BrokerError, "revoked"):
+                self.adapter.submit(POLY, "a" * 64, Preflight("0", "100", "0", {}, time.time(), before_transport=guard))
         self.assertFalse(self.posts)
 
     def test_all_supported_tifs_use_official_posting_policy(self):

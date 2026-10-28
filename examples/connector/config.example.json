@@ -1,0 +1,39 @@
+{
+  "publicOrigin": "https://mcp.verdict.example",
+  "issuer": "https://YOUR_TENANT.us.auth0.com/",
+  "browserClientId": "YOUR_BROWSER_CLIENT_ID",
+  "browserClientSecretEnv": "VERDICT_CONNECTOR_BROWSER_CLIENT_SECRET",
+  "approvalTtlSeconds": 300,
+  "allowInsecureLocalhost": false,
+  "bindings": [
+    {
+      "id": "operator-provisioned-account",
+      "subject": "auth0|REPLACE_WITH_VERIFIED_SUBJECT",
+      "enabled": false,
+      "mode": "per_order",
+      "grantId": "00000000-0000-4000-8000-000000000000",
+      "accounts": [
+        {
+          "venue": "lighter",
+          "network": "testnet",
+          "account": 42,
+          "apiKeyIndex": 2
+        }
+      ],
+      "execution": {
+        "kind": "local_socket",
+        "socketPath": "/run/verdict-broker/account/broker.sock"
+      }
+    }
+  ],
+  "storage": {
+    "kind": "local",
+    "stateDir": "/var/lib/verdict-connector/jobs"
+  },
+  "lighter": {
+    "network": "testnet",
+    "creators": [
+      7
+    ]
+  }
+}

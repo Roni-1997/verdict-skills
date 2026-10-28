@@ -56,21 +56,27 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
     },
   );
 
+  registerResearchTools(server, config, tools);
+  return server;
+}
+
+/** One registration surface for public research and authenticated account connections. */
+export function registerResearchTools(server: McpServer, config: KitConfig, tools: Tools = toolsFromConfig(config), metadata?: Record<string, unknown>): void {
   const annot = (name: keyof Tools) => ({ title: TOOL_DOCS[name].title, readOnlyHint: TOOL_DOCS[name].readOnly, destructiveHint: false, openWorldHint: true });
 
   server.registerTool(
     'list_markets',
-    { description: TOOL_DOCS.list_markets.description, inputSchema: { venue: z.string().optional(), includeExpired: z.boolean().optional() }, annotations: annot('list_markets') },
+    { description: TOOL_DOCS.list_markets.description, inputSchema: { venue: z.string().optional(), includeExpired: z.boolean().optional() }, annotations: annot('list_markets'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.list_markets(input)),
   );
   server.registerTool(
     'get_market',
-    { description: TOOL_DOCS.get_market.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('get_market') },
+    { description: TOOL_DOCS.get_market.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('get_market'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.get_market(input)),
   );
   server.registerTool(
     'orderbook',
-    { description: TOOL_DOCS.orderbook.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('orderbook') },
+    { description: TOOL_DOCS.orderbook.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('orderbook'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.orderbook(input)),
   );
   server.registerTool(
@@ -78,38 +84,38 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
     {
       description: TOOL_DOCS.quote.description,
       inputSchema: { outcome: z.number().int().nonnegative(), side: Side, action: Action, size: z.number().positive() },
-      annotations: annot('quote'),
+      annotations: annot('quote'), ...(metadata ? { _meta: metadata } : {}),
     },
     (input) => run(() => tools.quote(input)),
   );
   server.registerTool(
     'compare_market',
-    { description: TOOL_DOCS.compare_market.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('compare_market') },
+    { description: TOOL_DOCS.compare_market.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('compare_market'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.compare_market(input)),
   );
   server.registerTool(
     'fair_value',
-    { description: TOOL_DOCS.fair_value.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('fair_value') },
+    { description: TOOL_DOCS.fair_value.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('fair_value'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.fair_value(input)),
   );
   server.registerTool(
     'find_hedges',
-    { description: TOOL_DOCS.find_hedges.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('find_hedges') },
+    { description: TOOL_DOCS.find_hedges.description, inputSchema: { outcome: z.number().int().nonnegative() }, annotations: annot('find_hedges'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.find_hedges(input)),
   );
   server.registerTool(
     'opportunities',
-    { description: TOOL_DOCS.opportunities.description, inputSchema: { limit: z.number().int().min(1).max(8).optional() }, annotations: annot('opportunities') },
+    { description: TOOL_DOCS.opportunities.description, inputSchema: { limit: z.number().int().min(1).max(8).optional() }, annotations: annot('opportunities'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.opportunities(input)),
   );
   server.registerTool(
     'positions',
-    { description: TOOL_DOCS.positions.description, inputSchema: { address: Address }, annotations: annot('positions') },
+    { description: TOOL_DOCS.positions.description, inputSchema: { address: Address }, annotations: annot('positions'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.positions(input)),
   );
   server.registerTool(
     'recent_trades',
-    { description: TOOL_DOCS.recent_trades.description, inputSchema: { outcome: z.number().int().nonnegative(), side: Side.optional() }, annotations: annot('recent_trades') },
+    { description: TOOL_DOCS.recent_trades.description, inputSchema: { outcome: z.number().int().nonnegative(), side: Side.optional() }, annotations: annot('recent_trades'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.recent_trades(input)),
   );
   server.registerTool(
@@ -122,18 +128,18 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
         interval: z.enum(CANDLE_INTERVALS).describe("one of Hyperliquid's candle intervals"),
         lookbackMinutes: z.number().int().min(1).max(MAX_LOOKBACK_MINUTES).describe('window ending now, in minutes'),
       },
-      annotations: annot('candles'),
+      annotations: annot('candles'), ...(metadata ? { _meta: metadata } : {}),
     },
     (input) => run(() => tools.candles(input)),
   );
   server.registerTool(
     'fills',
-    { description: TOOL_DOCS.fills.description, inputSchema: { address: Address }, annotations: annot('fills') },
+    { description: TOOL_DOCS.fills.description, inputSchema: { address: Address }, annotations: annot('fills'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.fills(input)),
   );
   server.registerTool(
     'open_orders',
-    { description: TOOL_DOCS.open_orders.description, inputSchema: { address: Address }, annotations: annot('open_orders') },
+    { description: TOOL_DOCS.open_orders.description, inputSchema: { address: Address }, annotations: annot('open_orders'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.open_orders(input)),
   );
   server.registerTool(
@@ -141,18 +147,18 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
     {
       description: TOOL_DOCS.order_status.description,
       inputSchema: { address: Address, oid: z.union([z.number().int().nonnegative(), Cloid]).describe('order id, or client order id as 0x + 32 hex') },
-      annotations: annot('order_status'),
+      annotations: annot('order_status'), ...(metadata ? { _meta: metadata } : {}),
     },
     (input) => run(() => tools.order_status(input)),
   );
   server.registerTool(
     'builder_status',
-    { description: TOOL_DOCS.builder_status.description, inputSchema: { address: Address }, annotations: annot('builder_status') },
+    { description: TOOL_DOCS.builder_status.description, inputSchema: { address: Address }, annotations: annot('builder_status'), ...(metadata ? { _meta: metadata } : {}) },
     (input) => run(() => tools.builder_status(input)),
   );
   server.registerTool(
     'approve_builder_fee_payload',
-    { description: TOOL_DOCS.approve_builder_fee_payload.description, inputSchema: {}, annotations: annot('approve_builder_fee_payload') },
+    { description: TOOL_DOCS.approve_builder_fee_payload.description, inputSchema: {}, annotations: annot('approve_builder_fee_payload'), ...(metadata ? { _meta: metadata } : {}) },
     () => run(() => tools.approve_builder_fee_payload({})),
   );
   server.registerTool(
@@ -168,7 +174,7 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
         tif: z.enum(['Gtc', 'Ioc', 'Alo']).optional(),
         cloid: z.string().regex(/^0x[0-9a-fA-F]{32}$/).optional(),
       },
-      annotations: annot('build_order'),
+      annotations: annot('build_order'), ...(metadata ? { _meta: metadata } : {}),
     },
     (input) => run(() => tools.build_order({ ...input, cloid: input.cloid as `0x${string}` | undefined })),
   );
@@ -176,5 +182,4 @@ export function createServer(config: KitConfig = configFromEnv(), tools: Tools =
   registerPrompts(server, config);
   registerResources(server, tools);
 
-  return server;
 }

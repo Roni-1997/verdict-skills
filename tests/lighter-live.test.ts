@@ -18,7 +18,7 @@ it.skipIf(process.env.VERDICT_LIGHTER_LIVE !== '1').each(['devnet', 'mainnet'] a
     expect((await client.listTools()).tools).toHaveLength(9);
     const listed = await client.callTool({ name: 'lighter_list_markets', arguments: { limit: 100 } });
     expect(listed.isError).not.toBe(true);
-    const data = z.object({ network: z.literal(network), markets: z.array(z.object({ market_id: z.number() })).nonempty() }).parse(listed.structuredContent);
+    const data = z.object({ network: z.literal(network), markets: z.tuple([z.object({ market_id: z.number() })]).rest(z.object({ market_id: z.number() })) }).parse(listed.structuredContent);
     const market = data.markets[0].market_id;
     for (const name of ['get_market', 'orderbook', 'recent_trades']) {
       const result = await client.callTool({ name: `lighter_${name}`, arguments: { market } });

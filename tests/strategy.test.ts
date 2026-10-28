@@ -7,7 +7,7 @@ import { type KitConfig, type Market, MarketSchema, type Orderbook, type SideBoo
 import { CompareMarketResult } from '../packages/core/src/crossvenue.js';
 import { LighterClient, createLighterTools } from '../packages/core/src/lighter.js';
 import { createStrategyTools } from '../packages/core/src/strategy.js';
-import { PairedSnapshot, STRATEGY_DOCS } from '../packages/core/src/strategy-model.js';
+import { PairedSnapshot, STRATEGY_DOCS, STRATEGY_INPUTS } from '../packages/core/src/strategy-model.js';
 import { assessPair, paperPair, reconcilePair } from '../packages/core/src/strategy-analysis.js';
 import { runStrategyCli } from '../packages/cli/src/strategy.js';
 import { runCli } from '../packages/cli/src/index.js';
@@ -17,6 +17,23 @@ const NOW = 1792623100000; const EXPIRY = 1792623600000; const OUTCOME = 12891; 
 const fixture = (name: string): unknown => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
 const policy = { maxCapitalUSDC: '100', maxUnhedgedLossUSDC: '100' };
 const assumptions = { relationship: 'same_event_same_orientation', hlAllInTakerBpsCap: '10' };
+
+it('keeps omitted strategy assumptions unreviewed and never defaults unknown fee authority to zero', () => {
+  const example = z.record(z.string(), z.unknown()).parse(JSON.parse(readFileSync(new URL('../examples/strategy/assessment.json', import.meta.url), 'utf8')));
+  const request = { snapshot: example.snapshot, at: example.at, shares: '10', policy };
+  const parsed = STRATEGY_INPUTS.assess_pair.parse(request);
+  expect(parsed.assumptions).toEqual({ relationship: 'unreviewed', extraCostUSDC: '0' });
+  expect(parsed.policy).toMatchObject({ minNetCentsPerShare: '0', maxAgeMs: 5000, maxSkewMs: 2000 });
+  const assessed = assessPair(request);
+  if (assessed.kind === 'reference_only') throw new Error('Expected synthetic paired assessment');
+  expect(assessed.kind).toBe('blocked');
+  for (const direction of assessed.directions) {
+    expect(direction.kind).toBe('blocked'); expect(direction.reasons).toContain('settlement_relationship_unreviewed');
+    expect(direction.reasons).toContain('hl_all_in_fee_unknown'); expect(direction.conditionalNetUSDC).toBeNull();
+  }
+  expect(() => STRATEGY_INPUTS.assess_pair.parse({ ...request, assumptions: null })).toThrow();
+  expect(() => STRATEGY_INPUTS.assess_pair.parse({ ...request, assumptions: { approved: true } })).toThrow();
+});
 
 function sideBook(coin: string, asks: [number, number][], bid = 0.4): SideBook {
   return { coin, asks: asks.map(([px, sz]) => ({ px, sz, orders: 1 })), bids: [{ px: bid, sz: 100, orders: 1 }], bestAsk: asks[0]?.[0] ?? null, bestBid: bid, mid: null, time: NOW };
@@ -55,6 +72,17 @@ function direction(result: ReturnType<typeof assessPair>, id = 'hl_yes') {
 }
 
 describe('strategy snapshot and discovery', () => {
+  it('keeps explicit Lighter testnet in paired research without relabelling devnet', async () => {
+    const s = await snapshot();
+    const testnet = { ...s, hl: { ...s.hl, network: 'testnet' }, lighter: { ...s.lighter, network: 'testnet' } };
+    expect(PairedSnapshot.parse(testnet).lighter.network).toBe('testnet');
+    expect(assess(testnet)).toMatchObject({ networks: { hl: 'testnet', lighter: 'testnet' } });
+    expect(reconcilePair({ pair: testnet.pair, networks: { hl: 'testnet', lighter: 'testnet' }, at: NOW,
+      expected: { hl: { yes: '0', no: '0' }, lighter: { yes: '0', no: '0' } },
+      observed: { hl: { yes: '0', no: '0', observedAt: NOW }, lighter: { yes: '0', no: '0', observedAt: NOW } },
+    })).toMatchObject({ networks: { hl: 'testnet', lighter: 'testnet' } });
+    expect(() => PairedSnapshot.parse({ ...testnet, lighter: { ...testnet.lighter, network: 'unknown' } })).toThrow();
+  });
   it('captures actual adapter data, complements NO from bids, and retains both source clocks', async () => {
     const { tools } = harness(); const s = PairedSnapshot.parse(await tools.snapshot({ outcome: OUTCOME, market: MARKET }));
     expect(s.lighter.asks.no).toEqual([{ price: '0.54', shares: '5.0000' }, { price: '0.55', shares: '5.0000' }]);

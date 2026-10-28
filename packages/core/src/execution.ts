@@ -12,16 +12,17 @@ const Common = {
   side: z.enum(['yes', 'no']), action: z.enum(['buy', 'sell']), shares: Positive, limitPrice: Price,
   feeReserveUSDC: Money,
 };
+export const LighterExecutionLeg = z.object({ ...Common, venue: z.literal('lighter'), network: z.enum(['devnet', 'testnet', 'mainnet']),
+    account: z.number().int().nonnegative().safe(), apiKeyIndex: z.number().int().min(0).max(254),
+    market: z.number().int().nonnegative().safe(), creator: z.number().int().nonnegative().safe(), tif: z.enum(['ioc', 'gtc', 'post_only']),
+  }).strict();
 export const ExecutionLeg = z.discriminatedUnion('venue', [
   z.object({ ...Common, venue: z.literal('hl'), network: z.enum(['testnet', 'mainnet']), account: Address,
     outcome: z.number().int().min(0).max(999_999_999), tif: z.enum(['Ioc', 'Gtc', 'Alo']),
     builder: z.object({ address: Address, feeTenthsBp: z.number().int().min(0).max(10_000) }).strict(),
     allInFeeBpsCap: Money.refine((v) => Number(v) <= 10_000),
   }).strict(),
-  z.object({ ...Common, venue: z.literal('lighter'), network: z.enum(['devnet', 'mainnet']),
-    account: z.number().int().nonnegative().safe(), apiKeyIndex: z.number().int().min(0).max(254),
-    market: z.number().int().nonnegative().safe(), creator: z.number().int().nonnegative().safe(), tif: z.enum(['ioc', 'gtc', 'post_only']),
-  }).strict(),
+  LighterExecutionLeg,
   z.object({ ...Common, venue: z.literal('polymarket'), network: z.literal('polygon'), account: Address,
     shares: Positive.refine((v) => units(v) % (SCALE / 100n) === 0n, 'Polymarket shares must fit the pinned SDK 0.01 share grid'),
     marketId: z.string().regex(/^\d{1,20}$/),
@@ -30,14 +31,15 @@ export const ExecutionLeg = z.discriminatedUnion('venue', [
   }).strict(),
 ]);
 export type ExecutionLeg = z.infer<typeof ExecutionLeg>;
-const Legs = z.union([z.tuple([ExecutionLeg]), z.tuple([ExecutionLeg, ExecutionLeg])]);
+const LegTuple = z.union([z.tuple([ExecutionLeg]), z.tuple([ExecutionLeg, ExecutionLeg])]);
+const Legs = z.array(ExecutionLeg).min(1).max(2).transform((legs) => LegTuple.parse(legs));
 const Review = z.object({
   relationship: z.enum(['same_event_same_orientation', 'same_event_reversed_orientation']),
   notes: z.string().min(20).max(5000),
 }).strict();
-const Policy = z.object({ maxTotalDebitUSDC: Positive, maxLegDebitUSDC: Positive, minConditionalProfitUSDC: Money.default('0') }).strict();
-export const ExecutionRequest = z.object({ legs: Legs, policy: Policy, settlementReview: Review.nullable().default(null),
-  validForSeconds: z.number().int().min(30).max(3600).default(300) }).strict();
+const Policy = z.object({ maxTotalDebitUSDC: Positive, maxLegDebitUSDC: Positive, minConditionalProfitUSDC: Money.prefault('0') }).strict();
+export const ExecutionRequest = z.object({ legs: Legs, policy: Policy, settlementReview: Review.nullable().prefault(null),
+  validForSeconds: z.number().int().min(30).max(3600).prefault(300) }).strict();
 const Epoch = z.number().int().nonnegative().max(8_640_000_000_000_000);
 const Payload = z.object({ version: z.literal(1), requestId: z.string().uuid(), createdAt: Epoch,
   expiresAt: Epoch, legs: Legs, policy: Policy, settlementReview: Review.nullable(),
@@ -91,7 +93,7 @@ function check(p: ExecutionProposal['payload']): void {
     if (profit <= 0n || profit < units(p.policy.minConditionalProfitUSDC)) throw new ToolError('Worst-limit conditional payoff does not clear the required profit after fee reserves', 'bad_input');
   } else if (p.settlementReview !== null) throw new ToolError('Settlement pair review applies only to two-leg requests', 'bad_input');
 }
-export function prepareExecution(value: unknown, now = Date.now(), requestId = randomUUID()): ExecutionProposal {
+export function prepareExecution(value: unknown, now = Date.now(), requestId: string = randomUUID()): ExecutionProposal {
   const p = parse(ExecutionRequest, value);
   const payload = parse(Payload, { version: 1, requestId, createdAt: now, expiresAt: now + p.validForSeconds * 1000, legs: p.legs, policy: p.policy, settlementReview: p.settlementReview, pairMode: 'sequential_full_first' });
   check(payload);
@@ -102,7 +104,7 @@ export function validateExecution(value: unknown): ExecutionProposal {
   if (executionDigest(p.payload) !== p.digest) throw new ToolError('Execution proposal changed; prepare it again and obtain new confirmation', 'bad_input');
   return p;
 }
-export function executionConfirmation(value: unknown) {
+export function executionConfirmation(value: unknown, environment: 'local' | 'hosted' = 'local') {
   const p = validateExecution(value);
   return { ...p, confirmation: [
     ...p.payload.legs.flatMap((l, i) => [
@@ -115,15 +117,17 @@ export function executionConfirmation(value: unknown) {
     `Policy: total debit cap ${p.payload.policy.maxTotalDebitUSDC}, per-leg debit cap ${p.payload.policy.maxLegDebitUSDC}, minimum conditional profit ${p.payload.policy.minConditionalProfitUSDC} USDC.`,
     ...(p.payload.settlementReview ? [`Operator settlement hypothesis ${p.payload.settlementReview.relationship}: ${p.payload.settlementReview.notes}`] : []),
     ...(p.payload.legs.length === 2 ? ['Non-atomic sequential execution: each order needs its own separate operator approval. The second order is sent only after a confirmed complete first fill, its own approval and fresh preflight. Declining the second order, or partial, uncertain or failed fills, can leave exposed inventory. Recovery orders require separate confirmation.'] : []),
-    'UNSIGNED. No account eligibility, balance, fee, contract-equivalence or fill guarantee. The local broker rechecks venue metadata, permissions and balances before signing. Fees are reserved estimates, not venue-enforced limits.',
-    `Digest ${p.digest}. Show all lines, end the message and wait for a real new reply. A digest identifies content, not human consent. Only the operator-owned local broker may sign after its separate confirmation interaction.`,
+    `UNSIGNED. No account eligibility, balance, fee, contract-equivalence or fill guarantee. The ${environment === 'hosted' ? 'private hosted' : 'local'} broker rechecks venue metadata, permissions and balances before signing. Fees are reserved estimates, not venue-enforced limits.`,
+    environment === 'hosted'
+      ? `Digest ${p.digest}. In per-order mode only the independently signed-in review page can approve this exact order; neither the agent nor an MCP tool can approve it. Policy mode requires an explicitly selected, previously owner-approved bounded grant. Venue keys are held by the private hosted signer and are not exposed to your agent. Broker limits are application controls; Lighter API keys have broader venue powers. A digest identifies content, not authority.`
+      : `Digest ${p.digest}. In per-order mode, show all lines, end the message and wait for a real new reply; each order also needs exact operator-terminal confirmation. Policy mode requires a previously approved bounded operator grant. A digest identifies content, not authority. Only the operator-owned local broker may sign.`,
   ] };
 }
 export function executionCapabilities() {
   return { version: 1, hostedSigning: false, localBroker: 'local-runner/verdict_broker', venues: {
     hl: { networks: ['testnet', 'mainnet'], orders: ['Ioc', 'Gtc', 'Alo'], cancel: 'client order id', signing: 'official hyperliquid-python-sdk sign_l1_action' },
-    lighter: { networks: ['devnet', 'mainnet'], orders: ['ioc', 'gtc', 'post_only'], cancel: 'original client order index', signing: 'official lighter-sdk SignerClient' },
+    lighter: { networks: ['devnet', 'testnet', 'mainnet'], orders: ['ioc', 'gtc', 'post_only'], cancel: 'original client order index', signing: 'official lighter-sdk SignerClient' },
     polymarket: { networks: ['polygon'], orders: ['FAK', 'FOK', 'GTC', 'GTD'], cancel: 'order id', signing: 'official unified polymarket-client' },
-  }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first', orderApproval: 'each_order',
-  note: 'Capabilities describe implemented local adapters, not proof of funded live acceptance. Private account integration needs operator credentials. No automated market-equivalence guarantee or blanket strategy authorization.' };
+  }, pairs: ['hl/lighter', 'hl/polymarket', 'lighter/polymarket'], pairMode: 'sequential_full_first', orderApproval: 'operator_selected', executionModes: ['per_order', 'policy'], defaultMode: 'per_order',
+  note: 'Capabilities describe implemented local adapters, not proof of funded live acceptance. Private account integration needs operator credentials. Policy mode requires an existing bounded operator grant. No automated market-equivalence guarantee or blanket strategy authorization.' };
 }

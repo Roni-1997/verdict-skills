@@ -1,0 +1,35 @@
+{
+  "publicOrigin": "https://mcp.verdict.example",
+  "appOrigin": "https://staging.verdict.example",
+  "appNetwork": "lighter-testnet",
+  "privyAppId": "REPLACE_WITH_EXISTING_STAGING_PRIVY_APP_ID",
+  "privyVerificationKey": "REPLACE_WITH_EXISTING_PRIVY_APP_ES256_PUBLIC_SPKI_PEM_VERIFICATION_KEY",
+  "relaySecretEnv": "VERDICT_CONNECTOR_RELAY_SECRET",
+  "refreshTtlSeconds": 86400,
+  "profiles": [
+    {
+      "id": "operator-provisioned-testnet-account",
+      "enabled": false,
+      "mode": "per_order",
+      "grantId": "00000000-0000-4000-8000-000000000000",
+      "grantHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "accounts": [
+        {
+          "venue": "lighter",
+          "network": "testnet",
+          "account": 42,
+          "apiKeyIndex": 2
+        }
+      ],
+      "execution": {
+        "kind": "local_socket",
+        "socketPath": "/run/verdict-broker/account.sock"
+      }
+    }
+  ],
+  "storage": {
+    "kind": "local",
+    "stateDir": "/var/lib/verdict/authority",
+    "gatewayJobsDir": "/var/lib/verdict/jobs"
+  }
+}

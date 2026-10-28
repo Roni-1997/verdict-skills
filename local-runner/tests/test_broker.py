@@ -10,6 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from verdict_broker.authority import HumanAuthority
 from verdict_broker.core import Broker, BrokerError, Observation, Preflight, Receipt, Store, identity, json_load, node_call
 
 
@@ -45,8 +46,10 @@ class FakeAdapter:
         return self.check
 
     def submit(self, leg, client_id, check):
-        self.sent += 1
         self.on_submit()
+        if check.before_transport is not None:
+            check.before_transport()
+        self.sent += 1
         if self.lost:
             raise ConnectionError("signed-payload-secret")
         return Receipt(order_id="public-order-id")
@@ -69,7 +72,16 @@ class BrokerTest(unittest.TestCase):
         self.store = Store(self.root)
         self.p = proposal()
         self.a, self.b = FakeAdapter(), FakeAdapter()
-        self.broker = Broker(self.store, lambda l: self.a if l["venue"] == "hl" else self.b, poll_seconds=0)
+        self.authority = HumanAuthority(lambda _: True)
+        self.broker = Broker(self.store, lambda l: self.a if l["venue"] == "hl" else self.b, authority=self.authority, poll_seconds=0)
+
+    def approved_submit(self, p, confirm):
+        self.authority.confirm = confirm
+        return self.broker.submit(p)
+
+    def approved_cancel(self, p, index, confirm):
+        self.authority.confirm = confirm
+        return self.broker.cancel(p, index)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -78,7 +90,7 @@ class BrokerTest(unittest.TestCase):
         def check_fence():
             self.assertTrue(any(e["type"] == "attempt_started" and e["leg"] == 0 for e in self.store.read(self.p["digest"])))
         self.a.on_submit = check_fence
-        self.assertEqual(self.broker.submit(self.p, lambda _: True)["state"], "complete")
+        self.assertEqual(self.approved_submit(self.p, lambda _: True)["state"], "complete")
         self.assertEqual((self.a.sent, self.b.sent), (1, 1))
         self.assertTrue(self.a.closed and self.b.closed)
         raw = (self.root / (self.p["digest"] + ".jsonl")).read_text()
@@ -87,7 +99,7 @@ class BrokerTest(unittest.TestCase):
 
     def test_no_approval_no_submission(self):
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: False)
+            self.approved_submit(self.p, lambda _: False)
         self.assertEqual((self.a.sent, self.b.sent), (0, 0))
 
     def test_pair_requires_a_distinct_approval_for_each_order(self):
@@ -96,7 +108,7 @@ class BrokerTest(unittest.TestCase):
             approvals.append(review)
             self.assertEqual((self.a.sent, self.b.sent), (len(approvals) - 1, 0))
             return True
-        self.assertEqual(self.broker.submit(self.p, approve)["state"], "complete")
+        self.assertEqual(self.approved_submit(self.p, approve)["state"], "complete")
         self.assertEqual([r["leg"] for r in approvals], [0, 1])
         self.assertNotEqual(approvals[0]["approvalId"], approvals[1]["approvalId"])
         for i, review in enumerate(approvals):
@@ -110,10 +122,10 @@ class BrokerTest(unittest.TestCase):
         def approve(review):
             approvals.append(review)
             return len(approvals) == 1
-        result = self.broker.submit(self.p, approve)
+        result = self.approved_submit(self.p, approve)
         self.assertEqual((self.a.sent, self.b.sent), (1, 0))
         self.assertIn("not approved", result["blocked"])
-        self.broker.submit(self.p, lambda _: self.fail("existing attempt must only reconcile"))
+        self.approved_submit(self.p, lambda _: self.fail("existing attempt must only reconcile"))
         self.assertEqual(self.b.sent, 0)
 
     def test_second_order_is_rechecked_after_its_human_approval(self):
@@ -123,13 +135,13 @@ class BrokerTest(unittest.TestCase):
             if len(approvals) == 2:
                 self.b.fail_preflight = True
             return True
-        result = self.broker.submit(self.p, approve)
+        result = self.approved_submit(self.p, approve)
         self.assertEqual((self.a.sent, self.b.sent), (1, 0))
         self.assertIn("blocked", result)
 
     def test_single_order_still_requires_exactly_one_approval(self):
         approvals = []
-        result = self.broker.submit(proposal(False), lambda review: approvals.append(review) or True)
+        result = self.approved_submit(proposal(False), lambda review: approvals.append(review) or True)
         self.assertEqual(result["state"], "complete")
         self.assertEqual(len(approvals), 1)
         self.assertEqual(approvals[0]["leg"], 0)
@@ -147,38 +159,38 @@ class BrokerTest(unittest.TestCase):
             if review["leg"] == 1:
                 self.broker.clock = lambda: self.p["payload"]["expiresAt"] / 1000
             return True
-        result = self.broker.submit(self.p, approve)
+        result = self.approved_submit(self.p, approve)
         self.assertEqual((self.a.sent, self.b.sent), (1, 0))
         self.assertIn("blocked", result)
 
     def test_partial_first_halts(self):
         self.a.filled = self.a.inventory = "4"
         self.a.state = "canceled"
-        status = self.broker.submit(self.p, lambda _: True)
+        status = self.approved_submit(self.p, lambda _: True)
         self.assertEqual(status["legs"][0]["netInventoryChange"], "4")
         self.assertEqual(self.b.sent, 0)
 
     def test_gross_full_but_net_fee_shortfall_halts(self):
         self.a.inventory = "9.99"
-        self.assertEqual(self.broker.submit(self.p, lambda _: True)["state"], "needs_reconciliation")
+        self.assertEqual(self.approved_submit(self.p, lambda _: True)["state"], "needs_reconciliation")
         self.assertEqual(self.b.sent, 0)
 
     def test_unsettled_match_halts(self):
         self.a.settled = False
-        self.broker.submit(self.p, lambda _: True)
+        self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.b.sent, 0)
 
     def test_unknown_first_is_not_rejected(self):
         self.a.state = "unknown"
-        self.broker.submit(self.p, lambda _: True)
+        self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.b.sent, 0)
 
     def test_lost_response_never_resubmits_after_restart(self):
         self.a.lost = True
         self.a.state = "unknown"
-        self.broker.submit(self.p, lambda _: True)
-        restarted = Broker(Store(self.root), lambda l: self.a if l["venue"] == "hl" else self.b, poll_seconds=0)
-        restarted.submit(self.p, lambda _: self.fail("must reconcile, not approve/send again"))
+        self.approved_submit(self.p, lambda _: True)
+        restarted = Broker(Store(self.root), lambda l: self.a if l["venue"] == "hl" else self.b, authority=HumanAuthority(lambda _: self.fail("must reconcile, not approve/send again")), poll_seconds=0)
+        restarted.submit(self.p)
         self.assertEqual((self.a.sent, self.b.sent), (1, 0))
 
     def test_actual_process_crash_after_fsync_leaves_fence_and_releases_account_lock(self):
@@ -187,10 +199,11 @@ import json, os, sys
 from pathlib import Path
 sys.path.insert(0, 'tests')
 from test_broker import FakeAdapter
+from verdict_broker.authority import HumanAuthority
 from verdict_broker.core import Broker, Store
 a = FakeAdapter()
 a.on_submit = lambda: os._exit(7)
-Broker(Store(Path(sys.argv[1])), lambda _: a, poll_seconds=0).submit(json.loads(sys.argv[2]), lambda _: True)
+Broker(Store(Path(sys.argv[1])), lambda _: a, authority=HumanAuthority(lambda _: True), poll_seconds=0).submit(json.loads(sys.argv[2]))
 """
         crashed = subprocess.run([sys.executable, "-c", code, str(self.root), json.dumps(self.p)], capture_output=True, text=True)
         self.assertEqual(crashed.returncode, 7, crashed.stderr)
@@ -198,62 +211,62 @@ Broker(Store(Path(sys.argv[1])), lambda _: a, poll_seconds=0).submit(json.loads(
         self.assertTrue(any(e["type"] == "attempt_started" for e in events))
         self.assertFalse(any(e["type"] == "receipt" for e in events))
         self.a.state = "unknown"
-        status = self.broker.submit(self.p, lambda _: self.fail("never ask to resubmit after crash"))
+        status = self.approved_submit(self.p, lambda _: self.fail("never ask to resubmit after crash"))
         self.assertEqual(status["legs"][0]["state"], "unknown")
         self.assertEqual((self.a.sent, self.b.sent), (0, 0))
 
     def test_restart_after_first_fill_does_not_automatically_send_unattempted_second(self):
         self.a.on_submit = lambda: setattr(self.b, "fail_preflight", True)
-        result = self.broker.submit(self.p, lambda _: True)
+        result = self.approved_submit(self.p, lambda _: True)
         self.assertIn("blocked", result)
         self.b.fail_preflight = False
-        self.broker.submit(self.p, lambda _: True)
+        self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.b.sent, 0)
 
     def test_known_second_leg_failure_blocks_both_orders(self):
         self.b.fail_preflight = True
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: True)
+            self.approved_submit(self.p, lambda _: True)
         self.assertEqual((self.a.sent, self.b.sent), (0, 0))
 
     def test_second_leg_net_shortfall_never_claims_hedge(self):
         self.b.inventory = "9.9"
-        self.assertEqual(self.broker.submit(self.p, lambda _: True)["state"], "needs_reconciliation")
+        self.assertEqual(self.approved_submit(self.p, lambda _: True)["state"], "needs_reconciliation")
 
     def test_stale_preflight_blocks(self):
         self.a.check = replace(self.a.check, checked_at=time.time() - 10)
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: True)
+            self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.a.sent, 0)
 
     def test_fee_increase_blocks(self):
         self.a.check = replace(self.a.check, required_fee="0.2")
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: True)
+            self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.a.sent, 0)
 
     def test_balance_shortfall_blocks(self):
         self.a.check = replace(self.a.check, available_usdc="4.09")
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: True)
+            self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.a.sent, 0)
 
     def test_proposal_tampering_rejected_before_factory(self):
         self.p["payload"]["legs"][0]["shares"] = "11"
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: True)
+            self.approved_submit(self.p, lambda _: True)
         self.assertEqual(self.a.sent, 0)
 
     def test_expired_proposal_can_be_reconciled_but_not_submitted(self):
         with patch.object(self.broker, "clock", return_value=time.time() + 4000):
             with self.assertRaises(BrokerError):
-                self.broker.submit(self.p, lambda _: True)
+                self.approved_submit(self.p, lambda _: True)
             self.assertEqual(self.broker.status(self.p)["legs"][0]["state"], "not_attempted")
 
     def test_account_lock_applies_across_different_proposals(self):
         with self.store.locked(self.p["payload"]["legs"]):
             with self.assertRaises(BrokerError):
-                self.broker.submit(proposal(), lambda _: True)
+                self.approved_submit(proposal(), lambda _: True)
         self.assertEqual(self.a.sent, 0)
 
     def test_truncated_journal_fails_closed(self):
@@ -262,23 +275,23 @@ Broker(Store(Path(sys.argv[1])), lambda _: a, poll_seconds=0).submit(json.loads(
         with path.open("a") as f:
             f.write('{"broken":')
         with self.assertRaises(BrokerError):
-            self.broker.submit(self.p, lambda _: True)
+            self.approved_submit(self.p, lambda _: True)
 
     def test_cancel_requires_separate_approval_and_exact_leg(self):
         self.a.state = "open"
-        self.broker.submit(self.p, lambda _: True)
+        self.approved_submit(self.p, lambda _: True)
         with self.assertRaises(BrokerError):
-            self.broker.cancel(self.p, 0, lambda _: False)
-        self.broker.cancel(self.p, 0, lambda _: True)
+            self.approved_cancel(self.p, 0, lambda _: False)
+        self.approved_cancel(self.p, 0, lambda _: True)
         self.assertEqual((self.a.cancels, self.b.cancels), (1, 0))
         with self.assertRaises(BrokerError):
-            self.broker.cancel(self.p, 1, lambda _: True)
+            self.approved_cancel(self.p, 1, lambda _: True)
 
     def test_observation_exception_hides_credentials(self):
         def unsafe(*_):
             raise RuntimeError("sdk-auth-secret")
         self.a.observe = unsafe
-        result = self.broker.submit(self.p, lambda _: True)
+        result = self.approved_submit(self.p, lambda _: True)
         self.assertNotIn("sdk-auth-secret", json.dumps(result))
         self.assertEqual(result["legs"][0]["state"], "unknown")
 

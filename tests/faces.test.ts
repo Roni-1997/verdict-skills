@@ -127,7 +127,7 @@ describe('CLI face', () => {
       expect(net.exitCode).toBe(4);
       expect(net.stdout).toBe('');
       expect(net.stderr.trim().split('\n')).toHaveLength(1);
-      expect(JSON.parse(net.stderr)).toEqual({ error: 'not_configured', message: 'VERDICT_NETWORK must be "testnet" or "mainnet", got "devnet"' });
+      expect(JSON.parse(net.stderr)).toEqual({ error: 'not_configured', message: 'VERDICT_NETWORK must be "testnet" or "mainnet", got [value hidden]' });
       expect(net.stderr).not.toContain('    at ');
       process.env.VERDICT_NETWORK = 'testnet';
       process.env.VERDICT_BUILDER_ADDRESS = '0x00000000000000000000000000000000000000b1';
@@ -135,7 +135,7 @@ describe('CLI face', () => {
       const fee = await runCli(['approve-builder-fee-payload']);
       expect(fee.exitCode).toBe(4);
       expect(fee.stdout).toBe('');
-      expect(JSON.parse(fee.stderr)).toEqual({ error: 'not_configured', message: 'VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got "1.5"' });
+      expect(JSON.parse(fee.stderr)).toEqual({ error: 'not_configured', message: 'VERDICT_BUILDER_FEE_TENTHS_BP must be an integer between 0 and 10000, got [value hidden]' });
       // Usage needs no configuration at all.
       expect((await runCli(['--help'])).exitCode).toBe(0);
       expect((await runCli([])).exitCode).toBe(1);
@@ -506,6 +506,15 @@ describe('MCP prompts and resources', () => {
 });
 
 describe('operator configuration', () => {
+  it('never echoes a credential accidentally pasted into network or fee configuration', async () => {
+    const { configFromEnv } = await import('../packages/core/src/index.js');
+    const marker = 'inert-config-redaction-marker';
+    for (const env of [{ VERDICT_NETWORK: marker }, { VERDICT_BUILDER_FEE_TENTHS_BP: marker }]) {
+      let message = '';
+      try { configFromEnv(env); } catch (error) { message = error instanceof Error ? error.message : String(error); }
+      expect(message).toContain('[value hidden]'); expect(message).not.toContain(marker);
+    }
+  });
   it('rejects a bad builder fee even when no builder address is set', async () => {
     const { configFromEnv } = await import('../packages/core/src/index.js');
     expect(() => configFromEnv({ VERDICT_NETWORK: 'testnet', VERDICT_BUILDER_FEE_TENTHS_BP: 'abc' })).toThrow(/VERDICT_BUILDER_FEE_TENTHS_BP/);

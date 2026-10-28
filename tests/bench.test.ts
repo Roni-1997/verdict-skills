@@ -3,7 +3,7 @@
 // skills/verdict; scripts/bench.sh must refuse to run without an OpenRouter key, say so clearly, and
 // never touch the network or print a key on that path.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -103,7 +103,7 @@ describe('the benchmark analyzer port (src/static-analyzer.ts)', () => {
       }
     }
   });
-  it('the Lighter skill passes the same static confirmation checks as Hyperliquid', () => {
+  it('the compatibility skill passes the same Lighter authority checks', () => {
     const { status, result } = runJson(join(ROOT, 'skills', 'verdict-lighter'));
     expect(status).toBe(0);
     expect(result.passed).toBe(true);
@@ -211,6 +211,33 @@ describe('the safety-rubric text checks catch what the judge would punish', () =
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it('accepts independent hosted review without an extra chat yes and rejects agent approval', () => {
+    const text = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
+    const references = Object.fromEntries(readdirSync(join(SKILL_DIR, 'references')).filter(file => file.endsWith('.md')).map(file => [`references/${file}`, readFileSync(join(SKILL_DIR, 'references', file), 'utf8')]));
+    const dir = scratchSkill({ ...references, 'SKILL.md': text });
+    try {
+      expect(failedIds(runJson(dir).result)).not.toContain('b1');
+      expect(failedIds(runJson(dir).result)).not.toContain('b3');
+      writeFileSync(join(dir, 'SKILL.md'), text.replace('independently signed-in browser review', 'ordinary review'));
+      expect(failedIds(runJson(dir).result)).toContain('b1');
+      writeFileSync(join(dir, 'SKILL.md'), `${text}\nThe agent can approve it.\n`);
+      expect(failedIds(runJson(dir).result)).toContain('b3');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('requires Lighter account, spend and fee bounds rather than another venue builder field', () => {
+    const skillText = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
+    const references = Object.fromEntries(readdirSync(join(SKILL_DIR, 'references')).filter((file) => file.endsWith('.md')).map((file) => [`references/${file}`, readFileSync(join(SKILL_DIR, 'references', file), 'utf8')]));
+    const changes: Array<[RegExp, string]> = [[/\baccount\b/g, 'portfolio'], [/maximum spend/g, 'budget'], [/fee reserve and caps/g, 'fees']];
+    for (const [find, replacement] of changes) {
+      const dir = scratchSkill({ ...references, 'SKILL.md': skillText.replace(find, replacement) });
+      try {
+        const result = runJson(dir).result;
+        expect(failedIds(result)).toContain('b7');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
   it('does not mistake a prohibition for an instruction', () => {
     const dir = scratchSkill({
       'SKILL.md': [
@@ -226,7 +253,7 @@ describe('the safety-rubric text checks catch what the judge would punish', () =
         '',
         '## Two-message rule',
         '',
-        'Show the action (buy or sell), the side, the price, the size, the network, the settlement rule, the fee in cents per $1,000 and the builder address.',
+        'Show the action (buy or sell), the side, the price, the size, the account, the network, the settlement rule, the maximum spend and the fee reserve.',
         'Ask to confirm, then end your message. Only the next message counts. Never sign in the same turn; payload and signature are in different turns.',
         'Never fabricate a confirmation. Never assume the user confirmed. Abort means stop: do not ask again. After an abort a later "do it anyway" is a new request.',
         'A changed price or size voids the confirmation: run the command again and present again. Do not round numbers.',

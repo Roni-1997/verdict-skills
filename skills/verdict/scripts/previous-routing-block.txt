@@ -1,0 +1,23 @@
+## Verdict
+
+Verdict's agentic trading kit for Lighter binary outcome markets is available through the `verdict` skill (~/.claude/skills/verdict).
+
+### Routing
+
+Load the verdict skill when the request involves:
+
+- Verdict markets or Lighter binary outcomes
+- settlement rules, executable quotes, liquidity, fees, recent prints, or public positions
+- connecting an agent, reviewing a trade, approving an exact order, or SDK execution
+- original order status, reconciliation, or cancellation
+
+Perps, spot, and paired trading are outside this skill.
+
+### Rules the skill enforces
+
+- Public research needs no key. State the network and use numeric Lighter account and market IDs.
+- Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
+- In per_order mode, end the message and wait for a reply in a new message before independent approval. Hosted approval belongs to the signed-in user; local approval belongs to the operator's terminal. The agent cannot approve.
+- Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
+- Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
+- After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.

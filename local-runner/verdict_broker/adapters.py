@@ -7,6 +7,8 @@ from datetime import datetime
 from decimal import Decimal, ROUND_CEILING
 import logging
 import os
+import math
+import re
 import time
 
 from .core import BrokerError, D, Observation, Preflight, Receipt, node_call
@@ -17,6 +19,12 @@ def secret(name):
     if not value:
         raise BrokerError(f"Missing local operator environment variable {name}")
     return value
+
+
+def public_address(value):
+    if type(value) is str and re.fullmatch(r"0x[0-9a-fA-F]{40}", value) and value.lower() != "0x" + "0" * 40:
+        return value.lower()
+    return None
 
 
 def fee_round(value):
@@ -77,6 +85,37 @@ class Hyperliquid:
     def info(self, kind, **args):
         return self.http.request("POST", self.host + "/info", json={"type": kind, **args})
 
+    def inspect_connection(self, legs):
+        leg = legs[0]
+        owner, agent = public_address(leg["account"]), public_address(self.wallet.address)
+        checks, notes = {"registration": "unknown", "builder": "unknown"}, []
+        if owner is None or agent is None or owner == agent:
+            return {"ownerWallet": owner, "agentAddress": agent, "checks": checks,
+                    "notes": ["A dedicated valid HL agent and main account are required."]}
+        try:
+            agents = self.info("extraAgents", user=owner)
+            if not isinstance(agents, list) or any(not isinstance(a, dict) or public_address(a.get("address")) is None
+                    or type(a.get("validUntil")) not in (int, float) or not math.isfinite(a["validUntil"]) for a in agents):
+                raise ValueError
+            checks["registration"] = "ready" if any(public_address(a["address"]) == agent and a["validUntil"] > time.time() * 1000 for a in agents) else "missing"
+        except Exception:
+            notes.append("HL agent registration could not be verified.")
+        if checks["registration"] == "missing":
+            notes.append("Approve the displayed HL agent separately; its registration is absent or expired.")
+        builder_states = []
+        for address, fee in {(l["builder"]["address"], l["builder"]["feeTenthsBp"]) for l in legs}:
+            try:
+                maximum = self.info("maxBuilderFee", user=owner, builder=address)
+                if type(maximum) not in (int, float) or not math.isfinite(maximum) or maximum < 0:
+                    raise ValueError
+                builder_states.append("ready" if maximum >= fee else "missing")
+            except Exception:
+                builder_states.append("unknown")
+        checks["builder"] = "missing" if "missing" in builder_states else "unknown" if "unknown" in builder_states else "ready"
+        if checks["builder"] != "ready":
+            notes.append("HL builder approval is insufficient or could not be verified; configure it separately.")
+        return {"ownerWallet": owner, "agentAddress": agent, "checks": checks, "notes": notes}
+
     def env(self, leg):
         return {"VERDICT_NETWORK": leg["network"], "VERDICT_BUILDER_ADDRESS": leg["builder"]["address"],
                 "VERDICT_BUILDER_FEE_TENTHS_BP": str(leg["builder"]["feeTenthsBp"])}
@@ -130,18 +169,20 @@ class Hyperliquid:
         fee = D(leg["shares"]) * price_bound * D(leg["allInFeeBpsCap"]) / 10000
         return Preflight(str(total), str(cash), fee_round(fee), built["action"], started)
 
-    def _send(self, leg, action, deadline=None):
+    def _send(self, leg, action, deadline=None, before_transport=None):
         from hyperliquid.utils.signing import sign_l1_action
         self.nonce = max(self.nonce + 1, int(time.time() * 1000))
         expiry = min(self.nonce + 5000, int(deadline * 1000)) if deadline is not None else self.nonce + 5000
         signature = sign_l1_action(self.wallet, action, None, self.nonce, expiry, leg["network"] == "mainnet")
         if deadline is not None:
             fresh_send(deadline)
+        if before_transport is not None:
+            before_transport()
         return self.http.request("POST", self.host + "/exchange", json={"action": action, "nonce": self.nonce,
                                   "signature": signature, "vaultAddress": None, "expiresAfter": expiry})
 
     def submit(self, leg, client_id, preflight):
-        result = self._send(leg, preflight.native, send_deadline(preflight))
+        result = self._send(leg, preflight.native, send_deadline(preflight), preflight.before_transport)
         if result.get("status") != "ok":
             return Receipt(rejected=True)
         statuses = result["response"]["data"]["statuses"]
@@ -186,22 +227,35 @@ class Hyperliquid:
         self.http.close()
 
 
+LIGHTER_NETWORKS = {
+    "devnet": ("https://devnet.zklighter.elliot.ai", 300),
+    "testnet": ("https://testnet.zklighter.elliot.ai", 300),
+    "mainnet": ("https://mainnet.zklighter.elliot.ai", 304),
+}
+
+
 class Lighter:
-    def __init__(self, leg, *, signer=None, bridge=node_call):
+    def __init__(self, leg, *, signer=None, bridge=node_call, api_private_key=None):
+        network = leg.get("network")
+        if not isinstance(network, str) or network not in LIGHTER_NETWORKS:
+            raise BrokerError("Lighter network must be devnet, testnet or mainnet")
+        self.host, chain_id = LIGHTER_NETWORKS[network]
         import lighter
         logging.getLogger("lighter").setLevel(logging.WARNING)
         self.loop = asyncio.new_event_loop()
         self.deadline = None
-        self.host = "https://mainnet.zklighter.elliot.ai" if leg["network"] == "mainnet" else "https://devnet.zklighter.elliot.ai"
+        self.before_transport = None
         async def create():
             broker_adapter = self
             class DeadlineSigner(lighter.SignerClient):
                 async def send_tx(self, tx_type, tx_info):
                     if broker_adapter.deadline is not None:
                         fresh_send(broker_adapter.deadline)
+                    if broker_adapter.before_transport is not None:
+                        broker_adapter.before_transport()
                     return await super().send_tx(tx_type=tx_type, tx_info=tx_info)
-            return DeadlineSigner(url=self.host, account_index=leg["account"], chain_id=304 if leg["network"] == "mainnet" else 300,
-                                        api_private_keys={leg["apiKeyIndex"]: secret("VERDICT_LIGHTER_API_PRIVATE_KEY")})
+            return DeadlineSigner(url=self.host, account_index=leg["account"], chain_id=chain_id,
+                                        api_private_keys={leg["apiKeyIndex"]: api_private_key if api_private_key is not None else secret("VERDICT_LIGHTER_API_PRIVATE_KEY")})
         self.signer = signer or self.loop.run_until_complete(create())
         self.orders = lighter.OrderApi(self.signer.api_client)
         self.bridge = bridge
@@ -209,6 +263,38 @@ class Lighter:
 
     def run(self, awaitable):
         return self.loop.run_until_complete(awaitable)
+
+    def inspect_connection(self, legs):
+        import lighter
+        leg = legs[0]
+        checks, notes, owner = {"registration": "unknown", "builder": "ready"}, [], None
+        try:
+            if type(leg["account"]) is not int or not 0 <= leg["account"] <= 9_007_199_254_740_991:
+                raise ValueError
+            response = self.run(lighter.AccountApi(self.signer.api_client).account(by="index", value=str(leg["account"]), _request_timeout=15))
+            if type(response.code) is not int or response.code != 200 or len(response.accounts) != 1:
+                raise ValueError
+            account = response.accounts[0]
+            if type(account.index) is not int or account.index != leg["account"]:
+                raise ValueError
+            owner = public_address(account.l1_address)
+            if owner is None:
+                raise ValueError
+        except Exception:
+            notes.append("Lighter account ownership could not be verified from the fresh account response.")
+        try:
+            error = self.signer.check_client()
+            if error is None:
+                checks["registration"] = "ready" if owner is not None else "unknown"
+            elif type(error) is str and error:
+                checks["registration"] = "missing"
+                notes.append("Lighter API key/account registration failed; configure it separately.")
+            else:
+                notes.append("Lighter API key/account registration returned an unknown result.")
+        except Exception:
+            notes.append("Lighter API key/account registration could not be verified.")
+        notes.append("Lighter has no builder approval requirement.")
+        return {"ownerWallet": owner, "agentAddress": None, "checks": checks, "notes": notes}
 
     def env(self, leg):
         return {"LIGHTER_NETWORK": leg["network"], "LIGHTER_CREATORS": str(leg["creator"])}
@@ -230,10 +316,21 @@ class Lighter:
                              "--price", leg["limitPrice"], "--size", leg["shares"], "--tif", leg["tif"],
                              "--client-order-index", str(int(client_id[:12], 16))], self.env(leg))
         m = built["market"]
+        if (m.get("market_id") != leg["market"] or m.get("network") != leg["network"]
+                or m.get("market_type") != "binary_options" or m.get("status") != "active" or m.get("is_frozen") is not False
+                or type(m.get("start_timestamp")) is not int or type(m.get("end_timestamp")) is not int
+                or not m["start_timestamp"] <= time.time() * 1000 < m["end_timestamp"]
+                or type(m.get("price_decimals")) is not int or not 0 <= m["price_decimals"] <= 12
+                or m.get("settlement_cap") != 10 ** m["price_decimals"]):
+            raise BrokerError("Fresh Lighter binary market identity or trading window is unsupported")
         if m["creator"] != leg["creator"]:
             raise BrokerError("Lighter creator changed")
         check_rule(leg, m["title"], m["settlementRule"])
         book = self.bridge(["lighter", "book", str(leg["market"])], self.env(leg))
+        immutable = ("market_id", "network", "creator", "title", "settlementRule", "status", "is_frozen", "start_timestamp", "end_timestamp",
+                     "price_decimals", "size_decimals", "settlement_cap", "taker_fee", "maker_fee", "is_taker_fee_enabled", "is_maker_fee_enabled")
+        if any(book.get("market", {}).get(key) != m.get(key) for key in immutable):
+            raise BrokerError("Fresh Lighter book metadata changed after proposal validation")
         takes_ask = (leg["side"] == "yes") == (leg["action"] == "buy")
         levels = book["asks" if takes_ask else "bids"]
         check_depth(leg, [(D(l["price"]) if leg["side"] == "yes" else 1 - D(l["price"]), l["shares"]) for l in levels])
@@ -248,15 +345,19 @@ class Lighter:
         if active.code != 200 or active.orders:
             raise BrokerError("Lighter market has other open orders; cancel/reconcile them separately")
         rate = max(D(m["taker_fee"]) if m["is_taker_fee_enabled"] else D(0), D(m["maker_fee"]) if m["is_maker_fee_enabled"] else D(0)) / 100
-        return Preflight(str(owned), str(cash), fee_round(D(leg["shares"]) * rate / 4), built["sdkArgs"], started)
+        if not rate.is_finite() or not 0 <= rate <= 1:
+            raise BrokerError("Fresh Lighter fee coefficient is unsupported")
+        return Preflight(str(owned), str(cash), fee_round(D(leg["shares"]) * rate / 4), built["sdkArgs"], started, m["end_timestamp"] / 1000)
 
     def submit(self, leg, client_id, preflight):
         self.deadline = send_deadline(preflight)
+        self.before_transport = preflight.before_transport
         fresh_send(self.deadline)
         try:
             _, response, error = self.run(self.signer.create_order(**preflight.native, api_key_index=self.key_index))
         finally:
             self.deadline = None
+            self.before_transport = None
         if error or response is None:
             raise BrokerError("Lighter submission outcome unknown")
         if response.code != 200:
@@ -396,6 +497,8 @@ class Polymarket:
         if shares != D(leg["shares"]) or (price > D(leg["limitPrice"]) if leg["action"] == "buy" else price < D(leg["limitPrice"])):
             raise BrokerError("SDK rounded confirmed shares or worsened limit; nothing posted")
         fresh_send(send_deadline(preflight))
+        if preflight.before_transport is not None:
+            preflight.before_transport()
         result = self.client.post_order(signed)
         return Receipt(order_id=str(result.order_id)) if result.ok else Receipt(rejected=True)
 

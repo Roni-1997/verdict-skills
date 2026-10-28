@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { describe, expect, it } from 'vitest';
-import { executionConfirmation, prepareExecution, validateExecution } from '../packages/core/src/execution.js';
+import { executionCapabilities, executionConfirmation, prepareExecution, validateExecution } from '../packages/core/src/execution.js';
 import { runCli } from '../packages/cli/src/index.js';
 
 const ACCOUNT = `0x${'1'.repeat(40)}`;
@@ -17,6 +17,25 @@ const review = { relationship: 'same_event_same_orientation', notes: 'Operator c
 const request = (legs: unknown[] = [hl]) => ({ legs, policy, ...(legs.length === 2 ? { settlementReview: review } : {}) });
 
 describe('unsigned execution domain', () => {
+  it('keeps omitted safety defaults in the canonical review and rejects null or oversized requests', () => {
+    const now = 1792623100000;
+    const minimal = { legs: [hl], policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5' } };
+    const prepared = prepareExecution(minimal, now, '0189d5e0-1c82-4be1-a667-f5fa7b430171');
+    expect(prepared.payload).toMatchObject({ createdAt: now, expiresAt: now + 300_000, settlementReview: null,
+      policy: { maxTotalDebitUSDC: '10', maxLegDebitUSDC: '5', minConditionalProfitUSDC: '0' } });
+    expect(validateExecution(prepared)).toEqual(prepared);
+    expect(() => prepareExecution({ ...minimal, validForSeconds: null })).toThrow('Invalid execution');
+    expect(() => prepareExecution({ ...minimal, policy: { ...minimal.policy, minConditionalProfitUSDC: null } })).toThrow('Invalid execution');
+    for (const legs of [[], [hl, hl, hl]]) expect(() => prepareExecution({ ...minimal, legs })).toThrow('Invalid execution');
+  });
+  it('preserves explicit Lighter testnet through canonical execution and linked account schemas', () => {
+    const p = prepareExecution(request([{ ...lighter, network: 'testnet' }]));
+    expect(validateExecution(p).payload.legs[0]).toMatchObject({ venue: 'lighter', network: 'testnet' });
+    expect(executionConfirmation(p).confirmation.join('\n')).toContain('lighter testnet');
+    expect(executionCapabilities().venues.lighter.networks).toEqual(['devnet', 'testnet', 'mainnet']);
+    expect(() => prepareExecution(request([{ ...lighter, network: 'unknown' }]))).toThrow('Invalid execution');
+    expect(() => prepareExecution(request([hl, { ...lighter, network: 'testnet' }]))).toThrow('mainnet');
+  });
   it.each([hl, lighter, polymarket])('prepares a native $venue single order without credentials', (leg) => {
     const p = prepareExecution(request([leg]));
     expect(validateExecution(p)).toEqual(p);
@@ -93,9 +112,11 @@ it('built MCP completes prepare/review over stdio, preserves strict schemas and 
   const transport = new StdioClientTransport({ command: process.execPath, args: [bin, '--execution'], env: { VERDICT_NETWORK: 'bad-ignored-keyless-config' }, stderr: 'pipe' });
   try {
     await client.connect(transport);
-    const names = (await client.listTools()).tools.map((t) => t.name);
+    const tools = (await client.listTools()).tools;
+    const names = tools.map((t) => t.name);
     expect(names).toEqual(['execution_prepare', 'execution_review', 'execution_capabilities']);
-    const prepared = await client.callTool({ name: 'execution_prepare', arguments: request([hl, polymarket]) });
+    expect(JSON.stringify(tools.map((tool) => tool.inputSchema))).not.toMatch(/"items":\[/);
+    const prepared = await client.callTool({ name: 'execution_prepare', arguments: { ...request([lighter]), settlementReview: null } });
     expect(prepared.isError).not.toBe(true);
     const p = validateExecution(prepared.structuredContent);
     const checked = await client.callTool({ name: 'execution_review', arguments: p });

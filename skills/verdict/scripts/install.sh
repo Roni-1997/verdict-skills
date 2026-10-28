@@ -7,7 +7,7 @@
 #   3. copy skills/verdict to ~/.claude/skills/verdict, and save the clone path in that copy as
 #      .repo-dir so the copied script can find the repository when it is run again
 #   4. only with --claude-md: append the `## Verdict` routing block to ~/.claude/CLAUDE.md, after
-#      printing it, and only if no line is exactly `## Verdict`
+#      printing it, or upgrade its exact previous managed version
 # Network access: only `pnpm install --frozen-lockfile`, which fetches the repository's
 # lockfile-pinned npm dependencies from the npm registry (registry.npmjs.org, integrity-checked
 # against pnpm-lock.yaml; pnpm 10 runs no dependency install scripts except esbuild, see
@@ -23,7 +23,7 @@ usage() {
 Usage: install.sh [--claude-md] [--skip-skill] [--help]
 
   --claude-md    also append the `## Verdict` routing block to ~/.claude/CLAUDE.md (printed first,
-                 skipped when a `## Verdict` heading already exists). Off by default.
+                 upgrades its exact old managed version; preserves user edits). Off by default.
   --skip-skill   do not copy skills/verdict to ~/.claude/skills/verdict
 
 Environment overrides:
@@ -46,6 +46,7 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/routing-block.sh"
 # Repository root, in order: VERDICT_REPO_DIR; the path this script saved next to the skill copy when
 # it copied it (so ~/.claude/skills/verdict/scripts/install.sh can run again); the script's own clone.
 REPO_DIR_FILE="$SCRIPT_DIR/../.repo-dir"
@@ -146,32 +147,59 @@ echo "==> [4/4] Routing block in $CLAUDE_MD"
 CLAUDE_MD_BLOCK=$(cat <<'BLOCK'
 ## Verdict
 
-Verdict's HIP-4 outcome markets on Hyperliquid are available through the `verdict` skill (~/.claude/skills/verdict).
+Verdict's agentic trading kit for Lighter binary outcome markets is available through the `verdict` skill (~/.claude/skills/verdict).
 
 ### Routing
 
-Load the verdict skill, not web search or memory, when the request involves:
+Load the verdict skill when the request involves:
 
-- Verdict, hyperverdict, the Verdict venue or its markets
-- HIP-4, outcome market, Hyperliquid prediction market, YES or NO on Hyperliquid
-- a settlement rule, order book, quote for a size, trade history, positions, fills or orders on such a market
-- "compare to Polymarket" or "compare to Kalshi" for a market that exists on Verdict
-- Verdict's builder code, builder fee or builder approval
+- Verdict markets or Lighter binary outcomes
+- settlement rules, executable quotes, liquidity, fees, recent prints, or public positions
+- connecting an agent, reviewing a trade, approving an exact order, or SDK execution
+- original order status, reconciliation, or cancellation
 
-Do not load it for general blockchain education, Hyperliquid perps or spot, or trading on Polymarket, Kalshi or Deribit themselves.
+Perps, spot, and paired trading are outside this skill.
 
 ### Rules the skill enforces
 
-- Read commands (markets, market, book, quote, recent-trades, candles, compare, fair-value, hedges, opportunities, positions, fills, open-orders, order-status, builder-status) run without asking and need no account. A Polymarket or Kalshi comparison is shown with its confidence and reasons, never as a bare number.
-- build-order and approve-builder-fee-payload return unsigned payloads. Show the market, the settlement rule text, side, price, size, the fee in cents per $1,000 and the builder address, end the message, and wait for a real reply in a new message before anything is signed. Never fabricate a confirmation.
-- Analysis and order building never happen in the same turn.
-- Nothing signs on a hosted server; keys stay local and in memory.
+- Public research needs no key. State the network and use numeric Lighter account and market IDs.
+- Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
+- In per_order mode, show the exact terms and open the independent review. Hosted approval belongs to the signed-in user in the browser; local approval belongs to the operator's terminal. No extra chat yes is required before opening the hosted review. The agent cannot approve.
+- Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
+- Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
+- After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.
 BLOCK
 )
 if [[ "$WRITE_CLAUDE_MD" == 0 ]]; then
   echo "    not requested; $CLAUDE_MD left unchanged. Re-run with --claude-md to append the routing block (the text is in references/setup.md)."
 elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
-  echo "    a '## Verdict' section is already present; left unchanged"
+  BLOCK_FILE="$(mktemp)"
+  printf '%s\n' "$CLAUDE_MD_BLOCK" > "$BLOCK_FILE"
+  CURRENT_START="$(find_exact_routing_block "$BLOCK_FILE" "$CLAUDE_MD")"
+  LEGACY_START=0
+  LEGACY_FILE=""
+  for candidate in "$SCRIPT_DIR/previous-routing-block.txt" "$SCRIPT_DIR/legacy-routing-block.txt"; do
+    LEGACY_START="$(find_exact_routing_block "$candidate" "$CLAUDE_MD")"
+    if [[ "$LEGACY_START" != 0 ]]; then LEGACY_FILE="$candidate"; break; fi
+  done
+  if [[ "$CURRENT_START" != 0 ]]; then
+    echo "    current managed routing block is already present; left unchanged"
+  elif [[ "$LEGACY_START" != 0 ]]; then
+    LEGACY_COUNT="$(wc -l < "$LEGACY_FILE" | tr -d ' ')"
+    TMP="$(mktemp)"
+    awk -v start="$LEGACY_START" -v count="$LEGACY_COUNT" '
+      NR == FNR { replacement = replacement $0 "\n"; next }
+      FNR == start { printf "%s", replacement }
+      FNR < start || FNR >= start + count { print }
+    ' "$BLOCK_FILE" "$CLAUDE_MD" > "$TMP"
+    cat "$TMP" > "$CLAUDE_MD"
+    rm -f "$TMP"
+    echo "    upgraded exact previous managed routing block to Lighter"
+  else
+    echo "    a user-edited or unrecognized '## Verdict' section is present; left unchanged"
+    echo "    Review references/setup.md to update that section by hand."
+  fi
+  rm -f "$BLOCK_FILE"
 else
   echo "    The following block will be appended to $CLAUDE_MD:"
   echo "    ------------------------------------------------------------"
@@ -195,10 +223,10 @@ fi
 
 echo
 echo "Done."
-echo "  verdict       $BIN_DIR/verdict        (try: verdict --help)"
+echo "  verdict       $BIN_DIR/verdict        (try: verdict lighter --help)"
 echo "  verdict-mcp   $BIN_DIR/verdict-mcp    (stdio by default; --http 8787 for streamable HTTP)"
 echo "  skill         $SKILL_DST"
-echo "  network       ${VERDICT_NETWORK:-testnet} (testnet by default; the owner flips it)"
+echo "  network       ${LIGHTER_NETWORK:-devnet} (select testnet explicitly for staging)"
 echo
 echo "Next: export the variables from $REPO_DIR/.env.example, then run:"
-echo "  verdict markets --venue at --pretty"
+echo "  LIGHTER_NETWORK=testnet verdict lighter markets --pretty"

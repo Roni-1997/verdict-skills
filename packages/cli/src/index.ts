@@ -5,7 +5,16 @@ import { runLighterCli } from './lighter.js';
 import { runStrategyCli } from './strategy.js';
 import { runExecutionCli } from './execution.js';
 
-export const USAGE = `verdict: Verdict HIP-4 outcome markets from the command line (JSON output, no prompts)
+export const USAGE = `verdict: Verdict agent kit for Lighter binary outcome markets (JSON output, no prompts)
+
+  verdict lighter --help      Lighter markets, settlement rules, books, quotes, fees and unsigned SDK arguments
+  verdict execution --help    unsigned trade proposals and exact review for the separate authorized broker
+
+For the active Lighter workflow, use verdict lighter <command> and set LIGHTER_NETWORK=testnet for staging.
+The hosted MCP connects at https://verdict-mcp-staging.vercel.app/mcp through client OAuth and reviewed permissions.
+Research and unsigned preparation never grant signing authority.
+
+Legacy Hyperliquid compatibility commands retain their original routing and network configuration:
 
   verdict markets [--venue <name>] [--include-expired]
   verdict market <outcome>

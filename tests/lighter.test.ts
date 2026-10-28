@@ -27,11 +27,43 @@ function harness(overrides: Record<string, unknown> = {}, creators: number[] = [
 const order = { market: MARKET, side: 'yes', action: 'buy', price: '0.35', size: '10', clientOrderIndex: 1234 };
 
 describe('Lighter binary outcomes using public response fixtures', () => {
+  it('names the exact outcome book from its metadata market ID and never guesses from outcome order', async () => {
+    const original = z.object({ events: z.array(z.record(z.string(), z.unknown())) }).parse(fixture('events'));
+    const event = original.events[0]; if (!event) throw new Error('Missing event');
+    const page = { code: 200, next_cursor: null, events: [{ ...event, title: 'Premier League winner',
+      metadata: { outcomes: [{ market_id: MARKET + 1, label: 'Chelsea' }, { market_id: MARKET, label: 'Arsenal' }] } }] };
+    const { tools } = harness({ events: page });
+    expect(await tools.get_market({ market: MARKET })).toMatchObject({ market: { title: 'Arsenal · Premier League winner' } });
+    const built = await tools.build_order(order);
+    expect(built.market.title).toBe('Arsenal · Premier League winner');
+  });
   it('defaults to devnet with no creators enabled for orders, independently of Hyperliquid', () => {
     expect(lighterConfigFromEnv({ VERDICT_NETWORK: 'mainnet' })).toEqual({ network: 'devnet', creators: [] });
-    expect(() => lighterConfigFromEnv({ LIGHTER_NETWORK: 'testnet' })).toThrow('LIGHTER_NETWORK');
+    expect(lighterConfigFromEnv({ LIGHTER_NETWORK: 'testnet' })).toEqual({ network: 'testnet', creators: [] });
+    expect(() => lighterConfigFromEnv({ LIGHTER_NETWORK: 'unknown' })).toThrow('LIGHTER_NETWORK');
     expect(() => lighterConfigFromEnv({ LIGHTER_CREATORS: 'secret-value' })).toThrow('value hidden');
     expect(lighterConfigFromEnv({ LIGHTER_CREATORS: '9, 1' }).creators).toEqual([9, 1]);
+  });
+  it.each([
+    ['devnet', 'https://devnet.zklighter.elliot.ai', 300],
+    ['testnet', 'https://testnet.zklighter.elliot.ai', 300],
+    ['mainnet', 'https://mainnet.zklighter.elliot.ai', 304],
+  ] as const)('keeps %s research, unsigned signing domain and provenance on its exact host', async (network, origin, chainId) => {
+    const calls: URL[] = [];
+    const fetcher: typeof fetch = async (url) => {
+      calls.push(new URL(String(url)));
+      return new Response(JSON.stringify(fixture('events')));
+    };
+    const tools = createLighterTools(new LighterClient(lighterConfigFromEnv({ LIGHTER_NETWORK: network, LIGHTER_CREATORS: '761897' }), { fetch: fetcher, now: () => NOW }));
+    expect(await tools.get_market({ market: MARKET })).toMatchObject({ network, market: { network, market_id: MARKET } });
+    expect(await tools.build_order(order)).toMatchObject({ network, chainId, unsigned: true, market: { network } });
+    expect(calls).toHaveLength(2);
+    expect(calls.every(url => url.origin === origin && url.pathname === '/api/v1/events')).toBe(true);
+  });
+  it('rejects unknown direct network configuration before making a request', () => {
+    const fetcher = vi.fn();
+    expect(() => Reflect.construct(LighterClient, [{ network: 'unknown', creators: [] }, { fetch: fetcher }])).toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it('reads real market rules, precision, fee flags and a single complete page', async () => {
     const { tools, calls } = harness();
@@ -46,6 +78,16 @@ describe('Lighter binary outcomes using public response fixtures', () => {
     const { tools, calls } = harness({ events: page });
     expect(await tools.list_markets({ cursor: 456 })).toMatchObject({ nextCursor: 123, complete: false });
     expect(calls[0]?.searchParams.get('cursor')).toBe('456');
+  });
+  it.each([
+    { cursor: 25, next_cursor: 0 },
+    { cursor: 25, next_cursor: 25 },
+    { cursor: 25, next_cursor: 26 },
+  ])('stops a non-progressing event cursor without claiming complete coverage: $next_cursor', async ({ cursor, next_cursor }) => {
+    const { tools } = harness({ events: { code: 200, events: [], next_cursor } });
+    const page = await tools.list_markets({ cursor });
+    expect(page).toMatchObject({ nextCursor: null, complete: false, markets: [] });
+    expect(page.note).toContain('coverage is incomplete');
   });
   it('does a fresh market_ids lookup and never substitutes another outcome', async () => {
     const { tools, calls } = harness();
@@ -170,6 +212,13 @@ describe('Lighter binary outcomes using public response fixtures', () => {
 });
 
 describe('Lighter CLI and MCP faces', () => {
+  it('directs top-level help to the Lighter workflow and labels retained compatibility commands', async () => {
+    const help = await runCli(['--help']);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toContain('Verdict agent kit for Lighter binary outcome markets');
+    expect(help.stdout).toContain('verdict lighter --help');
+    expect(help.stdout.indexOf('verdict lighter --help')).toBeLessThan(help.stdout.indexOf('Legacy Hyperliquid compatibility'));
+  });
   it('CLI and core return the same real quote and bad input uses JSON errors', async () => {
     const { tools } = harness();
     const args = ['quote', String(MARKET), '--side', 'no', '--action', 'buy', '--size', '10'];

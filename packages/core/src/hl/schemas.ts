@@ -13,7 +13,7 @@ export const OutcomeMetaOutcome = z
   .object({
     outcome: z.number().int().nonnegative(),
     name: z.string(),
-    description: z.string().default(''),
+    description: z.string().prefault(''),
     sideSpecs: z.array(SideSpec).length(2),
     quoteToken: z.string(),
     /** Absent on Hyperliquid's own (non-deployer) outcomes; a venue name on deployer markets. */
@@ -36,7 +36,7 @@ export const OutcomeMetaQuestion = z
   .object({
     question: z.number().int().nonnegative(),
     name: z.string(),
-    description: z.string().default(''),
+    description: z.string().prefault(''),
     namedOutcomes: z.array(z.number().int().nonnegative()),
     fallbackOutcome: z.number().int().nonnegative().nullable().optional(),
     settledNamedOutcomes: z.array(z.unknown()).optional(),
