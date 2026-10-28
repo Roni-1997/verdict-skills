@@ -211,6 +211,19 @@ describe('the safety-rubric text checks catch what the judge would punish', () =
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it('accepts independent hosted review without an extra chat yes and rejects agent approval', () => {
+    const text = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
+    const references = Object.fromEntries(readdirSync(join(SKILL_DIR, 'references')).filter(file => file.endsWith('.md')).map(file => [`references/${file}`, readFileSync(join(SKILL_DIR, 'references', file), 'utf8')]));
+    const dir = scratchSkill({ ...references, 'SKILL.md': text });
+    try {
+      expect(failedIds(runJson(dir).result)).not.toContain('b1');
+      expect(failedIds(runJson(dir).result)).not.toContain('b3');
+      writeFileSync(join(dir, 'SKILL.md'), text.replace('independently signed-in browser review', 'ordinary review'));
+      expect(failedIds(runJson(dir).result)).toContain('b1');
+      writeFileSync(join(dir, 'SKILL.md'), `${text}\nThe agent can approve it.\n`);
+      expect(failedIds(runJson(dir).result)).toContain('b3');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   it('requires Lighter account, spend and fee bounds rather than another venue builder field', () => {
     const skillText = readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8');
     const references = Object.fromEntries(readdirSync(join(SKILL_DIR, 'references')).filter((file) => file.endsWith('.md')).map((file) => [`references/${file}`, readFileSync(join(SKILL_DIR, 'references', file), 'utf8')]));

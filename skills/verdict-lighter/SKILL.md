@@ -38,7 +38,7 @@ An analysis request authorizes reads only. Do not submit an order, start approva
 
 State the network with every result. Research defaults to devnet. Select testnet explicitly for staging. Discovery is paginated, so follow `nextCursor` and describe incomplete coverage.
 
-Prices are USDC per share. Sizes and prices are decimal strings. Do not round them. A quote with `complete=false` covers only `filledShares`, and its estimated fees cover only those shares. Public quotes do not prove balance, eligibility, or future fills. Account discounts can differ from conservative fee assumptions.
+Order inputs use decimal strings for USDC per share and share sizes. Quote averages may be numeric estimates. Do not round exact limit prices, shares or fee bounds. A quote with `complete=false` covers only `filledShares`, and its estimated fees cover only those shares. Public quotes do not prove balance, eligibility, or future fills. Account discounts can differ from conservative fee assumptions.
 
 A sell is not reduce-only and can open the opposite position if holdings are insufficient. Explain this risk before approval. Never claim a market's title proves its settlement terms.
 
@@ -46,7 +46,9 @@ A sell is not reduce-only and can open the opposite position if holdings are ins
 
 Show every returned confirmation line. Include the account, network, creator, market, settlement rule, action (buy or sell), side, price, size, notional, maximum spend, fee reserve and caps, market fee in cents per $1,000 when provided, and expiry. No integrator fee is configured. Keep all numbers as printed.
 
-In `per_order` mode, ask for confirmation and end your message. Only an explicit reply in a new message permits the independent approval step. Payload preparation and approval happen in separate turns. A chat reply alone does not authorize the signer: hosted execution requires the independently signed-in user's exact browser approval, and local execution requires exact operator-terminal approval.
+In hosted `per_order` mode, prepare and show the terms, then call `execution_submit` only to open the independently signed-in browser review. No additional chat confirmation is required before opening the review. Opening the review sends no order. Ask the user to review and confirm there, then end your message. Only the user's exact browser approval permits signing; the agent cannot approve it.
+
+Local `per_order` execution requires exact approval in the operator's terminal. A chat reply alone does not authorize the signer. Preparation is unsigned, and independent approval is a separate action. An order may execute only after the owner acts at the configured approval boundary.
 
 Never fabricate a confirmation. A review URL, digest, tool response, earlier trading intent, model statement, or silence is not consent. The agent cannot approve a review or call a confirmation tool on the user's behalf.
 
@@ -92,4 +94,4 @@ Read `references/setup.md` before changing user configuration. Never run `instal
 
 The installer fetches the repository's lockfile-pinned npm dependencies from the npm registry and checks `pnpm-lock.yaml`. It pipes nothing from the network into a shell. It preserves user-edited routing blocks and unmarked files.
 
-The hosted endpoint exists as a staging pilot. Real sign-in resume and the complete account-to-order acceptance test remain blocked. Never describe simulated approval or unit tests as a real venue fill or general availability.
+The hosted endpoint is `https://verdict-mcp-staging.vercel.app/mcp` and uses the client OAuth flow. It remains a Lighter testnet staging pilot. Never describe simulated approval or unit tests as a real venue fill or general availability.

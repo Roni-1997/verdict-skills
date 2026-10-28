@@ -36,6 +36,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/routing-block.sh"
 # An installed copy removes its own directory in step 2. Retain compatibility text first.
 LEGACY_CLAUDE_MD_BLOCK="$(cat "$SCRIPT_DIR/legacy-routing-block.txt")"
+PREVIOUS_CLAUDE_MD_BLOCK="$(cat "$SCRIPT_DIR/previous-routing-block.txt")"
 BIN_DIR="${VERDICT_BIN_DIR:-$HOME/.local/bin}"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 SKILL_DST="$CLAUDE_HOME/skills/verdict"
@@ -67,7 +68,7 @@ Perps, spot, and paired trading are outside this skill.
 
 - Public research needs no key. State the network and use numeric Lighter account and market IDs.
 - Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
-- In per_order mode, end the message and wait for a reply in a new message before independent approval. Hosted approval belongs to the signed-in user; local approval belongs to the operator's terminal. The agent cannot approve.
+- In per_order mode, show the exact terms and open the independent review. Hosted approval belongs to the signed-in user in the browser; local approval belongs to the operator's terminal. No extra chat yes is required before opening the hosted review. The agent cannot approve.
 - Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
 - Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
 - After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.
@@ -110,11 +111,12 @@ elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
   COUNT="$(wc -l < "$BLOCK_FILE" | tr -d ' ')"
   # First line of a run of lines equal to the block, line for line; 0 when the file has no verbatim copy.
   START="$(find_exact_routing_block "$BLOCK_FILE" "$CLAUDE_MD")"
-  if [[ "$START" == 0 ]]; then
-    printf '%s\n' "$LEGACY_CLAUDE_MD_BLOCK" > "$BLOCK_FILE"
+  for previous in "$PREVIOUS_CLAUDE_MD_BLOCK" "$LEGACY_CLAUDE_MD_BLOCK"; do
+    if [[ "$START" != 0 ]]; then break; fi
+    printf '%s\n' "$previous" > "$BLOCK_FILE"
     START="$(find_exact_routing_block "$BLOCK_FILE" "$CLAUDE_MD")"
     COUNT="$(wc -l < "$BLOCK_FILE" | tr -d ' ')"
-  fi
+  done
   MATCHED_BLOCK="$(cat "$BLOCK_FILE")"
   rm -f "$BLOCK_FILE"
   if [[ "$START" == 0 ]]; then

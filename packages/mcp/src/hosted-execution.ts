@@ -157,9 +157,14 @@ export class HostedExecution {
 
   private async reconcile(principal: Principal, context: Context, job: Job): Promise<HostedMutation> {
     this.checkJob(job, context);
+    return this.readStatus(principal, context, job);
+  }
+
+  private async readStatus(principal: Principal, context: Context, job: Job): Promise<HostedMutation> {
     try {
       const client = await this.client(principal, context, READ_SCOPE);
       const result = this.result(await client.status(job.proposal), job.proposal);
+      await this.current(principal, context, READ_SCOPE);
       await this.jobs.observe(job.id, result);
       return result;
     } catch { return this.unknown(job.proposal); }
@@ -278,6 +283,11 @@ export class HostedExecution {
     this.accountsMatch(context, proposal);
     const job = await this.jobs.find({ owner: context.owner, purpose: 'submit', digest: proposal.digest, leg: null });
     if (!job) throw new HostedError(404, 'order_not_found', 'No order request belongs to this account and proposal.');
+    if (job.bindingHash !== context.bindingHash && (job.state === 'attempted' || job.state === 'observed')) {
+      if (job.owner !== context.owner) throw new HostedError(404, 'order_not_found', 'This order request is unavailable.');
+      this.accountsMatch(context, job.proposal);
+      return this.readStatus(principal, context, job);
+    }
     this.checkJob(job, context);
     if (job.state === 'pending' || job.state === 'declined' || job.state === 'replaced') return this.pendingReview(context, job);
     if (context.binding.mode === 'per_order') {

@@ -77,8 +77,6 @@ export class PostgresAuthorityStore implements AuthorityRepository {
         writable(); const data = JSON.stringify(record(namespace, value));
         if (!Number.isSafeInteger(expires) || expires < 0) throw unavailable();
         await query('DELETE FROM verdict_mcp.authority_records WHERE deployment_id=$1 AND expires<$2', [this.deploymentId, Date.now()]);
-        const count = await query('SELECT count(*)::integer AS count FROM verdict_mcp.authority_records WHERE deployment_id=$1 AND namespace=$2 AND key<>$3', [this.deploymentId, namespace, key]);
-        if (z.object({ count: z.number().int().nonnegative() }).parse(count.rows[0]).count >= 1000) throw new HostedError(503, 'authority_capacity', 'Connections are temporarily busy. Try again later.');
         await query(`INSERT INTO verdict_mcp.authority_records(deployment_id,namespace,key,data,expires) VALUES($1,$2,$3,$4::jsonb,$5)
           ON CONFLICT(deployment_id,namespace,key) DO UPDATE SET data=excluded.data,expires=excluded.expires`, [this.deploymentId, namespace, key, data, expires]);
       },

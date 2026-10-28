@@ -7,7 +7,7 @@ Trading keys stay in the separate private broker process.
 
 The active hosted kit exposes Lighter binary research and single-Lighter execution.
 The staging account-service endpoint exists at `https://verdict-mcp-staging.vercel.app/mcp`.
-Real sign-in resume and the complete account-to-order acceptance test remain blocked.
+Clients connect with that URL through OAuth; see [the hosted setup](../README.md#connect-the-hosted-mcp).
 Local tests use an ephemeral OAuth issuer, real MCP clients, the SDK broker, and an inert
 venue. No funded acceptance or directory approval is claimed. `mcp.hyperverdict.xyz`
 below is an example origin for the alternative managed-provider deployment.

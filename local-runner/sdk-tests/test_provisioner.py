@@ -2,15 +2,17 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
-from verdict_broker.authority import PolicyAuthority, recover_owner
-from verdict_broker.core import BrokerError, Store
+from verdict_broker.authority import PolicyAuthority, _hash, issue_consumer_grant, recover_owner, revoke_grant
+from verdict_broker.core import Broker, BrokerError, Store, node_call
 from verdict_broker.provisioner import Provisioner, TestnetVenue, _native_process, funding_message
 
 # Public synthetic fixture only; it is never funded or sent to a venue.
@@ -471,6 +473,232 @@ class ProvisionerTest(unittest.TestCase):
         with self.assertRaises(BrokerError):
             self.call("activate", enrollmentId=renewed["enrollmentId"], planId=renewed["planId"], revision=renewed["revision"], signature=sign(renewed["message"]))
         self.assertEqual(self.call("binding")["binding"], binding)
+
+    def used_permission(self, **observation):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+        from test_broker import FakeAdapter, request
+        self.now = time.time()
+        plan, _, binding = self.activate()
+        record = self.service.vault.read("did:privy:synthetic")
+        store = Store(Path(self.config["stateDir"]) / record["id"])
+        value = request(True)
+        value["legs"] = [{**value["legs"][1], "network": "testnet", "apiKeyIndex": 5}]
+        value["settlementReview"] = None
+        exact = node_call(["execution", "prepare", "--input", json.dumps(value)])
+        adapter = FakeAdapter(**observation)
+        adapter.inspect_connection = Mock(return_value={"ownerWallet": OWNER, "checks": {"registration": "ready"}})
+        broker = Broker(store, lambda _: adapter, authority=PolicyAuthority(store, binding["grantId"], clock=lambda: self.now),
+                        clock=lambda: self.now, poll_seconds=0)
+        status = broker.submit(exact)
+        return plan, binding, record, store, exact, adapter, broker, status
+
+    def test_expired_used_limits_renew_after_reconciliation_without_repeating_setup(self):
+        plan, original, record, store, exact, adapter, broker, result = self.used_permission()
+        self.assertEqual(result["state"], "complete")
+        self.assertFalse(store.unresolved_accounts())
+        before_history = list(store.proposal_journals())
+        old_usage = PolicyAuthority(store, original["grantId"], clock=lambda: self.now).describe()
+        self.now += 3601
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertEqual(self.call("renew", enrollmentId=plan["enrollmentId"]), renewed)
+        self.assertEqual(list(store.proposal_journals()), before_history)
+        self.assertEqual(self.call("binding")["binding"], original)
+        self.service.close()
+        self.service = Provisioner(self.config, venue=self.venue, workers=self.workers, clock=lambda: self.now)
+        self.assertEqual(self.call("renew", enrollmentId=plan["enrollmentId"]), renewed)
+        request = {"enrollmentId": plan["enrollmentId"], "planId": renewed["planId"], "revision": renewed["revision"],
+                   "signature": sign(renewed["message"])}
+        binding = self.call("activate", **request)["binding"]
+        self.assertEqual(self.call("activate", **request)["binding"], binding)
+        self.assertEqual(binding["accounts"], original["accounts"])
+        self.assertEqual((self.venue.sends, self.venue.faucets, adapter.sent), (1, 0, 1))
+        self.assertEqual(list(store.proposal_journals()), before_history)
+        previous = PolicyAuthority(store, original["grantId"], clock=lambda: self.now)
+        self.assertEqual(previous.describe()["newRisk"], "expired")
+        self.assertEqual(previous.describe()["remainingOrders"], old_usage["remainingOrders"])
+        authority = PolicyAuthority(store, binding["grantId"], clock=lambda: self.now)
+        self.assertEqual(authority.describe()["remainingOrders"], plan["limits"]["maxOrders"])
+        self.assertEqual(authority.describe()["remainingDebitUSDC"], "25.000000000000")
+        with self.assertRaises(BrokerError):
+            authority.check(exact)
+        self.assertEqual(broker.status(exact)["legs"][0]["filled"], "10")
+        new_broker = Broker(store, lambda _: adapter, authority=authority, clock=lambda: self.now, poll_seconds=0)
+        self.assertEqual(new_broker.submit(exact)["state"], "complete")
+        self.assertEqual(adapter.sent, 1)
+        self.assertEqual(authority.describe()["remainingOrders"], plan["limits"]["maxOrders"])
+        fresh = json.loads(json.dumps(exact))
+        fresh["payload"]["requestId"] = "1a21d650-8ecf-4609-9b9b-cce18c80f602"
+        fresh["payload"]["createdAt"] = int(self.now * 1000)
+        fresh["payload"]["expiresAt"] = int(self.now * 1000) + 60_000
+        fresh["digest"] = _hash(fresh["payload"])
+        adapter.check = type(adapter.check)("10", "95.9", "0.01", {}, self.now)
+        adapter.inventory = "20"
+        self.assertEqual(new_broker.submit(fresh)["state"], "complete")
+        self.assertEqual(adapter.sent, 2)
+        self.assertEqual(len(list(store.proposal_journals())), 2)
+        self.assertEqual(PolicyAuthority(store, original["grantId"], clock=lambda: self.now).describe()["remainingOrders"], old_usage["remainingOrders"])
+        self.assertEqual(record["privateKey"], self.service.vault.read("did:privy:synthetic")["privateKey"])
+
+    def test_expired_reconciled_zero_fill_can_renew_but_partial_and_unknown_cannot(self):
+        plan, _, _, store, _, adapter, broker, result = self.used_permission(state="canceled", filled="0", inventory="0")
+        self.assertEqual(result["state"], "needs_reconciliation")
+        self.assertFalse(store.unresolved_accounts())
+        self.now += 3601
+        self.assertEqual(self.call("renew", enrollmentId=plan["enrollmentId"])["scope"]["epoch"], 1)
+        self.assertEqual(adapter.sent, 1)
+        for observation in ({"filled": "4", "inventory": "4", "state": "canceled"}, {"state": "unknown", "filled": "0", "inventory": "0", "settled": False}):
+            with self.subTest(observation=observation):
+                fixture = ProvisionerTest()
+                fixture.setUp()
+                try:
+                    other_plan, binding, _, other_store, _, other_adapter, _, _ = fixture.used_permission(**observation)
+                    fixture.now += 3601
+                    with self.assertRaises(BrokerError):
+                        fixture.call("renew", enrollmentId=other_plan["enrollmentId"])
+                    self.assertEqual(fixture.call("binding")["binding"], binding)
+                    self.assertEqual(other_adapter.sent, 1)
+                    self.assertTrue(other_store.unresolved_accounts())
+                finally:
+                    fixture.tearDown()
+
+    def test_expired_lost_reply_recovers_original_status_without_renewing_or_sending(self):
+        plan, binding, record, store, exact, adapter, broker, result = self.used_permission(
+            lost=True, state="unknown", filled="0", inventory="0", settled=False)
+        self.assertEqual(result["state"], "needs_reconciliation")
+        self.assertEqual(adapter.sent, 1)
+        self.assertTrue(store.unresolved_accounts())
+        self.now += 3601
+        self.assertEqual(PolicyAuthority(store, binding["grantId"], clock=lambda: self.now).describe()["newRisk"], "expired")
+        reads = []
+        def status(original, proposal):
+            self.assertEqual(original["id"], record["id"])
+            self.assertEqual(original["binding"], binding)
+            self.assertEqual(original["privateKey"], record["privateKey"])
+            self.assertEqual(proposal, exact)
+            reads.append(proposal["digest"])
+            return broker.status(proposal)
+        self.service.reconcile_status = status
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertNotIn("renewal", self.service.vault.read(record["subject"]))
+        adapter.state, adapter.filled, adapter.inventory, adapter.settled = "filled", "10", "10", True
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertEqual(renewed["scope"]["epoch"], 1)
+        self.assertFalse(store.unresolved_accounts())
+        self.assertEqual(reads, [exact["digest"], exact["digest"]])
+        self.assertEqual((adapter.sent, adapter.cancels, self.venue.sends, self.venue.faucets), (1, 0, 1, 0))
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertEqual(self.call("renew", enrollmentId=plan["enrollmentId"]), renewed)
+        self.assertEqual(len(reads), 2)
+
+    def test_recovery_refuses_foreign_or_malformed_history_before_status_read(self):
+        plan, binding, record, store, exact, adapter, _, _ = self.used_permission(
+            lost=True, state="unknown", filled="0", inventory="0", settled=False)
+        self.now += 3601
+        self.service.reconcile_status = Mock(side_effect=AssertionError("unvalidated history reached status"))
+        rows = store.read(exact["digest"])
+        approved = next(row for row in rows if row["type"] == "approved")
+        original = json.loads(json.dumps(approved["proposal"]))
+        approved["proposal"]["payload"]["legs"][0]["account"] = 999
+        (store.root / (exact["digest"] + ".jsonl")).write_text("".join(json.dumps(row) + "\n" for row in rows))
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=plan["enrollmentId"])
+        approved["proposal"] = original
+        next(row for row in rows if row["type"] == "attempt_started")["client_id"] = "f" * 64
+        (store.root / (exact["digest"] + ".jsonl")).write_text("".join(json.dumps(row) + "\n" for row in rows))
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.service.reconcile_status.assert_not_called()
+        with self.assertRaises(BrokerError):
+            self.service.dispatch({"operation": "renew", "subject": "did:privy:other", "enrollmentId": plan["enrollmentId"]})
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertEqual((adapter.sent, adapter.cancels), (1, 0))
+
+    def test_expired_used_permission_rechecks_revocation_and_preserves_key_restoration_guard(self):
+        plan, binding, _, store, _, adapter, _, _ = self.used_permission()
+        self.now += 3601
+        self.venue.slots[5] = "0x" + "3" * 80
+        with self.assertRaises(BrokerError):
+            self.call("resume", walletAddress=OWNER)
+        self.assertEqual(self.venue.sends, 1)
+        self.venue.slots[5] = PUBLIC
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        revoke_grant(store, binding["grantId"])
+        with self.assertRaises(BrokerError):
+            self.call("activate", enrollmentId=plan["enrollmentId"], planId=renewed["planId"], revision=renewed["revision"], signature=sign(renewed["message"]))
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertEqual(adapter.sent, 1)
+
+    def test_expired_unsigned_renewal_can_refresh_without_repeating_setup(self):
+        plan, _, binding = self.activate()
+        self.now += 3601
+        stale = self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.now += 3601
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertNotEqual(renewed["planId"], stale["planId"])
+        self.assertEqual(renewed["scope"], stale["scope"])
+        self.assertEqual(self.call("renew", enrollmentId=plan["enrollmentId"]), renewed)
+        with self.assertRaises(BrokerError):
+            self.call("activate", enrollmentId=plan["enrollmentId"], planId=stale["planId"], revision=stale["revision"], signature=sign(stale["message"]))
+        self.assertEqual(self.call("binding")["binding"], binding)
+        new_binding = self.call("activate", enrollmentId=plan["enrollmentId"], planId=renewed["planId"], revision=renewed["revision"], signature=sign(renewed["message"]))["binding"]
+        self.assertEqual(new_binding["accounts"], binding["accounts"])
+        self.assertEqual((self.venue.sends, self.venue.faucets), (1, 0))
+
+    def test_renewal_refuses_reservations_without_attempts_even_when_no_exposure_is_reported(self):
+        plan, binding, _, store, exact, adapter, _, _ = self.used_permission()
+        reserved = json.loads(json.dumps(exact))
+        reserved["payload"]["requestId"] = "fb209545-86ab-4f2b-8443-1bd50b9bb12e"
+        reserved["digest"] = _hash(reserved["payload"])
+        PolicyAuthority(store, binding["grantId"], clock=lambda: self.now).reserve(reserved)
+        self.assertFalse(store.unresolved_accounts())
+        self.now += 3601
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertEqual(adapter.sent, 1)
+
+    def test_renewal_refuses_a_reconciled_attempt_with_a_changed_original_grant_binding(self):
+        plan, binding, _, store, exact, adapter, _, _ = self.used_permission()
+        rows = store.read(exact["digest"])
+        attempt = next(row for row in rows if row["type"] == "attempt_started")
+        attempt["authority"]["grantHash"] = "f" * 64
+        (store.root / (exact["digest"] + ".jsonl")).write_text("".join(json.dumps(row) + "\n" for row in rows))
+        self.assertFalse(store.unresolved_accounts())
+        self.now += 3601
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertEqual(self.call("binding")["binding"], binding)
+        self.assertEqual(adapter.sent, 1)
+
+    def test_expired_already_issued_renewal_is_never_discarded_or_recreated(self):
+        plan, _, binding = self.activate()
+        self.now += 3601
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        record = self.service.vault.read("did:privy:synthetic")
+        with self.service._store(record) as store:
+            issue_consumer_grant(store, record["renewal"]["grant"], subject=record["subject"], plan_id=renewed["planId"], signature=sign(renewed["message"]))
+            before = store.read("authority")
+        self.now += 3601
+        with self.assertRaises(BrokerError):
+            self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertEqual(self.service.vault.read(record["subject"])["renewal"]["plan"], renewed)
+        with self.service._store(record) as store:
+            self.assertEqual(store.read("authority"), before)
+        self.assertEqual(self.call("binding")["binding"], binding)
+
+    def test_expired_unsigned_renewal_before_first_activation_keeps_original_setup(self):
+        ready = self.ready()
+        plan = self.call("preview", enrollmentId=ready["enrollmentId"])
+        self.now += 3601
+        first = self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.now += 3601
+        renewed = self.call("renew", enrollmentId=plan["enrollmentId"])
+        self.assertNotEqual(first["planId"], renewed["planId"])
+        binding = self.call("activate", enrollmentId=plan["enrollmentId"], planId=renewed["planId"], revision=renewed["revision"], signature=sign(renewed["message"]))["binding"]
+        self.assertEqual(binding["accounts"], [{"venue": "lighter", "network": "testnet", "account": 42, "apiKeyIndex": 5}])
+        self.assertEqual((self.venue.sends, self.venue.faucets), (1, 0))
 
 
 class NativeBridgeTest(unittest.TestCase):

@@ -13,7 +13,7 @@ import { HostedExecution, type HostedRemoteConnect } from './hosted-execution.js
 import { HostedJobs } from './hosted-jobs.js';
 import type { HostedJobStore } from './hosted-job-store.js';
 import { HostedLighterIntents } from './hosted-intent.js';
-import { type BrowserSession, HostedConfig, HostedError, type Principal, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
+import { type BrowserSession, HostedConfig, HostedError, type HostedMutation, type Principal, READ_SCOPE, TRADE_SCOPE } from './hosted-model.js';
 import type { ConnectorSecurity, HostedRuntime, ReviewJobIdentity } from './hosted-security.js';
 import { REVIEW_STYLES, escapeHtml, reviewContent, resultContent, reviewErrorContent } from './hosted-review.js';
 import { registerLighterTools } from './lighter.js';
@@ -22,6 +22,8 @@ import { LighterExecutionCancel, LighterExecutionProposal, LighterExecutionReque
 const REVIEW_URI = 'ui://verdict/order-review.html';
 const REVIEW_META = { ui: { csp: { connectDomains: [], resourceDomains: [] } } };
 const ReviewId = z.string().uuid();
+const MAX_STATUS_CHECKS = 12;
+const StatusCheck = z.string().regex(/^(0|[1-9]\d?)$/).transform(Number).pipe(z.number().int().max(MAX_STATUS_CHECKS));
 const publicError = (error: unknown) => error instanceof HostedError ? error : error instanceof InvalidTokenError
   ? new HostedError(401, 'invalid_token', 'This trading connection expired, changed or was revoked. Reconnect using the saved account setup.')
   : new HostedError(502, 'connector_error', 'The connector operation could not complete. Reconcile the original proposal before taking further action.');
@@ -145,6 +147,13 @@ function page(res: ServerResponse, title: string, content: string, status = 200)
   });
   res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style nonce="${nonce}">${REVIEW_STYLES}</style></head><body><main><p class="brand">VERDICT</p><h1>${escapeHtml(title)}</h1>${content}</main></body></html>`);
 }
+function resultPage(res: ServerResponse, result: HostedMutation, id: string, check: number): void {
+  const checking = result.state === 'delivery_unknown' || result.state === 'needs_reconciliation';
+  const automatic = checking && check < MAX_STATUS_CHECKS;
+  if (automatic) res.setHeader('refresh', `3; url=/review/${id}?check=${check + 1}`);
+  const view = resultContent(result, checking ? { statusUrl: `/review/${id}?check=0`, automatic } : undefined);
+  page(res, view.title, view.content);
+}
 async function browserSession(auth: ConnectorSecurity, req: IncomingMessage): Promise<BrowserSession | null> {
   if (req.headers.authorization !== undefined) throw new HostedError(403, 'browser_session_required', 'Order review requires independent browser sign-in, not an MCP bearer token.');
   return auth.readSession(req.headers.cookie);
@@ -190,12 +199,16 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
         res.writeHead(303, { location: login.location, 'set-cookie': login.cookies, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return;
       }
       if (req.method === 'GET') {
+        const checks = url.searchParams.getAll('check');
+        const parsed = StatusCheck.safeParse(checks[0] ?? '0');
+        if (checks.length > 1 || !parsed.success) throw new HostedError(400, 'invalid_request', 'Invalid order status check.');
         if (job.state === 'replaced') {
           const current = await gateway.status(session.principal, job.proposal);
           if (current.state === 'review_updated') { res.writeHead(303, { location: current.approvalUrl, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return; }
         }
-        if (job.state === 'observed' && job.result) {
-          const result = resultContent(job.result); page(res, result.title, result.content); return;
+        if (job.state === 'attempted' || job.state === 'observed') {
+          const result = job.result?.state === 'complete' ? job.result : await gateway.status(session.principal, job.proposal);
+          resultPage(res, result, id, parsed.data); return;
         }
         const review = reviewContent(job, session.csrf);
         page(res, review.title, review.content); return;
@@ -214,8 +227,7 @@ export async function createHostedHandler(input: HostedConfig, runtime?: HostedR
       }
       if (decision !== 'confirm') throw new HostedError(400, 'invalid_confirmation', 'Choose Confirm or Decline.');
       try {
-        const result = resultContent(await gateway.confirm(session.principal, id));
-        page(res, result.title, result.content);
+        resultPage(res, await gateway.confirm(session.principal, id), id, 0);
       } catch (error) {
         if (!(error instanceof HostedError) || !['approval_expired', 'proposal_expired', 'approval_replaced'].includes(error.code)) throw error;
         if (error.code === 'approval_replaced') {

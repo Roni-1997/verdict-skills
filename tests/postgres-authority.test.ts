@@ -9,6 +9,7 @@ import { AccountServiceConfig, hash, opaque, ownerHash } from '../packages/mcp/s
 import type { ConnectWriteTx } from '../packages/mcp/src/connect-store.js';
 import { POSTGRES_AUTHORITY_DDL, PostgresAuthorityStore } from '../packages/mcp/src/postgres-authority.js';
 import { POSTGRES_JOBS_DDL, PostgresHostedJobs } from '../packages/mcp/src/postgres-jobs.js';
+import { registerBeyondLegacyCapacity, rotateBeyondLegacyCapacity } from './fixtures/authority-capacity.js';
 
 const testDsn = process.env.VERDICT_TEST_POSTGRES;
 const childDatabase = `verdict_mcp_test_auth_${randomUUID().replaceAll('-', '')}`;
@@ -46,6 +47,14 @@ describe.skipIf(!testDsn)('real PostgreSQL authority transaction and revocation 
   });
   afterEach(async () => { for (const value of authorities.splice(0)) await value.close(); for (const store of stores.splice(0)) await store.close(); await Promise.all(pools.splice(0).map(pool => postgres.end(pool))); delete process.env.VERDICT_AUTHORITY_TEST_RELAY; });
   afterAll(async () => { try { await postgres.endAllExcept(admin); if (created) await postgres.dropDatabase(admin, childDatabase); } finally { await postgres.end(admin); } });
+
+  it('admits clients beyond the legacy shared namespace capacity', async () => {
+    const store = open(); await registerBeyondLegacyCapacity(await authority(store), store);
+  }, 30_000);
+
+  it('preserves refresh replay isolation and expiry cleanup beyond the legacy shared namespace capacity', async () => {
+    const store = open(); await rotateBeyondLegacyCapacity(await authority(store), store);
+  }, 30_000);
 
   it('serializes two processes across awaited writes and preserves the committed epoch', async () => {
     const first = open(); const second = open(); const value = grant(); await first.write([], tx => tx.put('grant', value.id, value, value.expiresAt));

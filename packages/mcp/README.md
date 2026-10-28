@@ -52,4 +52,4 @@ Persist proposals unchanged. Reusing a hosted intent UUID returns its original p
 
 The local HTTP server binds loopback by default and has no built-in authentication. `GET /healthz` identifies its active mode. Use an authenticated gateway before exposing it remotely.
 
-The hosted staging endpoint is [verdict-mcp-staging.vercel.app/mcp](https://verdict-mcp-staging.vercel.app/mcp). Hosted execution requires OAuth, configured identity, reviewed account provisioning, durable storage, and a separate private signer. Real sign-in resume and full staging order acceptance remain blocked. See [the deployment guide](../../deploy/README.md).
+The hosted staging endpoint is [verdict-mcp-staging.vercel.app/mcp](https://verdict-mcp-staging.vercel.app/mcp). Hosted execution requires OAuth, configured identity, reviewed account provisioning, durable storage, and a separate private signer. Connect through the client OAuth flow described in [the hosted setup](../../README.md#connect-the-hosted-mcp). The service resumes saved setup; owner signatures and independent order approval remain separate from research. See [the deployment guide](../../deploy/README.md).

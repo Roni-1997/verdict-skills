@@ -79,6 +79,16 @@ describe('Lighter binary outcomes using public response fixtures', () => {
     expect(await tools.list_markets({ cursor: 456 })).toMatchObject({ nextCursor: 123, complete: false });
     expect(calls[0]?.searchParams.get('cursor')).toBe('456');
   });
+  it.each([
+    { cursor: 25, next_cursor: 0 },
+    { cursor: 25, next_cursor: 25 },
+    { cursor: 25, next_cursor: 26 },
+  ])('stops a non-progressing event cursor without claiming complete coverage: $next_cursor', async ({ cursor, next_cursor }) => {
+    const { tools } = harness({ events: { code: 200, events: [], next_cursor } });
+    const page = await tools.list_markets({ cursor });
+    expect(page).toMatchObject({ nextCursor: null, complete: false, markets: [] });
+    expect(page.note).toContain('coverage is incomplete');
+  });
   it('does a fresh market_ids lookup and never substitutes another outcome', async () => {
     const { tools, calls } = harness();
     await expect(tools.get_market({ market: 123 })).rejects.toMatchObject({ code: 'not_found' });
@@ -202,6 +212,13 @@ describe('Lighter binary outcomes using public response fixtures', () => {
 });
 
 describe('Lighter CLI and MCP faces', () => {
+  it('directs top-level help to the Lighter workflow and labels retained compatibility commands', async () => {
+    const help = await runCli(['--help']);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toContain('Verdict agent kit for Lighter binary outcome markets');
+    expect(help.stdout).toContain('verdict lighter --help');
+    expect(help.stdout.indexOf('verdict lighter --help')).toBeLessThan(help.stdout.indexOf('Legacy Hyperliquid compatibility'));
+  });
   it('CLI and core return the same real quote and bad input uses JSON errors', async () => {
     const { tools } = harness();
     const args = ['quote', String(MARKET), '--side', 'no', '--action', 'buy', '--size', '10'];

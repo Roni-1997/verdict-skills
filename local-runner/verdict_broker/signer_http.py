@@ -133,7 +133,10 @@ class PostgresSigner:
             return method(config["dsn"], deployment=config["deploymentId"], namespace=record["id"], database_id=config["databaseId"])
         try:
             self.provisioner = Provisioner(config["provisioning"], vault=self.vault, store_factory=store_factory,
-                                           venue=venue or TestnetVenue(transport_guard=self.vault.check_identity))
+                                           venue=venue or TestnetVenue(transport_guard=self.vault.check_identity),
+                                           reconcile_status=lambda record, proposal: self.broker(config, record, {
+                                               "operation": "status", "expectedMode": "policy",
+                                               "expectedGrantId": record["binding"]["grantId"], "proposal": proposal}))
         except Exception:
             self.vault.close()
             raise

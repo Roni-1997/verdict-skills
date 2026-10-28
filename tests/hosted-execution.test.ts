@@ -294,7 +294,73 @@ it('changing a binding cannot create a second job or reuse an old browser approv
   const reconfigured = new HostedExecution(changed, jobs, connect); const before = connections.length;
   await expect(reconfigured.submit(principal(), proposal)).rejects.toMatchObject({ code: 'binding_changed' });
   await expect(reconfigured.confirm(principal(), id)).rejects.toMatchObject({ code: 'binding_changed' });
+  await expect(reconfigured.status(principal(), proposal)).rejects.toMatchObject({ code: 'binding_changed' });
   expect(connections).toHaveLength(before); expect(alice.submits).toBe(0);
+});
+
+it.each(['attempted', 'observed'] as const)('reads an %s order after same-account policy renewal without reusing its old approval', async state => {
+  const proposal = prepareExecution(request()); const id = approvalId(await gateway.submit(principal(), proposal));
+  if (state === 'attempted') alice.submitError = new Error('lost response');
+  await gateway.confirm(principal(), id);
+  expect(jobs.get(id)?.state).toBe(state);
+  await gateway.cancel(principal(), { proposal, leg: 0 });
+  const originalHash = jobs.get(id)?.bindingHash;
+  const changed = structuredClone(config); const binding = changed.bindings[0];
+  if (!binding) throw new Error('Missing binding');
+  binding.grantId = BOB_GRANT; binding.grantHash = 'b'.repeat(64);
+  alice.authority = { ...alice.authority, grantId: BOB_GRANT, grantHash: binding.grantHash };
+  const renewed = new HostedExecution(changed, jobs, connect);
+  expect(await renewed.status(principal(), proposal)).toMatchObject({ state: 'complete', digest: proposal.digest });
+  expect(alice.statuses).toBe(1); expect(alice.submits).toBe(1); expect(alice.cancels).toBe(0); expect(alice.preflights).toBe(1);
+  expect(jobs.get(id)?.bindingHash).toBe(originalHash);
+  await expect(renewed.submit(principal(), proposal)).rejects.toMatchObject({ code: 'binding_changed' });
+  await expect(renewed.reviewJob(principal(), id)).rejects.toMatchObject({ code: 'binding_changed' });
+  await expect(renewed.confirm(principal(), id)).rejects.toMatchObject({ code: 'binding_changed' });
+  await expect(renewed.cancel(principal(), { proposal, leg: 0 })).rejects.toMatchObject({ code: 'binding_changed' });
+  expect(alice.submits).toBe(1); expect(alice.cancels).toBe(0);
+});
+
+it('keeps renewed historical status restricted to the current owner, account and key', async () => {
+  const proposal = prepareExecution(request()); const id = approvalId(await gateway.submit(principal(), proposal));
+  await gateway.confirm(principal(), id);
+  const changed = structuredClone(config); const binding = changed.bindings[0]; const other = changed.bindings[1];
+  if (!binding || !other) throw new Error('Missing binding');
+  binding.grantId = BOB_GRANT;
+  alice.authority = { ...alice.authority, grantId: BOB_GRANT };
+  const renewed = new HostedExecution(changed, jobs, connect); const before = connections.length;
+  const wrongOwner = new HostedExecution({ ...changed, bindings: [{ ...other, accounts: structuredClone(binding.accounts) }] }, jobs, connect);
+  await expect(wrongOwner.status(principal('bob'), proposal)).rejects.toMatchObject({ code: 'order_not_found' });
+  await expect(renewed.status({ ...principal(), expiresAt: Date.now() - 1 }, proposal)).rejects.toMatchObject({ status: 401 });
+  for (const field of ['account', 'apiKeyIndex', 'enabled'] as const) {
+    const invalid = structuredClone(changed); const row = invalid.bindings[0];
+    if (!row) throw new Error('Missing binding');
+    if (field === 'enabled') row.enabled = false;
+    else row.accounts = [{ venue: 'lighter', network: 'testnet', account: field === 'account' ? ADDRESS + 2 : ADDRESS, apiKeyIndex: field === 'apiKeyIndex' ? 3 : 2 }];
+    await expect(new HostedExecution(invalid, jobs, connect).status(principal(), proposal)).rejects.toMatchObject({ code: field === 'enabled' ? 'account_not_linked' : 'account_mismatch' });
+  }
+  expect(connections).toHaveLength(before); expect(alice.statuses).toBe(0); expect(alice.submits).toBe(1);
+});
+
+it('does not return or persist a historical observation if its current connection changes during status', async () => {
+  const proposal = prepareExecution(request()); const id = approvalId(await gateway.submit(principal(), proposal));
+  alice.submitError = new Error('lost response'); await gateway.confirm(principal(), id);
+  const configured = config.bindings[0]; if (!configured) throw new Error('Missing binding');
+  let binding = { ...configured, grantId: BOB_GRANT };
+  alice.authority = { ...alice.authority, grantId: BOB_GRANT };
+  const runtime: HostedRuntime = {
+    auth: { metadata: () => ({ resource: `${config.publicOrigin}/mcp`, authorization_servers: [issuer], scopes_supported: [READ_SCOPE], bearer_methods_supported: ['header'] }),
+      challenge: () => 'Bearer', authenticate: () => { throw new Error('No HTTP authentication in this fixture'); },
+      login: () => { throw new Error('No login expected'); }, callback: () => { throw new Error('No callback expected'); }, readSession: () => null },
+    binding: subject => subject === binding.subject ? binding : null,
+    assertActive: () => {}, assertJobActive: () => {}, status: async () => null,
+  };
+  vi.spyOn(alice, 'status').mockImplementation(async saved => {
+    binding = { ...binding, enabled: false };
+    return alice.result(saved);
+  });
+  const renewed = new HostedExecution(config, jobs, connect, runtime);
+  expect(await renewed.status(principal(), proposal)).toMatchObject({ state: 'delivery_unknown', automaticRetry: false });
+  expect(jobs.get(id)?.state).toBe('attempted'); expect(alice.submits).toBe(1); expect(alice.cancels).toBe(0);
 });
 
 it('requires a separately attempted same-owner submit before any cancellation', async () => {

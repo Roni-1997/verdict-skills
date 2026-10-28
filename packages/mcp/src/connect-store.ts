@@ -82,10 +82,6 @@ class LocalDatabase {
   put(namespace: string, key: string, value: unknown, expires: number) {
     this.guard();
     this.db.prepare('DELETE FROM records WHERE expires<?').run(Date.now());
-    if (!this.db.prepare('SELECT key FROM records WHERE namespace=? AND key=?').get(namespace, key)) {
-      const count = this.db.prepare('SELECT count(*) AS count FROM records WHERE namespace=?').get(namespace)?.count;
-      if (typeof count !== 'number' || count >= 1000) throw new HostedError(503, 'authority_capacity', 'Connections are temporarily busy. Try again later.');
-    }
     this.db.prepare('INSERT INTO records VALUES (?,?,?,?) ON CONFLICT(namespace,key) DO UPDATE SET data=excluded.data,expires=excluded.expires').run(namespace, key, JSON.stringify(value), expires);
   }
   enrollment<T>(subject: string, schema: Parser<T>): T | null {

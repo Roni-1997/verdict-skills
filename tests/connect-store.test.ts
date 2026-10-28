@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { afterEach, expect, it } from 'vitest';
 import { ConnectStore, type ConnectWriteTx } from '../packages/mcp/src/connect-store.js';
+import { AccountAuthority } from '../packages/mcp/src/connect-authority.js';
+import { AccountServiceConfig } from '../packages/mcp/src/connect-model.js';
+import { registerBeyondLegacyCapacity, rotateBeyondLegacyCapacity } from './fixtures/authority-capacity.js';
 
 const roots: string[] = [];
 const stores: ConnectStore[] = [];
@@ -9,6 +12,23 @@ async function open() { const root = await mkdtemp('/tmp/verdict-connect-store-'
 const grant = () => ({ id: randomUUID(), subject: 'did:privy:alice', clientId: 'client', profileId: null, revision: null,
   scopes: ['verdict:read' as const], resource: 'https://fixture.example/mcp', createdAt: Date.now(), expiresAt: Date.now() + 60_000, revoked: false, epoch: 0 });
 afterEach(async () => { for (const store of stores.splice(0)) await store.close(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+
+async function authority(store: ConnectStore) {
+  process.env.VERDICT_CAPACITY_TEST_RELAY = 'a'.repeat(64);
+  try {
+    return await AccountAuthority.create(AccountServiceConfig.parse({ publicOrigin: 'https://mcp.capacity.fixture', appOrigin: 'https://app.capacity.fixture',
+      appNetwork: 'lighter-testnet', privyAppId: 'capacity-fixture', privyVerification: { kind: 'jwks' }, relaySecretEnv: 'VERDICT_CAPACITY_TEST_RELAY',
+      storage: { kind: 'local', stateDir: '/unused-capacity-authority', gatewayJobsDir: '/unused-capacity-jobs' }, profiles: [] }), undefined, undefined, store);
+  } finally { delete process.env.VERDICT_CAPACITY_TEST_RELAY; }
+}
+
+it('admits clients beyond the legacy shared namespace capacity', async () => {
+  const store = await open(); await registerBeyondLegacyCapacity(await authority(store), store);
+}, 30_000);
+
+it('preserves refresh replay isolation and expiry cleanup beyond the legacy shared namespace capacity', async () => {
+  const store = await open(); await rotateBeyondLegacyCapacity(await authority(store), store);
+}, 30_000);
 
 it('serializes root reads, writes and close across awaited transaction callbacks', async () => {
   const store = await open(); const value = grant(); let release = () => {}; let entered = () => {};

@@ -12,7 +12,7 @@ Read-only research needs no key, login, or funded account. Use `verdict lighter 
 | Read a public account | `verdict lighter positions ACCOUNT_INDEX` | `lighter_positions` |
 | Read binary fee tiers | `verdict lighter fees` | `lighter_fee_schedule` |
 
-The resource `verdict-lighter://markets` returns the first discovery page. Follow `nextCursor` through the listing tools. A missing market on one page is not proof that it does not exist. Creator filtering can leave an empty page that still has a next cursor.
+The resource `verdict-lighter://markets` returns the first discovery page. Follow `nextCursor` through the listing tools. A missing market on one page is not proof that it does not exist. Creator filtering can leave an empty page that still has a next cursor. Stop when `nextCursor` is null. If `complete=false`, report incomplete coverage; a terminal or non-progressing venue cursor never authorizes another request with that cursor.
 
 Every result names its network. Devnet and testnet have different accounts and markets even though both use signing chain 300. Mainnet uses chain 304. Never infer an ID or network from another venue's configuration.
 

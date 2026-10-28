@@ -164,7 +164,7 @@ Perps, spot, and paired trading are outside this skill.
 
 - Public research needs no key. State the network and use numeric Lighter account and market IDs.
 - Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
-- In per_order mode, end the message and wait for a reply in a new message before independent approval. Hosted approval belongs to the signed-in user; local approval belongs to the operator's terminal. The agent cannot approve.
+- In per_order mode, show the exact terms and open the independent review. Hosted approval belongs to the signed-in user in the browser; local approval belongs to the operator's terminal. No extra chat yes is required before opening the hosted review. The agent cannot approve.
 - Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
 - Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
 - After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.
@@ -176,11 +176,16 @@ elif [[ -f "$CLAUDE_MD" ]] && grep -q '^## Verdict$' "$CLAUDE_MD"; then
   BLOCK_FILE="$(mktemp)"
   printf '%s\n' "$CLAUDE_MD_BLOCK" > "$BLOCK_FILE"
   CURRENT_START="$(find_exact_routing_block "$BLOCK_FILE" "$CLAUDE_MD")"
-  LEGACY_START="$(find_exact_routing_block "$SCRIPT_DIR/legacy-routing-block.txt" "$CLAUDE_MD")"
+  LEGACY_START=0
+  LEGACY_FILE=""
+  for candidate in "$SCRIPT_DIR/previous-routing-block.txt" "$SCRIPT_DIR/legacy-routing-block.txt"; do
+    LEGACY_START="$(find_exact_routing_block "$candidate" "$CLAUDE_MD")"
+    if [[ "$LEGACY_START" != 0 ]]; then LEGACY_FILE="$candidate"; break; fi
+  done
   if [[ "$CURRENT_START" != 0 ]]; then
     echo "    current managed routing block is already present; left unchanged"
   elif [[ "$LEGACY_START" != 0 ]]; then
-    LEGACY_COUNT="$(wc -l < "$SCRIPT_DIR/legacy-routing-block.txt" | tr -d ' ')"
+    LEGACY_COUNT="$(wc -l < "$LEGACY_FILE" | tr -d ' ')"
     TMP="$(mktemp)"
     awk -v start="$LEGACY_START" -v count="$LEGACY_COUNT" '
       NR == FNR { replacement = replacement $0 "\n"; next }
@@ -218,7 +223,7 @@ fi
 
 echo
 echo "Done."
-echo "  verdict       $BIN_DIR/verdict        (try: verdict --help)"
+echo "  verdict       $BIN_DIR/verdict        (try: verdict lighter --help)"
 echo "  verdict-mcp   $BIN_DIR/verdict-mcp    (stdio by default; --http 8787 for streamable HTTP)"
 echo "  skill         $SKILL_DST"
 echo "  network       ${LIGHTER_NETWORK:-devnet} (select testnet explicitly for staging)"

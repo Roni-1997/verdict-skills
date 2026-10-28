@@ -16,7 +16,9 @@ Persist the returned proposal unchanged. Review it with `execution_review` and c
 
 Show every confirmation line, including account, network, creator, market, full settlement rule, action, side, price, size, maximum spend, fee reserve and caps, and expiry. Do not round amounts. Explain that a sell can open the opposite position because reduce-only is unsupported.
 
-In `per_order` mode, ask for confirmation and end your message. Wait for an explicit reply in a new message. Preparation and independent approval happen in separate turns. Never fabricate confirmation. A review URL, digest, model statement, or tool result is not approval.
+In hosted `per_order` mode, show the terms and call `execution_submit` only to open the independently signed-in browser review. No additional chat confirmation is required before opening the review. Opening the review sends no order. Ask the user to review and confirm there, then end your message. The agent cannot approve it. Preparation is unsigned, and independent approval is a separate action.
+
+Never fabricate confirmation. A review URL, digest, model statement, or tool result is not approval. An order may execute only after the owner acts at the configured approval boundary.
 
 Hosted `execution_submit` returns a review URL for the independently signed-in user to approve the exact order. Local execution requires exact approval in the operator's terminal. Never complete either approval on the user's behalf. A chat reply alone does not authorize the signer.
 

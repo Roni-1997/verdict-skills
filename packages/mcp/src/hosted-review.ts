@@ -41,7 +41,7 @@ export function reviewContent(job: Job, csrf: string, now = Date.now()): { title
   return { title, content: `<section class="review-card">${summary}<div class="amount"><span>${leg.action === 'buy' ? 'Maximum spend' : 'Maximum fee reserve'}</span><strong>${displayCeiling(maximum)}<small> USDC</small></strong></div><dl class="terms">${row('Shares', leg.shares)}${row('Limit price', `${decimal(lighterTicks(leg.limitPrice, 12) * 100n)}¢`)}${row('Fee estimate · included', `${leg.feeReserveUSDC} USDC`)}</dl>${leg.action === 'sell' ? '<p class="notice">A sell can open the opposite side if you do not hold enough shares.</p>' : ''}${active ? '<p class="hint">No wallet signature. Confirm once to send this exact order within your existing limits.</p>' : ''}${action}</section>${details}` };
 }
 
-export function resultContent(result: HostedMutation): { title: string; content: string } {
+export function resultContent(result: HostedMutation, progress?: { statusUrl: string; automatic: boolean }): { title: string; content: string } {
   const complete = result.state === 'complete';
   const title = complete ? 'Trade complete' : result.state === 'review_updated' ? 'Quote updated' : result.state === 'approval_required' ? 'Confirmation needed' : 'Checking your order';
   const message = complete ? 'Return to your agent to see the fill and updated position.'
@@ -49,7 +49,8 @@ export function resultContent(result: HostedMutation): { title: string; content:
       : result.state === 'review_refreshing' ? 'A fresh review is being prepared. Keep this original request for status.'
     : result.state === 'approval_required' ? 'Review the order before it can be sent.'
       : 'Keep this request. Your agent can check its status safely. Do not place a replacement while delivery is uncertain.';
-  return { title, content: `<section class="review-card"><p>${message}</p>${'legs' in result ? `<dl>${result.legs.map(leg => row(`Order ${leg.leg + 1}`, `${leg.state}${leg.filled === null ? '' : ` · ${leg.filled} shares filled`}`)).join('')}</dl>` : ''}</section><details><summary>Execution details</summary><pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre></details>` };
+  const status = progress ? `<p class="hint">${progress.automatic ? 'This page checks the original order automatically for a short time.' : 'Automatic checks have paused. You can check the original order again.'} Checking status never sends another order.</p><p><a href="${escapeHtml(progress.statusUrl)}">Check status</a></p>` : '';
+  return { title, content: `<section class="review-card"><p>${message}</p>${'legs' in result ? `<dl>${result.legs.map(leg => row(`Order ${leg.leg + 1}`, `${leg.state}${leg.filled === null ? '' : ` · ${leg.filled} shares filled`}`)).join('')}</dl>` : ''}${status}</section><details><summary>Execution details</summary><pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre></details>` };
 }
 
 export function reviewErrorContent(error: HostedError): { title: string; content: string } {

@@ -42,7 +42,7 @@ Perps, spot, and paired trading are outside this skill.
 
 - Public research needs no key. State the network and use numeric Lighter account and market IDs.
 - Review the account, network, creator, market, full settlement rule, action, side, price, size, spend, fees, and expiry before execution. Never fabricate confirmation.
-- In per_order mode, end the message and wait for a reply in a new message before independent approval. Hosted approval belongs to the signed-in user; local approval belongs to the operator's terminal. The agent cannot approve.
+- In per_order mode, show the exact terms and open the independent review. Hosted approval belongs to the signed-in user in the browser; local approval belongs to the operator's terminal. No extra chat yes is required before opening the hosted review. The agent cannot approve.
 - Policy mode requires an explicitly selected, existing owner-approved bounded grant. The agent cannot change mode, issue grants, or expand limits.
 - Only the separate SDK broker or private hosted signer signs. The public MCP and agent hold no venue keys.
 - After uncertain delivery, reconcile the unchanged original proposal. Never automatically retry or replace the order.
@@ -56,4 +56,4 @@ The default research server signs nothing. `--execution` prepares and reviews un
 
 Hosted execution and account service require operator-managed connector configuration. Their public MCP process is keyless; the separate private signer uses the official SDK under reviewed authority. See `references/execution.md` for approval and reconciliation rules. Never put signing keys or login tokens in agent configuration.
 
-The hosted staging endpoint exists at `https://verdict-mcp-staging.vercel.app/mcp`. Real sign-in resume and full staging account-to-order acceptance remain blocked. Treat it as a staging pilot, not a completed live onboarding flow.
+The hosted staging endpoint exists at `https://verdict-mcp-staging.vercel.app/mcp`. Connect with that URL through client OAuth and Verdict login. Saved account/key setup resumes; owner signatures and order approval remain explicit. This is a Lighter testnet pilot, not general availability or mainnet acceptance.

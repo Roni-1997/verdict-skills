@@ -20,9 +20,9 @@ import sys
 import time
 import uuid
 
-from .authority import (_hash, _id, _money, consumer_message, consumer_scope,
+from .authority import (PolicyAuthority, _hash, _id, _ledger, _money, consumer_message, consumer_scope,
                         inspect_grant, issue_consumer_grant, recover_owner, revoke_grant)
-from .core import Broker, BrokerError, Store, json_load
+from .core import Broker, BrokerError, Store, identity, json_load, node_call
 from .diagnostics import log_failure_location
 from .workers import start_private_worker, stop_private_worker
 
@@ -377,7 +377,7 @@ class Workers:
 
 
 class Provisioner:
-    def __init__(self, config, *, venue=None, workers=None, clock=time.time, vault=None, store_factory=None):
+    def __init__(self, config, *, venue=None, workers=None, clock=time.time, vault=None, store_factory=None, reconcile_status=None):
         common = {"origin", "mode", "creators", "maxOrderDebitUSDC", "maxDebitUSDC", "maxOrders", "grantTtlSeconds"}
         runtime = config.get("runtime", "local_socket") if isinstance(config, dict) else None
         if runtime not in {"local_socket", "hosted_signer"}:
@@ -416,6 +416,7 @@ class Provisioner:
                 raise BrokerError("Hosted private runtime requires explicit vault and broker-store ports")
             self.vault = vault
         self.store_factory = store_factory
+        self.reconcile_status = reconcile_status
         self.venue = venue or TestnetVenue()
         self.workers = (workers or Workers(config["stateDir"], config["socketDir"])) if runtime == "local_socket" else None
 
@@ -448,7 +449,72 @@ class Provisioner:
         with self._store(record) as store:
             prior = inspect_grant(store, record["grant"]["grantId"], clock=self.clock)
             if prior["newRisk"] != "expired" or prior["remainingOrders"] != prior["maxOrders"] or _money(prior["remainingDebitUSDC"]) != _money(prior["maxDebitUSDC"]) or any(store.proposal_journals()):
-                raise BrokerError("Renewal requires reconciliation of the original trading history")
+                raise BrokerError("Hosted key restoration requires expired unused authority")
+
+    def _renewal_history(self, record, store, *, reconciled):
+        grants, reservations = _ledger(store)
+        if grants.get(record["grant"]["grantId"]) != record["grant"]:
+            raise BrokerError("Original trading permission changed; no renewal prepared")
+        prior = PolicyAuthority(store, record["grant"]["grantId"], clock=self.clock).describe()
+        if prior["newRisk"] != "expired":
+            raise BrokerError("Only expired non-revoked trading permission can renew")
+        journals = dict(store.proposal_journals())
+        if set(journals) != set(reservations):
+            raise BrokerError("Trading history has an unmatched attempt or reservation; reconcile before renewal")
+        pending = []
+        for digest, events in journals.items():
+            approved = [e for e in events if e.get("type") == "approved"]
+            attempts = [e for e in events if e.get("type") == "attempt_started"]
+            witnesses = [e for e in events if e.get("type") == "policy_reserved"]
+            terminals = [e for e in events if e.get("type") == "terminal_observation"]
+            reservation = reservations[digest]
+            source = grants[reservation["grantId"]]
+            expected = {"mode": "policy", "grantId": source["grantId"], "grantHash": source["grantHash"]}
+            if (len(approved) != 1 or len(attempts) != 1 or len(witnesses) != 1 or len(terminals) > 1
+                    or reservation["orders"] != 1 or attempts[0].get("leg") != 0 or attempts[0].get("authority") != expected
+                    or approved[0].get("leg") != 0 or any(e.get("leg") != 0 for e in terminals)
+                    or any(e.get("type") not in {"approved", "policy_reserved", "attempt_started", "receipt", "terminal_observation", "cancel_started"} for e in events)):
+                raise BrokerError("Trading history is not a reconciled single-order history; no renewal prepared")
+            proposal = approved[0].get("proposal")
+            if (not isinstance(proposal, dict) or proposal.get("digest") != digest or not isinstance(proposal.get("payload"), dict)
+                    or _hash(proposal["payload"]) != digest or not isinstance(proposal["payload"].get("legs"), list)
+                    or len(proposal["payload"]["legs"]) != 1):
+                raise BrokerError("Original trading proposal changed; no renewal prepared")
+            if (node_call(["execution", "validate", "--input", json.dumps(proposal, ensure_ascii=False)]) != proposal
+                    or attempts[0].get("client_id") != identity(proposal, 0)):
+                raise BrokerError("Original trading proposal or client identity changed; no renewal prepared")
+            leg = proposal["payload"]["legs"][0]
+            if (source.get("kind") != "consumer_lighter"
+                    or any(source["scope"].get(k) != v for k, v in {"enrollmentId": record["id"], "ownerWallet": record["owner"],
+                        "network": "testnet", "account": record["account"], "apiKeyIndex": record["apiKeyIndex"]}.items())
+                    or any(leg.get(k) != v for k, v in {"venue": "lighter", "network": "testnet", "account": record["account"],
+                        "apiKeyIndex": record["apiKeyIndex"], "action": "buy", "tif": "ioc"}.items())):
+                raise BrokerError("Original trading history belongs to another account or permission")
+            if PolicyAuthority(store, source["grantId"], clock=self.clock).describe()["newRisk"] != "expired":
+                raise BrokerError("Original trading history has active or revoked permission; no renewal prepared")
+            if not terminals:
+                pending.append((proposal, source))
+        if reconciled and (pending or store.unresolved_accounts()):
+            raise BrokerError("Trading history has an unresolved attempt; reconcile before renewal")
+        return pending
+
+    def _renewable_expired_grant(self, record):
+        if "binding" not in record:
+            return
+        with self._store(record) as store:
+            with store.authority_locked():
+                pending = self._renewal_history(record, store, reconciled=False)
+            # Only saved, validated original attempts are read. Release the ledger
+            # lock before the broker takes its own authority and account locks.
+            if pending:
+                if self.reconcile_status is None:
+                    raise BrokerError("Trading history has an unresolved attempt; check its original status before renewal")
+                for proposal, source in pending:
+                    original = {**record, "grant": source, "binding": {**record["binding"],
+                        "grantId": source["grantId"], "grantHash": source["grantHash"]}}
+                    self.reconcile_status(original, proposal)
+            with store.authority_locked():
+                self._renewal_history(record, store, reconciled=True)
 
     def _load(self, request):
         record = self.vault.read(request["subject"])
@@ -659,8 +725,15 @@ class Provisioner:
             if operation == "renew":
                 if "plan" not in record or record["plan"]["expiresAt"] > self.now():
                     raise BrokerError("Only expired limits can be renewed")
+                if "renewal" in record and record["renewal"]["plan"]["expiresAt"] <= self.now():
+                    self._renewable_expired_grant(record)
+                    with self._store(record, create="binding" not in record) as store, store.authority_locked():
+                        grants, _ = _ledger(store)
+                        if record["renewal"]["grant"]["grantId"] in grants:
+                            raise BrokerError("Expired renewal was already issued; reconcile its original permission")
+                    record.pop("renewal")
                 if "renewal" not in record:
-                    self._unused_expired_grant(record)
+                    self._renewable_expired_grant(record)
                     grant = {**record["grant"], "grantId": str(uuid.uuid4()), "issuedAt": self.now(),
                              "expiresAt": self.now() + record["grant"]["expiresAt"] - record["grant"]["issuedAt"],
                              "scope": {**record["grant"]["scope"], "epoch": record["grant"]["scope"]["epoch"] + 1}}
@@ -702,7 +775,7 @@ class Provisioner:
             if plan["message"] != consumer_message(grant, subject, plan["planId"]) or recover_owner(plan["message"], request["signature"]) != record["owner"]:
                 raise BrokerError("Owner did not authorize the exact immutable private scope")
             if "renewal" in record:
-                self._unused_expired_grant(record)
+                self._renewable_expired_grant(record)
             with self._store(record, create="binding" not in record) as store:
                 issue_consumer_grant(store, grant, subject=subject, plan_id=plan["planId"], signature=request["signature"])
             if "binding" not in record or "renewal" in record:

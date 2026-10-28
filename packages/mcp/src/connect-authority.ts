@@ -67,6 +67,13 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const value = matches[0]?.slice(name.length + 1);
         return matches.length === 1 && value && ConnectRequest.options[0].shape.transaction.safeParse(value).success ? value : null;
     }
+    private transactionCookieName(tx: Transaction) { return `${this.cookieName}_${tx.id}`; }
+    private transactionBindingCookieName(header: string | undefined, tx: Transaction) {
+        const scoped = this.transactionCookieName(tx);
+        // Legacy cookies remain valid only for their original hash-bound transaction.
+        // A present scoped cookie, including a malformed or duplicate one, never falls back.
+        return header?.split(';').some(value => value.trim().startsWith(`${scoped}=`)) ? scoped : this.cookieName;
+    }
     private crypt(value: string, decrypt = false): string {
         const key = createHash('sha256').update(`verdict-client-secret\0${this.relaySecret}`).digest();
         if (decrypt) {
@@ -134,7 +141,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const transaction = Transaction.parse({ ...input, id: opaque(), resource: this.resource,
             cookieHash: hash(cookie), expiresAt: Date.now() + lifetime, completed: false, subject: null, appSession: null, review: null, connection: null, receiptHash: null });
         await this.store.write([], async (db) => { if (input.authorization) await this.grant(db, input.authorization.grantId, input.authorization.epoch); await this.saveTransaction(db, transaction); });
-        return { location: this.appLocation(transaction.id), cookies: [this.cookie(this.cookieName, cookie, lifetime / 1000)] };
+        return { location: this.appLocation(transaction.id), cookies: [this.cookie(this.transactionCookieName(transaction), cookie, lifetime / 1000)] };
     }
     async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
         this.resourceCheck(params.resource);
@@ -612,7 +619,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             || url.searchParams.getAll('transaction').length !== 1 || url.searchParams.getAll('receipt').length !== 1)
             throw failure();
         const tx = await this.transaction(db, url.searchParams.get('transaction') ?? '');
-        const cookie = this.cookieValue(header, this.cookieName);
+        const cookie = this.cookieValue(header, this.transactionBindingCookieName(header, tx));
         const receipt = url.searchParams.get('receipt');
         if (tx.purpose !== purpose || !cookie || hash(cookie) !== tx.cookieHash || !receipt || !tx.receiptHash || hash(receipt) !== tx.receiptHash || !tx.subject || !tx.review || tx.review.expiresAt <= Date.now() || !tx.connection)
             throw failure();
@@ -642,7 +649,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             const code = opaque();
             const expiresAt = Date.now() + 60000;
             await db.put('code', hash(code), { grantId: grant.id, epoch: grant.epoch, clientId: grant.clientId, resource: this.resource, scopes: grant.scopes, expiresAt, used: false, challenge: tx.challenge, redirectUri: tx.redirectUri }, expiresAt);
-            const cookies = [this.cookie(this.cookieName, '', 0)];
+            const cookies = [this.cookie(this.transactionBindingCookieName(cookieHeader, tx), '', 0)];
             if (tx.connection.kind === 'executable' && tx.connection.mode === 'per_order' && grant.scopes.includes(TRADE_SCOPE)) {
                 const session = opaque();
                 const browserExpiresAt = Math.min(Date.now() + 600000, grant.expiresAt);
@@ -663,7 +670,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             if (url.origin !== this.config.publicOrigin || url.pathname !== '/connect/cancel' || [...url.searchParams.keys()].some((key) => key !== 'transaction') || url.searchParams.getAll('transaction').length !== 1)
                 throw failure();
             const tx = await this.transaction(db, url.searchParams.get('transaction') ?? '');
-            const cookie = this.cookieValue(header, this.cookieName);
+            const cookie = this.cookieValue(header, this.transactionBindingCookieName(header, tx));
             if (!cookie || hash(cookie) !== tx.cookieHash)
                 throw failure();
             await this.saveTransaction(db, { ...tx, completed: true, receiptHash: null });
@@ -673,7 +680,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
                 if (tx.state !== null)
                     redirect.searchParams.set('state', tx.state);
             }
-            return { location: redirect.href, cookies: [this.cookie(this.cookieName, '', 0)] };
+            return { location: redirect.href, cookies: [this.cookie(this.transactionBindingCookieName(header, tx), '', 0)] };
         });
     }
     async login(returnPath: string) {
@@ -707,7 +714,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             const expiresAt = Math.min(Date.now() + 600000, grant.expiresAt);
             await db.put('browser', hash(session), { authorization: tx.authorization, expiresAt }, expiresAt);
             await this.saveTransaction(db, { ...tx, completed: true, receiptHash: null });
-            return { location: tx.reviewPath, cookies: [this.cookie(this.cookieName, '', 0), this.cookie(this.browserName, session, Math.floor((expiresAt - Date.now()) / 1000))] };
+            return { location: tx.reviewPath, cookies: [this.cookie(this.transactionBindingCookieName(cookieHeader, tx), '', 0), this.cookie(this.browserName, session, Math.floor((expiresAt - Date.now()) / 1000))] };
         });
     }
     async readSession(header: string | undefined): Promise<BrowserSession | null> {

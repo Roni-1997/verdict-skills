@@ -75,10 +75,10 @@ async function relay(input: ConnectRequest, headers: Record<string, string> = {}
 async function result(input: ConnectRequest) {
   const response = await relay(input); const body: unknown = await response.json(); expect(response.status, JSON.stringify(body)).toBe(200); return ConnectResponse.parse(body);
 }
-async function begin(agent = new Agent()) {
+async function begin(agent = new Agent(), browser = new Browser()) {
   expect(await auth(agent, { serverUrl: `${origin}/mcp`, scope: `${READ_SCOPE} ${TRADE_SCOPE}` })).toBe('REDIRECT');
   if (!agent.location) throw new Error('Missing SDK authorization URL');
-  const browser = new Browser(); const start = await browser.fetch(agent.location.href); expect(start.status).toBe(303);
+  const start = await browser.fetch(agent.location.href); expect(start.status).toBe(303);
   const location = new URL(start.headers.get('location') ?? ''); expect(location.origin).toBe(appOrigin); expect(location.searchParams.get('net')).toBe(config.appNetwork);
   const transaction = location.searchParams.get('transaction'); if (!transaction) throw new Error('Missing transaction');
   return { agent, browser, transaction };
@@ -203,6 +203,71 @@ it('connects through real SDK discovery, DCR, PKCE, Privy-style identity, wallet
   const disk = (await readFile(join(join(state, 'authority'), 'authority.sqlite'))).toString('latin1');
   for (const secret of [flow.tokens.access_token, flow.tokens.refresh_token ?? '', await identity()]) if (secret) expect(disk).not.toContain(secret);
   expect(JSON.stringify(accounts)).not.toContain(socketPath);
+});
+
+it('keeps parallel OAuth transactions independent when one completes and another is cancelled', async () => {
+  const browser = new Browser(); const token = await identity();
+  const first = await begin(new Agent(), browser); const second = await begin(new Agent(), browser);
+  const firstConsent = await consent(first.transaction, token); const secondConsent = await consent(second.transaction, token);
+  const original = browser.cookie;
+  const firstName = `verdict_connect_${first.transaction}`; const secondName = `verdict_connect_${second.transaction}`;
+  const secondCookie = original.split('; ').find(item => item.startsWith(`${secondName}=`));
+  const secondValue = secondCookie?.slice(secondName.length + 1) ?? '';
+  browser.cookie = `${firstName}=${secondValue}`;
+  expect((await browser.fetch(firstConsent.completion.completionUrl)).status).toBe(400);
+  expect((await browser.fetch(`/connect/cancel?transaction=${first.transaction}`)).status).toBe(400);
+  browser.cookie = original;
+  expect((await browser.fetch(firstConsent.completion.completionUrl)).status).toBe(303);
+  expect(browser.cookie).not.toContain(`${firstName}=`);
+  expect(browser.cookie).toContain(`${secondName}=`);
+  expect((await browser.fetch(`/connect/cancel?transaction=${second.transaction}`)).status).toBe(303);
+  expect(browser.cookie).not.toContain(`${secondName}=`);
+  expect((await browser.fetch(secondConsent.completion.completionUrl)).status).toBe(400);
+});
+
+it('keeps parallel review callbacks and an unfinished OAuth transaction bound to their own cookies', async () => {
+  const connected = await connect(); const client = await mcp(connected.tokens.access_token);
+  const pending = await client.callTool({ name: 'execution_submit', arguments: proposal });
+  const content = pending.structuredContent;
+  if (!content || typeof content !== 'object' || !('approvalUrl' in content) || typeof content.approvalUrl !== 'string') throw new Error('Missing review URL');
+  const path = new URL(content.approvalUrl).pathname;
+  const browser = new Browser(); const oauth = await begin(new Agent(), browser);
+  const transactions: string[] = [];
+  for (let i = 0; i < 2; i++) {
+    const start = await browser.fetch(path); expect(start.status).toBe(303);
+    const transaction = new URL(start.headers.get('location') ?? '').searchParams.get('transaction');
+    if (!transaction) throw new Error('Missing independent review transaction'); transactions.push(transaction);
+  }
+  const first = transactions[0]; const second = transactions[1];
+  if (!first || !second) throw new Error('Missing review transactions');
+  const firstComplete = await reviewSessionConsent(first, await identity()); const secondComplete = await reviewSessionConsent(second, await identity());
+  const original = browser.cookie;
+  const firstName = `verdict_connect_${first}`; const secondName = `verdict_connect_${second}`;
+  const secondValue = original.split('; ').find(item => item.startsWith(`${secondName}=`))?.slice(secondName.length + 1) ?? '';
+  browser.cookie = `${firstName}=${secondValue}`;
+  expect((await browser.fetch(firstComplete.completionUrl)).status).toBe(400);
+  browser.cookie = original;
+  expect((await browser.fetch(firstComplete.completionUrl)).status).toBe(303);
+  expect(browser.cookie).toContain(`${secondName}=`);
+  expect(browser.cookie).toContain(`verdict_connect_${oauth.transaction}=`);
+  expect((await browser.fetch(secondComplete.completionUrl)).status).toBe(303);
+  expect((await browser.fetch(`/connect/cancel?transaction=${oauth.transaction}`)).status).toBe(303);
+  expect((await client.callTool({ name: 'execution_status', arguments: proposal })).structuredContent).toMatchObject({ state: 'approval_required' });
+});
+
+it('accepts an exact legacy transaction cookie without letting it override an invalid scoped cookie', async () => {
+  const flow = await begin(); const { completion } = await consent(flow.transaction, await identity());
+  const name = `verdict_connect_${flow.transaction}`;
+  const value = flow.browser.cookie.split('; ').find(item => item.startsWith(`${name}=`))?.slice(name.length + 1);
+  if (!value) throw new Error('Missing transaction cookie');
+  const legacy = `verdict_connect=${value}`;
+  flow.browser.cookie = `${legacy}; ${name}=${'x'.repeat(43)}`;
+  expect((await flow.browser.fetch(completion.completionUrl)).status).toBe(400);
+  flow.browser.cookie = `${legacy}; ${name}=${value}; ${name}=${value}`;
+  expect((await flow.browser.fetch(completion.completionUrl)).status).toBe(400);
+  flow.browser.cookie = legacy;
+  expect((await flow.browser.fetch(completion.completionUrl)).status).toBe(303);
+  expect(flow.browser.cookie).not.toContain('verdict_connect=');
 });
 
 it('requires the original browser cookie and one-use receipt; transaction knowledge never redeems or polls identity', async () => {

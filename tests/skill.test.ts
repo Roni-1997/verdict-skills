@@ -83,7 +83,7 @@ describe('agent authority and order safety', () => {
   it('requires independent per-order approval while permitting an explicitly bounded policy', () => {
     const execution = read(`${SKILL_DIR}references/execution.md`);
     for (const doc of [skill, execution]) {
-      for (const term of ['per_order', 'policy', 'end your message', 'new message', 'Never fabricate', 'signed-in', 'operator', 'grant']) expect(doc).toContain(term);
+      for (const term of ['per_order', 'policy', 'end your message', 'No additional chat confirmation is required before opening the review', 'Never fabricate', 'signed-in', 'operator', 'grant']) expect(doc).toContain(term);
       expect(doc).toContain('Never automatically');
     }
     expect(skill).toContain('A chat reply alone does not authorize the signer');
@@ -119,7 +119,9 @@ describe('agent authority and order safety', () => {
     expect(skill).toContain('Never switch to mainnet on your own');
     expect(skill).toContain('At most one retry for a transient upstream read');
     expect(skill).toContain('Never apply read retries to financial submission');
-    expect(skill).toContain('Real sign-in resume');
+    expect(skill).toContain('https://verdict-mcp-staging.vercel.app/mcp');
+    expect(skill).toContain('client OAuth flow');
+    expect(skill).not.toContain('remain blocked');
   });
   it('teaches no confirmation-skip flags', () => {
     const forbidden = [/--yes\b/, /(^|[\s`'"(])-y(?=$|[\s`'",.)])/m, /--assume-yes/, /--force\b/, /--confirm\b/, /--no-confirm/, /--skip-confirm/, /--auto-approve/];
@@ -401,6 +403,7 @@ describe('managed routing upgrades against scratch homes', () => {
   const uninstall = path(`${SKILL_DIR}scripts/uninstall.sh`);
   const current = heredocBlock(read(`${SKILL_DIR}scripts/install.sh`), 'current block');
   const legacy = read(`${SKILL_DIR}scripts/legacy-routing-block.txt`).trimEnd();
+  const previous = read(`${SKILL_DIR}scripts/previous-routing-block.txt`).trimEnd();
 
   function fixture(original: string, check: (context: { run: (args?: string[]) => ReturnType<typeof spawnSync>; remove: () => ReturnType<typeof spawnSync>; removeInstalled: () => ReturnType<typeof spawnSync>; home: string; readClaudeMd: () => string }) => void): void {
     const scratch = mkdtempSync(join(tmpdir(), 'verdict-routing-migration-'));
@@ -456,6 +459,31 @@ describe('managed routing upgrades against scratch homes', () => {
       expect(readClaudeMd()).toBe(`${before}\n${current}\n${later}`);
       expect(remove().status).toBe(0);
       expect(readClaudeMd()).toBe(`${before}${later}`);
+    });
+  });
+  it('upgrades the exact older Lighter block without keeping the extra chat confirmation', () => {
+    const before = '# My preferences\n';
+    const later = '# Later notes\n';
+    fixture(`${before}\n${previous}\n${later}`, ({ run, remove, readClaudeMd }) => {
+      expect(run().status).toBe(0);
+      expect(readClaudeMd()).toBe(`${before}\n${current}\n${later}`);
+      expect(readClaudeMd()).not.toContain('wait for a reply in a new message before independent approval');
+      expect(run().status).toBe(0);
+      expect(remove().status).toBe(0);
+      expect(readClaudeMd()).toBe(`${before}${later}`);
+    });
+  });
+  it('uninstalls an exact older Lighter block directly but preserves an edited copy', () => {
+    fixture(`${previous}\n`, ({ remove, readClaudeMd }) => {
+      expect(remove().status).toBe(0);
+      expect(readClaudeMd()).toBe('');
+    });
+    const edited = previous.replace('The agent cannot approve.', 'My custom approval note.');
+    fixture(`${edited}\n`, ({ run, remove, readClaudeMd }) => {
+      expect(run().status).toBe(0);
+      expect(readClaudeMd()).toBe(`${edited}\n`);
+      expect(remove().status).toBe(1);
+      expect(readClaudeMd()).toBe(`${edited}\n`);
     });
   });
   it('preserves a user-edited previous block and gives update guidance', () => {
@@ -538,7 +566,10 @@ describe.skipIf(!process.env.VERDICT_E2E_INSTALL)('install.sh end to end against
 describe('README agent section', () => {
   const readme = read('README.md');
   it('has working configurations for Claude Desktop, Cursor, Claude Code and the hosted HTTP form', () => {
+    expect(readme).toContain('## Connect the hosted MCP');
     expect(readme).toContain('## Use it from an agent');
+    expect(readme).toContain('### Build the local research kit');
+    expect(readme).toContain('claude mcp add --transport http --scope user verdict-hosted');
     expect(readme).toContain('claude_desktop_config.json');
     expect(readme).toContain('mcp.json');
     expect(readme).toContain('claude mcp add verdict');

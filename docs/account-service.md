@@ -50,9 +50,20 @@ The owner then signs the exact creator scope, mode, per-order cap, total cap, or
 and expiry. This signature creates bounded broker authority. Final OAuth consent remains
 a separate review using the verified signed-in session, without another wallet signature.
 Saved account and key setup resume across connection requests and service restarts.
-An expired unused permission requires a separately signed renewal of the same limits;
-it never repeats funding or key registration. Used or revoked permissions cannot renew
-through this pilot flow.
+An expired non-revoked permission requires a separately signed renewal of the same limits;
+it never repeats funding or key registration. Used permissions can renew after every original
+attempt has a complete terminal reconciliation and its journal matches the immutable grant
+ledger. Unknown delivery, unresolved or partial exposure, orphan reservations and revoked
+permissions remain blocked. Renewal preserves the original grants and order journals, uses
+a new grant identity and epoch, and rechecks eligibility before activation. An expired,
+unissued renewal draft can be replaced by a fresh unsigned review; an already issued grant
+can never be discarded through that path.
+
+The hosted signer can recover a lost order reply while the old permission is expired.
+It validates the original saved proposal, reads its status through the existing isolated
+broker, and checks the durable journal again before offering renewal. It never resends
+the order. An unresolved status still blocks renewal. Local deployments without this
+recovery callback must reconcile through their existing broker first.
 
 When a returning owner's order-review browser session expires, fresh Privy authentication
 restores access to that exact connection's review without another wallet signature.
@@ -183,6 +194,12 @@ Missing, replaced, symlinked, permissive, or corrupt local state fails closed. B
 public authority, jobs, and private broker state consistently. Restoring an old backup can
 restore old authorization and requires incident review and credential revocation before
 resuming.
+
+Monitor database storage and query latency as client registrations and token rotations grow.
+Authority records expire through the existing TTL cleanup; used refresh tokens stay until
+their grant expires so replay still revokes that token family. There is no shared row-count
+admission cap that lets one client's retained history prevent other clients from connecting.
+Request size limits, schema validation, and OAuth endpoint rate limits still apply.
 
 For the persistent local deployment, the [container build](../examples/connector/Dockerfile.account-service) requires an explicitly
 reviewed Node image digest. Build from a clean tracked checkout, without credentials or state

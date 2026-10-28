@@ -25,13 +25,31 @@ An operator explicitly selects one execution mode:
 
 The public MCP process holds no venue signing keys. The separate private signer uses the pinned official Lighter SDK. Account and authority checks run again before signing. A lost response requires reconciliation of the original proposal, never a replacement order.
 
-## Staging status
+## Connect the hosted MCP
 
-The staging hosted MCP endpoint is [verdict-mcp-staging.vercel.app/mcp](https://verdict-mcp-staging.vercel.app/mcp). It uses OAuth and resource-specific permissions. The endpoint exists, but real Privy sign-in resume and the first complete account-to-order acceptance test remain blocked. This is a staging pilot, with no claim of general availability or funded live acceptance.
+Add a custom remote MCP server with this URL:
 
-Deployment and provisioning instructions are in [the hosted connector guide](docs/hosted-connector.md), [the account service guide](docs/account-service.md), and [the deployment guide](deploy/README.md). Do not treat a simulated test or a green unit suite as proof that a user's venue order was accepted.
+```text
+https://verdict-mcp-staging.vercel.app/mcp
+```
+
+For Claude Code:
+
+```sh
+	claude mcp add --transport http --scope user verdict-hosted https://verdict-mcp-staging.vercel.app/mcp
+```
+
+Complete OAuth in the Verdict sign-in page. The hosted pilot uses Lighter testnet. It resumes saved account and key setup, and requests only missing ownership, registration or permission steps. Review any requested wallet signature yourself. A returning user does not need to create another venue account or key.
+
+In hosted `per_order` mode, the agent opens the exact trade review and the signed-in user clicks **Confirm this order**. No additional chat confirmation is required before opening the review. Opening it sends no order. The agent cannot approve it for the user.
+
+A remote connection needs no local SDK build or venue signing key in the MCP client. Clients must support Streamable HTTP MCP and OAuth; the URL alone does not prove a client's directory listing or interactive UI support. This remains a staging pilot, with no claim of mainnet or general availability.
+
+Operators can read [the hosted connector guide](docs/hosted-connector.md), [the account service guide](docs/account-service.md), and [the deployment guide](deploy/README.md). A simulated test or green unit suite is not proof that a user's venue order was accepted.
 
 ## Use it from an agent
+
+### Build the local research kit
 
 Nothing is published to npm yet. Build from a clone with Node 22 and pnpm 10.34.5:
 
@@ -101,7 +119,7 @@ Use the [MCP reference](packages/mcp/README.md) for mode and tool boundaries, an
 | `VERDICT_EXECUTION_MODE` | Explicit local broker mode assertion, `per_order` or `policy`. It grants no authority by itself. |
 | `--connector-config <path>` | Operator configuration for hosted execution or account service. Keep private credentials outside the repository. |
 
-Prices are USDC per share and sizes are decimal strings. The tools enforce market ticks. Quotes report fetched liquidity and estimated market fees. Account-specific discounts and future fills can differ. A sell can open the opposite position because reduce-only is unsupported.
+Order inputs use decimal strings for USDC per share and share sizes. Quote averages can be numeric and are estimates, while exact executable limit prices remain available separately. The tools enforce market ticks. Quotes report fetched liquidity and estimated market fees. Account-specific discounts and future fills can differ. A sell can open the opposite position because reduce-only is unsupported.
 
 ## Develop and verify
 
