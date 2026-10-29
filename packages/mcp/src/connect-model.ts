@@ -57,6 +57,8 @@ export const Enrollment = z.object({ subject: z.string(), profileId: z.string(),
 export const Grant = z.object({ id: z.string().uuid(), subject: z.string(), clientId: z.string(),
   profileId: z.string().nullable(), revision: z.string().nullable(), scopes: z.array(Scope),
   resource: z.string(), createdAt: Time, expiresAt: Time, revoked: z.boolean(), epoch: Time,
+  /** End of the owner-signed limits. Trade permission stops here; reads and status last until expiresAt. */
+  tradeExpiresAt: Time.optional(),
 }).strict();
 export type Grant = z.infer<typeof Grant>;
 export const Credential = z.object({ grantId: z.string().uuid(), epoch: Time, clientId: z.string(), resource: z.string(),
