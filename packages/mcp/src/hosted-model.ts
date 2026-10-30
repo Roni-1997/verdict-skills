@@ -45,6 +45,8 @@ export const HostedConfig = z.object({ publicOrigin: z.string().url(), issuer: z
   ]), bindings: z.array(Binding).max(1000),
   approvalTtlSeconds: z.number().int().min(30).max(900).prefault(300),
   allowInsecureLocalhost: z.boolean().prefault(false),
+  /** Registers the order tools. The account service passes its own setting; a standalone gateway trades. */
+  trading: z.boolean().prefault(true),
 }).strict().superRefine((config, context) => {
   for (const [field, value] of [['publicOrigin', config.publicOrigin], ['issuer', config.issuer]] as const) {
     const url = new URL(value);

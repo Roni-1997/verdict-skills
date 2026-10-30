@@ -90,7 +90,7 @@ async function start(mode: 'per_order' | 'policy') {
   const socketPath = join(directory, 'control.sock');
   await startPrivate(mode);
   process.env.VERDICT_PRIVATE_INTEGRATION_RELAY = generatePrivateKey();
-  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', privyAppId: 'fixture-app', privyVerificationKey: await exportSPKI(signing.publicKey),
+  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', trading: true, privyAppId: 'fixture-app', privyVerificationKey: await exportSPKI(signing.publicKey),
     relaySecretEnv: 'VERDICT_PRIVATE_INTEGRATION_RELAY', storage: { kind: 'local', stateDir: join(directory, 'authority'), gatewayJobsDir: join(directory, 'jobs') }, profiles: [],
     lighterProvisioner: { kind: 'local_socket', socketPath, brokerSocketRoot: join(directory, 'sockets') } });
   service = await createAccountService(config); listener.on('request', service.handle);

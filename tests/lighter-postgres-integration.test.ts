@@ -123,7 +123,7 @@ async function start(mode: 'per_order' | 'policy') {
   listener = createServer(); await new Promise<void>((resolve) => listener?.listen(0, '127.0.0.1', resolve));
   const address = listener.address(); if (!address || typeof address === 'string') throw new Error('Missing fixture address'); localOrigin = `http://127.0.0.1:${address.port}`;
   await startPrivate(mode); process.env.VERDICT_PRIVATE_INTEGRATION_RELAY = generatePrivateKey();
-  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', privyAppId: 'fixture-app', privyVerificationKey: await exportSPKI(signing.publicKey),
+  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', trading: true, privyAppId: 'fixture-app', privyVerificationKey: await exportSPKI(signing.publicKey),
     relaySecretEnv: 'VERDICT_PRIVATE_INTEGRATION_RELAY', storage: { kind: 'postgres', connectionStringEnv: 'VERDICT_TEST_POSTGRES', deploymentId, databaseId }, profiles: [],
     lighterProvisioner: { kind: 'hosted_signer', origin: privateOrigin, deploymentId, secretEnv: 'VERDICT_PG_INTEGRATION_SIGNER' } });
   await startPublic();

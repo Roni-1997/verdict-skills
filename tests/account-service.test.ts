@@ -144,7 +144,7 @@ beforeAll(async () => {
 }, 20_000);
 beforeEach(async () => {
   state = await mkdtemp(join(directory, 'case-')); inspectOverride = null; provisionerOverride = undefined;
-  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', privyAppId: 'test-privy-app', privyVerificationKey: await exportSPKI(signing.publicKey),
+  config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin, appNetwork: 'lighter-testnet', trading: true, privyAppId: 'test-privy-app', privyVerificationKey: await exportSPKI(signing.publicKey),
     relaySecretEnv: 'VERDICT_CONNECT_TEST_SECRET', storage: { kind: 'local', stateDir: join(state, 'authority'), gatewayJobsDir: join(state, 'jobs') }, allowInsecureLocalhost: true,
     profiles: [{ id: 'alice-profile', enabled: true, mode: 'per_order', execution: { kind: 'local_socket', socketPath: socketPath }, grantId: inspection.authority.grantId, grantHash: inspection.authority.grantHash,
       accounts: [{ venue: 'lighter', network: 'testnet', account: 42, apiKeyIndex: 2 }] }] });
@@ -203,6 +203,31 @@ it('connects through real SDK discovery, DCR, PKCE, Privy-style identity, wallet
   const disk = (await readFile(join(join(state, 'authority'), 'authority.sqlite'))).toString('latin1');
   for (const secret of [flow.tokens.access_token, flow.tokens.refresh_token ?? '', await identity()]) if (secret) expect(disk).not.toContain(secret);
   expect(JSON.stringify(accounts)).not.toContain(socketPath);
+});
+
+it('serves research only while hosted trading is parked: no trade scope, no order tools, and a trade request is granted read only', async () => {
+  const { trading: _, ...parked } = config; config = AccountServiceConfig.parse(parked); await restart();
+  expect(config.trading).toBe(false);
+  for (const path of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server'])
+    expect(((await (await fetch(`${origin}${path}`)).json()) as { scopes_supported?: string[] }).scopes_supported).toEqual([READ_SCOPE]);
+  const flow = await connect();
+  expect(flow.tokens.scope).toBe(READ_SCOPE);
+  const client = await mcp(flow.tokens.access_token); const tools = (await client.listTools()).tools.map((tool) => tool.name);
+  expect(tools).toEqual(expect.arrayContaining(['lighter_list_markets', 'lighter_quote', 'connection_status', 'execution_status']));
+  for (const name of ['execution_prepare', 'execution_prepare_lighter_intent', 'execution_review', 'execution_preflight', 'execution_submit', 'execution_cancel']) expect(tools).not.toContain(name);
+  const refresh = { grant_type: 'refresh_token', refresh_token: flow.tokens.refresh_token ?? '', client_id: flow.agent.info?.client_id ?? '', resource: `${origin}/mcp` };
+  const refreshed = await token({ ...refresh, scope: `${READ_SCOPE} ${TRADE_SCOPE}` });
+  expect(refreshed.status).toBe(200); expect(((await refreshed.json()) as { scope?: string }).scope).toBe(READ_SCOPE);
+});
+
+it('drops trading from a connection made before trading was parked', async () => {
+  const flow = await connect(); expect(flow.tokens.scope).toBe(`${READ_SCOPE} ${TRADE_SCOPE}`);
+  const { trading: _, ...parked } = config; config = AccountServiceConfig.parse(parked); await restart();
+  const refreshed = await token({ grant_type: 'refresh_token', refresh_token: flow.tokens.refresh_token ?? '', client_id: flow.agent.info?.client_id ?? '', resource: `${origin}/mcp` });
+  expect(refreshed.status).toBe(200); const tokens = (await refreshed.json()) as { access_token: string; scope?: string };
+  expect(tokens.scope).toBe(READ_SCOPE);
+  const tools = (await (await mcp(tokens.access_token)).listTools()).tools.map((tool) => tool.name);
+  expect(tools).toContain('execution_status'); expect(tools).not.toContain('execution_submit');
 });
 
 it('keeps parallel OAuth transactions independent when one completes and another is cancelled', async () => {
