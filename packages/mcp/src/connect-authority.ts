@@ -58,10 +58,10 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
     }
     close() { return this.store.close(); }
     setReviewLookup(lookup: (id: string) => ReviewJobIdentity | null | Promise<ReviewJobIdentity | null>) { this.reviewLookup = async (id) => lookup(id); }
-    metadata() { return { resource: this.resource, authorization_servers: [this.config.publicOrigin], scopes_supported: [READ_SCOPE, TRADE_SCOPE], bearer_methods_supported: ['header'] }; }
+    metadata() { return { resource: this.resource, authorization_servers: [this.config.publicOrigin], scopes_supported: this.config.trading ? [READ_SCOPE, TRADE_SCOPE] : [READ_SCOPE], bearer_methods_supported: ['header'] }; }
     challenge(scope: ConnectorScope, code?: string) {
         const error = code === 'invalid_token' || code === 'insufficient_scope' ? `, error="${code}"` : '';
-        return `Bearer resource_metadata="${this.config.publicOrigin}/.well-known/oauth-protected-resource/mcp", scope="${scope === TRADE_SCOPE ? `${READ_SCOPE} ${TRADE_SCOPE}` : READ_SCOPE}"${error}`;
+        return `Bearer resource_metadata="${this.config.publicOrigin}/.well-known/oauth-protected-resource/mcp", scope="${scope === TRADE_SCOPE && this.config.trading ? `${READ_SCOPE} ${TRADE_SCOPE}` : READ_SCOPE}"${error}`;
     }
     private cookie(name: string, value: string, seconds: number) { return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${this.secure ? '; Secure' : ''}`; }
     private cookieValue(header: string | undefined, name: string): string | null {
@@ -123,8 +123,10 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const scopes = values ?? [READ_SCOPE];
         if (!scopes.includes(READ_SCOPE) || scopes.some((value) => value !== READ_SCOPE && value !== TRADE_SCOPE) || new Set(scopes).size !== scopes.length)
             throw new InvalidScopeError('Request verdict:read and optionally verdict:trade.');
-        return scopes.includes(TRADE_SCOPE) ? [READ_SCOPE, TRADE_SCOPE] : [READ_SCOPE];
+        // With trading parked, a request for verdict:trade is granted read only, as OAuth allows.
+        return scopes.includes(TRADE_SCOPE) && this.config.trading ? [READ_SCOPE, TRADE_SCOPE] : [READ_SCOPE];
     }
+    private tradeActive(grant: Grant) { return this.config.trading && tradeActive(grant); }
     private appLocation(id: string) {
         const url = new URL('/connect/agent', this.config.appOrigin);
         url.searchParams.set('transaction', id);
@@ -218,7 +220,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         }
         if (job.owner !== ownerHash(this.config.publicOrigin, grant.subject) || !grant.scopes.includes(TRADE_SCOPE))
             throw new HostedError(403, 'connection_revoked', 'The original order connection has been revoked.');
-        if (!tradeActive(grant))
+        if (!this.tradeActive(grant))
             throw new HostedError(403, 'trading_limits_expired', limitsExpired);
     }
     private async bindingIn(db: ConnectReadTx, subject: string): Promise<Binding | null> {
@@ -273,7 +275,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const access = opaque();
         const refresh = opaque();
         // After the limits end, a refresh keeps the connection for reads and status only.
-        const granted = scopes.filter((scope) => scope !== TRADE_SCOPE || tradeActive(grant));
+        const granted = scopes.filter((scope) => scope !== TRADE_SCOPE || this.tradeActive(grant));
         const expiresAt = Math.min(Date.now() + 300000, granted.includes(TRADE_SCOPE) ? tradeUntil(grant) : grant.expiresAt);
         const credential = { grantId: grant.id, epoch: grant.epoch, clientId: grant.clientId, resource: this.resource, scopes: granted, used: false };
         await db.put('access', hash(access), { ...credential, expiresAt }, expiresAt);
@@ -707,7 +709,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
         const grant = await this.store.read(db => this.grant(db, authorization.grantId, authorization.epoch));
         if (identity.owner !== ownerHash(this.config.publicOrigin, grant.subject) || !grant.scopes.includes(TRADE_SCOPE))
             throw failure();
-        if (!tradeActive(grant))
+        if (!this.tradeActive(grant))
             throw new InvalidTokenError('Trading limits expired.');
         const client = await this.store.read(db => this.client(db, grant.clientId));
         if (!client)
@@ -727,7 +729,7 @@ export class AccountAuthority implements OAuthServerProvider, HostedRuntime {
             if (!identical(tx, reviewed)) throw failure();
             if (grant.subject !== tx.subject || !job || !identical(job.authorization, tx.authorization) || job.owner !== ownerHash(this.config.publicOrigin, grant.subject))
                 throw failure();
-            if (!tradeActive(grant))
+            if (!this.tradeActive(grant))
                 throw new InvalidTokenError('Trading limits expired.');
             const session = opaque();
             const expiresAt = Math.min(Date.now() + 600000, tradeUntil(grant));

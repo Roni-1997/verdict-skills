@@ -17,7 +17,7 @@ async function authority(store: ConnectStore) {
   process.env.VERDICT_CAPACITY_TEST_RELAY = 'a'.repeat(64);
   try {
     return await AccountAuthority.create(AccountServiceConfig.parse({ publicOrigin: 'https://mcp.capacity.fixture', appOrigin: 'https://app.capacity.fixture',
-      appNetwork: 'lighter-testnet', privyAppId: 'capacity-fixture', privyVerification: { kind: 'jwks' }, relaySecretEnv: 'VERDICT_CAPACITY_TEST_RELAY',
+      appNetwork: 'lighter-testnet', trading: true, privyAppId: 'capacity-fixture', privyVerification: { kind: 'jwks' }, relaySecretEnv: 'VERDICT_CAPACITY_TEST_RELAY',
       storage: { kind: 'local', stateDir: '/unused-capacity-authority', gatewayJobsDir: '/unused-capacity-jobs' }, profiles: [] }), undefined, undefined, store);
   } finally { delete process.env.VERDICT_CAPACITY_TEST_RELAY; }
 }

@@ -30,6 +30,8 @@ export const AccountServiceConfig = z.object({ publicOrigin: z.string().url(), a
   profiles: z.array(Profile).max(1000), allowInsecureLocalhost: z.boolean().prefault(false),
   refreshTtlSeconds: z.number().int().min(600).max(2_592_000).prefault(86_400),
   approvalTtlSeconds: z.number().int().min(30).max(900).prefault(300),
+  /** Hosted trading (the verdict:trade scope, order tools and signer provisioning). Parked: off unless explicitly enabled. */
+  trading: z.boolean().prefault(false),
 }).strict().superRefine((config, context) => {
   if ((config.privyVerificationKey === undefined) === (config.privyVerification === undefined)) context.addIssue({ code: 'custom', message: 'Select exactly one pinned Privy verification method.' });
   if (config.lighterProvisioner && config.appNetwork !== 'lighter-testnet') context.addIssue({ code: 'custom', message: 'Self-service Lighter pilot requires the explicit lighter-testnet app network.' });

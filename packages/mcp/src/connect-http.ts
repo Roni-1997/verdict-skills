@@ -31,7 +31,7 @@ export async function createAccountService(input: AccountServiceConfig, authorit
     gateway = await createHostedHandler(HostedConfig.parse({ publicOrigin: config.publicOrigin, issuer: config.publicOrigin,
       lighter: lighterConfigFromEnv({ LIGHTER_NETWORK: config.appNetwork === 'lighter-testnet' ? 'testnet' : 'mainnet', LIGHTER_CREATORS: process.env.LIGHTER_CREATORS }),
       browserClientId: 'first_party', storage: config.storage.kind === 'local' ? { kind: 'local', stateDir: config.storage.gatewayJobsDir } : { kind: 'postgres', deploymentId: config.storage.deploymentId, databaseId: config.storage.databaseId }, bindings: [], allowInsecureLocalhost: config.allowInsecureLocalhost,
-      approvalTtlSeconds: config.approvalTtlSeconds }), authority, dependencies.gateway);
+      approvalTtlSeconds: config.approvalTtlSeconds, trading: config.trading }), authority, dependencies.gateway);
   } catch (error) { await authority.close(); throw error; }
   authority.setReviewLookup(gateway.reviewJobIdentity);
   const app = express(); app.disable('x-powered-by'); app.set('query parser', 'simple');
@@ -58,7 +58,7 @@ export async function createAccountService(input: AccountServiceConfig, authorit
     } catch { res.status(400).json({ error: 'invalid_completion', message: 'Start the connection again from the original agent.' }); }
   });
   app.use(mcpAuthRouter({ provider: authority, issuerUrl: new URL(config.publicOrigin), resourceServerUrl: new URL(authority.resource),
-    scopesSupported: [READ_SCOPE, TRADE_SCOPE], resourceName: 'Verdict trading connector' }));
+    scopesSupported: config.trading ? [READ_SCOPE, TRADE_SCOPE] : [READ_SCOPE], resourceName: config.trading ? 'Verdict trading connector' : 'Verdict research connector' }));
   app.use((req, res) => gateway.handle(req, res));
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const tooLarge = typeof error === 'object' && error !== null && 'status' in error && error.status === 413;

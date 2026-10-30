@@ -29,7 +29,7 @@ function grant() { return { id: randomUUID(), subject: 'did:privy:alice', client
   scopes: ['verdict:read' as const, 'verdict:trade' as const], resource: `${origin}/mcp`, createdAt: Date.now(), expiresAt: Date.now() + 60_000, revoked: false, epoch: 0 }; }
 async function authority(store = open()) {
   const key = await generateKeyPair('ES256'); process.env.VERDICT_AUTHORITY_TEST_RELAY = 'a'.repeat(64);
-  const config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin: 'https://app.authority.fixture', appNetwork: 'lighter-testnet',
+  const config = AccountServiceConfig.parse({ publicOrigin: origin, appOrigin: 'https://app.authority.fixture', appNetwork: 'lighter-testnet', trading: true,
     privyAppId: 'nonfunded-fixture', privyVerification: { kind: 'spki', key: await exportSPKI(key.publicKey) }, relaySecretEnv: 'VERDICT_AUTHORITY_TEST_RELAY',
     storage: { kind: 'postgres', connectionStringEnv: 'VERDICT_TEST_POSTGRES', deploymentId, databaseId }, profiles: [] });
   const value = await AccountAuthority.create(config, undefined, undefined, store); authorities.push(value); return value;
